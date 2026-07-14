@@ -1,0 +1,5 @@
+# Config local/personal de Claude Code (no se comparte, cada dev tiene la suya)
+.claude/settings.local.json
+
+# Residuo de un comando mal ejecutado en PowerShell (ej. `comando > nul`)
+nul
