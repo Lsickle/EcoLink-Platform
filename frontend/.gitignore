@@ -72,6 +72,16 @@ apps/expo/android
 .turbo
 build/**
 
+# EAS Build / credenciales nativas (keystores, certificados) -- nada de esto
+# existe todavia (app movil sin construir), se agrega preventivamente antes
+# de que haya algo real que proteger.
+.eas/
+credentials.json
+google-services.json
+GoogleService-Info.plist
+*.p12
+*.mobileprovision
+
 .pnp.*
 .yarn/*
 !.yarn/patches
