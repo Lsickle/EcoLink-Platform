@@ -19,6 +19,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // LOGIN_FAILED, LOGOUT, PASSWORD_CHANGED) son una convención razonable de
 // este lote, no un catálogo validado con negocio -- señalado también en el
 // resumen entregado al hilo principal.
+//
+// AVISO -- en eventos de consola (sufijo `_CONSOLE`, p. ej.
+// ROLE_ASSIGNED_CONSOLE/BUSINESS_ROLE_ASSIGNED_CONSOLE), `tenant_organization_id`
+// representa la organización AFECTADA por el evento, no necesariamente el
+// tenant de un actor HTTP autenticado -- no hay actor de aplicación en una
+// acción de consola. No asumir que este campo identifica siempre "el tenant
+// de quien ejecutó la acción" al leer este log.
 #[Fillable([
     'tenant_organization_id', 'user_id', 'person_id', 'event_type', 'result',
     'description', 'ip_address', 'user_agent', 'device_fingerprint', 'country',

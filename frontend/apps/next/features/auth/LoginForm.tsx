@@ -26,6 +26,10 @@ export function LoginForm() {
   // justRegistered -- ResetPasswordForm redirige aquí con ?reset=1 tras un
   // restablecimiento exitoso.
   const justReset = searchParams.get('reset') === '1'
+  // CU-006.1 modificado (mecanismo de invitación): AcceptInvitationForm
+  // redirige aquí con ?invitationAccepted=1 tras activar la cuenta -- sin
+  // login automático (InvitationController::accept()).
+  const invitationAccepted = searchParams.get('invitationAccepted') === '1'
   const { refresh } = useAuth()
 
   const [loginValue, setLoginValue] = useState('')
@@ -88,6 +92,11 @@ export function LoginForm() {
             Tu contraseña ha sido actualizada correctamente. Ya puedes iniciar sesión.
           </p>
         )}
+        {invitationAccepted && (
+          <p className="mb-4 rounded-md bg-secondary px-3 py-2 text-sm text-secondary-foreground" role="status">
+            Cuenta activada correctamente. Ya puedes iniciar sesión.
+          </p>
+        )}
         <form onSubmit={handleSubmit} className="flex flex-col gap-6" noValidate>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="login">Correo electrónico</Label>
@@ -132,8 +141,8 @@ export function LoginForm() {
 
           <p className="text-center text-sm text-muted-foreground">
             ¿No tienes cuenta?{' '}
-            <a href="/register" className="underline underline-offset-4">
-              Regístrate
+            <a href="/request-invitation" className="underline underline-offset-4">
+              Solicita acceso
             </a>
           </p>
         </form>

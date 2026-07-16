@@ -1,9 +1,14 @@
 <?php
 
-use App\Models\PasswordHistory;
+use App\Models\Organization;
+use App\Models\Role;
 use App\Models\SecurityLog;
 use App\Models\User;
+use App\Models\UserRole;
 use App\Models\UserStatus;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Auth\Events\OtherDeviceLogout;
 use Illuminate\Support\Facades\Event;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -12,52 +17,27 @@ beforeEach(function () {
     UserStatus::query()->create(['code' => 'ACTIVE', 'name' => 'Activo', 'is_system' => true, 'is_active' => true]);
 });
 
-function registrationPayload(array $overrides = []): array
+/**
+ * Mecanismo de invitación (reemplaza el registro público, `AuthController::
+ * register()` eliminado -- ver InvitationControllerTest para los tests
+ * propios de ese flujo): reemplaza el viejo helper `registrationPayload()` +
+ * `postJson('/api/register', ...)` que usaban estos tests SOLO como forma de
+ * levantar un usuario ACTIVE con contraseña conocida, no para probar
+ * register() en sí. `UserFactory` ya siembra/usa el status `ACTIVE`
+ * (firstOrCreate) y crea una `Person` asociada -- mismo resultado que el
+ * register() eliminado, sin depender de un endpoint que ya no existe.
+ */
+function createActiveUser(array $overrides = []): User
 {
-    return array_merge([
-        'first_name' => 'Ana',
-        'last_name' => 'Gomez',
-        'document_type' => 'CC',
-        'document_number' => '1234567890',
+    return User::factory()->create(array_merge([
         'username' => 'ana.gomez',
         'email' => 'ana.gomez@example.com',
-        'password' => 'Passw0rd123',
-        'password_confirmation' => 'Passw0rd123',
-    ], $overrides);
+        'password_hash' => 'Passw0rd123',
+    ], $overrides));
 }
 
-test('register creates a person and a user with ACTIVE status', function () {
-    $response = $this->postJson('/api/register', registrationPayload());
-
-    $response->assertCreated()
-        ->assertJsonPath('user.username', 'ana.gomez')
-        ->assertJsonMissingPath('user.password_hash');
-
-    $user = User::query()->where('username', 'ana.gomez')->firstOrFail();
-
-    expect($user->person)->not->toBeNull()
-        ->and($user->person->full_name)->toBe('Ana Gomez')
-        ->and($user->status->code)->toBe('ACTIVE')
-        ->and(PasswordHistory::query()->where('user_id', $user->id)->count())->toBe(1);
-});
-
-test('register rejects duplicate username or email', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
-
-    $this->postJson('/api/register', registrationPayload(['document_number' => '999999']))
-        ->assertUnprocessable()
-        ->assertJsonValidationErrors(['username', 'email']);
-});
-
-test('register rejects a password that fails complexity rules', function () {
-    $this->postJson('/api/register', registrationPayload([
-        'password' => 'weak',
-        'password_confirmation' => 'weak',
-    ]))->assertUnprocessable()->assertJsonValidationErrors('password');
-});
-
 test('mobile login (device_name) returns a bearer token that authenticates requests', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     $login = $this->postJson('/api/login', [
         'login' => 'ana.gomez',
@@ -74,8 +54,92 @@ test('mobile login (device_name) returns a bearer token that authenticates reque
         ->assertJsonPath('user.username', 'ana.gomez');
 });
 
+// Hallazgo `especialista-seguridad` sobre el FRONTEND (2026-07-13): GET
+// /api/user solo exponía roles, no permisos -- el frontend no podía decidir
+// qué ocultar en el menú de administración. `permissions` es la unión de
+// códigos de permiso de todos los roles activos del usuario (mismo criterio
+// que User::hasPermission()), vía User::effectivePermissionCodes().
+test('GET /api/user expone permissions con la unión de códigos de los roles activos del usuario (ADMINISTRADOR)', function () {
+    $this->seed(PermissionSeeder::class);
+    $this->seed(RoleSeeder::class);
+    $this->seed(RolePermissionSeeder::class);
+
+    createActiveUser();
+    $user = User::query()->where('username', 'ana.gomez')->firstOrFail();
+
+    $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
+    UserRole::query()->create(['user_id' => $user->id, 'role_id' => $administrador->id, 'is_active' => true]);
+
+    $expectedCodes = $administrador->permissions()->pluck('code')->sort()->values()->all();
+
+    $login = $this->postJson('/api/login', [
+        'login' => 'ana.gomez',
+        'password' => 'Passw0rd123',
+        'device_name' => 'iphone-de-ana',
+    ])->assertOk();
+
+    $response = $this->withHeader('Authorization', "Bearer {$login->json('token')}")
+        ->getJson('/api/user')
+        ->assertOk();
+
+    expect($response->json('user.permissions'))
+        ->toBeArray()
+        ->and(collect($response->json('user.permissions'))->sort()->values()->all())
+        ->toBe($expectedCodes);
+});
+
+test('GET /api/user expone permissions vacío para un usuario sin ningún rol', function () {
+    createActiveUser();
+
+    $login = $this->postJson('/api/login', [
+        'login' => 'ana.gomez',
+        'password' => 'Passw0rd123',
+        'device_name' => 'iphone-de-ana',
+    ])->assertOk();
+
+    $this->withHeader('Authorization', "Bearer {$login->json('token')}")
+        ->getJson('/api/user')
+        ->assertOk()
+        ->assertJsonPath('user.permissions', []);
+});
+
+// Hallazgo Alto (especialista-seguridad, 2026-07-14, revisión del mecanismo
+// de invitación): GET /api/user expone is_platform_staff -- el frontend lo
+// necesita para ocultar la pantalla de solicitudes de invitación a admins
+// que no son staff de la organización plataforma. Ver User::isPlatformStaff().
+test('GET /api/user expone is_platform_staff=true cuando el tenant del usuario es la organización plataforma', function () {
+    $platform = Organization::factory()->create(['is_platform_tenant' => true]);
+    createActiveUser(['tenant_organization_id' => $platform->id]);
+
+    $login = $this->postJson('/api/login', [
+        'login' => 'ana.gomez',
+        'password' => 'Passw0rd123',
+        'device_name' => 'iphone-de-ana',
+    ])->assertOk();
+
+    $this->withHeader('Authorization', "Bearer {$login->json('token')}")
+        ->getJson('/api/user')
+        ->assertOk()
+        ->assertJsonPath('user.is_platform_staff', true);
+});
+
+test('GET /api/user expone is_platform_staff=false para un usuario sin tenant o de un tenant que no es plataforma', function () {
+    createActiveUser();
+
+    $login = $this->postJson('/api/login', [
+        'login' => 'ana.gomez',
+        'password' => 'Passw0rd123',
+        'device_name' => 'iphone-de-ana',
+    ])->assertOk();
+
+    $this->withHeader('Authorization', "Bearer {$login->json('token')}")
+        ->getJson('/api/user')
+        ->assertOk()
+        ->assertJsonPath('user.is_platform_staff', false);
+});
+
 test('web login (sin device_name) autentica por sesión', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     // EnsureFrontendRequestsAreStateful solo activa la sesión si detecta un
     // Referer/Origin que esté en SANCTUM_STATEFUL_DOMAINS (localhost:3000,
@@ -90,7 +154,7 @@ test('web login (sin device_name) autentica por sesión', function () {
 });
 
 test('login con password incorrecta incrementa failed_login_attempts y bloquea tras el umbral', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     foreach (range(1, 5) as $attempt) {
         $this->postJson('/api/login', ['login' => 'ana.gomez', 'password' => 'incorrecta'])
@@ -108,7 +172,7 @@ test('login con password incorrecta incrementa failed_login_attempts y bloquea t
 });
 
 test('RN-033: una cuenta bloqueada NO se desbloquea sola sin importar el tiempo transcurrido', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     foreach (range(1, 5) as $attempt) {
         $this->postJson('/api/login', ['login' => 'ana.gomez', 'password' => 'incorrecta'])
@@ -129,7 +193,7 @@ test('RN-033: una cuenta bloqueada NO se desbloquea sola sin importar el tiempo 
 });
 
 test('RN-035: login exitoso registra un security_log LOGIN_SUCCESS', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     $this->postJson('/api/login', [
         'login' => 'ana.gomez',
@@ -146,7 +210,7 @@ test('RN-035: login exitoso registra un security_log LOGIN_SUCCESS', function ()
 });
 
 test('RN-035: login fallido por credenciales inválidas registra un security_log sin exponer la contraseña', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     $this->postJson('/api/login', ['login' => 'ana.gomez', 'password' => 'incorrecta'])
         ->assertUnprocessable();
@@ -168,7 +232,7 @@ test('RN-035: login con usuario inexistente registra un security_log sin user_id
 });
 
 test('RN-035: login contra cuenta bloqueada registra un security_log', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     foreach (range(1, 5) as $attempt) {
         $this->postJson('/api/login', ['login' => 'ana.gomez', 'password' => 'incorrecta'])
@@ -191,7 +255,7 @@ test('RN-035: login contra cuenta bloqueada registra un security_log', function 
 test('RN-035: login contra cuenta inactiva registra un security_log', function () {
     UserStatus::query()->create(['code' => 'INACTIVE', 'name' => 'Inactivo', 'is_system' => true, 'is_active' => true]);
 
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     $user = User::query()->where('username', 'ana.gomez')->firstOrFail();
     $inactive = UserStatus::query()->where('code', 'INACTIVE')->firstOrFail();
@@ -206,7 +270,7 @@ test('RN-035: login contra cuenta inactiva registra un security_log', function (
 });
 
 test('RN-181: el login móvil crea el token bearer con expiración (hallazgo Alta, no queda vigente para siempre)', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     $this->postJson('/api/login', [
         'login' => 'ana.gomez',
@@ -229,7 +293,7 @@ test('RN-181: el login móvil crea el token bearer con expiración (hallazgo Alt
 });
 
 test('logout revoca el token bearer usado', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     $token = $this->postJson('/api/login', [
         'login' => 'ana.gomez',
@@ -251,7 +315,7 @@ test('logout revoca el token bearer usado', function () {
 });
 
 test('logout registra un security_log LOGOUT', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     $token = $this->postJson('/api/login', [
         'login' => 'ana.gomez',
@@ -271,7 +335,7 @@ test('logout registra un security_log LOGOUT', function () {
 });
 
 test('cambio de password rechaza reutilizar una contraseña reciente (RN-039)', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     $token = $this->postJson('/api/login', [
         'login' => 'ana.gomez',
@@ -295,7 +359,7 @@ test('cambio de password rechaza reutilizar una contraseña reciente (RN-039)', 
 });
 
 test('cambio de password exitoso registra un security_log PASSWORD_CHANGED', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     $token = $this->postJson('/api/login', [
         'login' => 'ana.gomez',
@@ -318,7 +382,7 @@ test('cambio de password exitoso registra un security_log PASSWORD_CHANGED', fun
 });
 
 test('cambio de password revoca los demás tokens bearer pero conserva el usado en la request actual (hallazgo Media-Alta)', function () {
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     $tokenA = $this->postJson('/api/login', [
         'login' => 'ana.gomez',
@@ -382,7 +446,7 @@ test('cambio de password (web) dispara OtherDeviceLogout sobre el guard web -- r
     // a `Auth::guard('web')->logoutOtherDevices()` con el password correcto
     // (una llamada con password incorrecto habría lanzado antes de disparar
     // el evento).
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     Event::fake([OtherDeviceLogout::class]);
 
@@ -414,7 +478,7 @@ test('cambio de password vía token bearer (móvil) NO dispara OtherDeviceLogout
     // Complementa el test anterior: revokeOtherWebSessions() documenta que
     // es un no-op seguro para requests autenticados por token Bearer (sin
     // sesión web activa). Sin este test, ese branch tampoco tenía cobertura.
-    $this->postJson('/api/register', registrationPayload())->assertCreated();
+    createActiveUser();
 
     Event::fake([OtherDeviceLogout::class]);
 

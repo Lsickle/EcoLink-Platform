@@ -1,7 +1,14 @@
 import { describe, expect, test } from 'vitest'
-import { changePasswordSchema, loginSchema, registerSchema } from 'app/features/auth/schemas'
+import {
+  acceptInvitationSchema,
+  changePasswordSchema,
+  loginSchema,
+  requestInvitationSchema,
+} from 'app/features/auth/schemas'
 
-describe('registerSchema', () => {
+// CU-006.1 modificado: reemplaza al registro público eliminado -- sin
+// username/password, es solo la solicitud de acceso.
+describe('requestInvitationSchema', () => {
   const validPayload = {
     documentType: 'CC' as const,
     documentNumber: '123456789',
@@ -9,35 +16,56 @@ describe('registerSchema', () => {
     lastName: 'Gomez',
     email: 'ana@example.com',
     phone: '',
+  }
+
+  test('accepts a valid payload', () => {
+    expect(requestInvitationSchema.safeParse(validPayload).success).toBe(true)
+  })
+
+  test('rejects a missing document number', () => {
+    const result = requestInvitationSchema.safeParse({ ...validPayload, documentNumber: '' })
+    expect(result.success).toBe(false)
+  })
+
+  test('rejects an invalid email', () => {
+    const result = requestInvitationSchema.safeParse({ ...validPayload, email: 'not-an-email' })
+    expect(result.success).toBe(false)
+  })
+})
+
+// InvitationController::accept() -- el token viaja por query string, la
+// pantalla lo empaqueta junto a la contraseña nueva.
+describe('acceptInvitationSchema', () => {
+  const validPayload = {
+    token: 'a-valid-token',
     password: 'Passw0rd123',
     passwordConfirmation: 'Passw0rd123',
   }
 
   test('accepts a valid payload', () => {
-    expect(registerSchema.safeParse(validPayload).success).toBe(true)
+    expect(acceptInvitationSchema.safeParse(validPayload).success).toBe(true)
+  })
+
+  test('rejects a missing token', () => {
+    const result = acceptInvitationSchema.safeParse({ ...validPayload, token: '' })
+    expect(result.success).toBe(false)
   })
 
   test('rejects a password without an uppercase letter', () => {
-    const result = registerSchema.safeParse({ ...validPayload, password: 'passw0rd123', passwordConfirmation: 'passw0rd123' })
+    const result = acceptInvitationSchema.safeParse({
+      ...validPayload,
+      password: 'passw0rd123',
+      passwordConfirmation: 'passw0rd123',
+    })
     expect(result.success).toBe(false)
   })
 
   test('rejects when passwords do not match', () => {
-    const result = registerSchema.safeParse({ ...validPayload, passwordConfirmation: 'Otra12345' })
+    const result = acceptInvitationSchema.safeParse({ ...validPayload, passwordConfirmation: 'Otra12345' })
     expect(result.success).toBe(false)
     if (!result.success) {
       expect(result.error.issues.some((issue) => issue.path.includes('passwordConfirmation'))).toBe(true)
     }
-  })
-
-  test('rejects a missing document number', () => {
-    const result = registerSchema.safeParse({ ...validPayload, documentNumber: '' })
-    expect(result.success).toBe(false)
-  })
-
-  test('rejects an invalid email', () => {
-    const result = registerSchema.safeParse({ ...validPayload, email: 'not-an-email' })
-    expect(result.success).toBe(false)
   })
 })
 

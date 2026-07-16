@@ -138,3 +138,97 @@ describe('useRequireAuth', () => {
     expect(replaceMock).not.toHaveBeenCalled()
   })
 })
+
+// Revisión de seguridad del lote admin/*: gating de autorización en el
+// frontend (defensa en profundidad -- el backend ya rechaza con 403).
+describe('useRequireAuth(requiredPermission)', () => {
+  function ProtectedByPermission({ permission }: { permission: string }) {
+    const { isAuthorized } = useRequireAuth(permission)
+    return <span data-testid="authorized">{String(isAuthorized)}</span>
+  }
+
+  afterEach(() => {
+    meMock.mockReset()
+    replaceMock.mockReset()
+  })
+
+  test('redirects to / when the session exists but lacks the required permission', async () => {
+    meMock.mockResolvedValueOnce({ user: { ...testUser, permissions: ['users.read'] } })
+
+    render(
+      <AuthProvider>
+        <ProtectedByPermission permission="roles.read" />
+      </AuthProvider>
+    )
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/'))
+    expect(screen.getByTestId('authorized').textContent).toBe('false')
+  })
+
+  test('does not redirect and reports isAuthorized=true when the user has the required permission', async () => {
+    meMock.mockResolvedValueOnce({ user: { ...testUser, permissions: ['roles.read', 'users.read'] } })
+
+    render(
+      <AuthProvider>
+        <ProtectedByPermission permission="roles.read" />
+      </AuthProvider>
+    )
+
+    await waitFor(() => expect(screen.getByTestId('authorized').textContent).toBe('true'))
+    expect(replaceMock).not.toHaveBeenCalled()
+  })
+
+  test('still redirects to /login (not /) when there is no session at all', async () => {
+    meMock.mockRejectedValueOnce(new Error('401'))
+
+    render(
+      <AuthProvider>
+        <ProtectedByPermission permission="roles.read" />
+      </AuthProvider>
+    )
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/login'))
+  })
+})
+
+// Hallazgo Alto (especialista-seguridad, 2026-07-14, revisión del mecanismo
+// de invitación): opción `requirePlatformStaff` -- gate adicional (además
+// del permiso) para pantallas restringidas al staff de la organización
+// plataforma (ver InvitationRequestsListScreen).
+describe('useRequireAuth(requiredPermission, { requirePlatformStaff })', () => {
+  function ProtectedByPlatformStaff({ permission }: { permission: string }) {
+    const { isAuthorized } = useRequireAuth(permission, { requirePlatformStaff: true })
+    return <span data-testid="authorized">{String(isAuthorized)}</span>
+  }
+
+  afterEach(() => {
+    meMock.mockReset()
+    replaceMock.mockReset()
+  })
+
+  test('redirects to / when the user has the permission but is_platform_staff is false', async () => {
+    meMock.mockResolvedValueOnce({ user: { ...testUser, permissions: ['users.create'], is_platform_staff: false } })
+
+    render(
+      <AuthProvider>
+        <ProtectedByPlatformStaff permission="users.create" />
+      </AuthProvider>
+    )
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/'))
+    expect(screen.getByTestId('authorized').textContent).toBe('false')
+  })
+
+  test('does not redirect and reports isAuthorized=true when the user has the permission and is_platform_staff', async () => {
+    meMock.mockResolvedValueOnce({ user: { ...testUser, permissions: ['users.create'], is_platform_staff: true } })
+
+    render(
+      <AuthProvider>
+        <ProtectedByPlatformStaff permission="users.create" />
+      </AuthProvider>
+    )
+
+    await waitFor(() => expect(screen.getByTestId('authorized').textContent).toBe('true'))
+    expect(replaceMock).not.toHaveBeenCalled()
+  })
+})

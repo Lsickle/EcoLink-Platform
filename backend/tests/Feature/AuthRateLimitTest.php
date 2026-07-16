@@ -6,9 +6,11 @@ beforeEach(function () {
     UserStatus::query()->create(['code' => 'ACTIVE', 'name' => 'Activo', 'is_system' => true, 'is_active' => true]);
 });
 
-// Hallazgo CRÍTICO (especialista-seguridad, 2026-07-13): /api/login y
-// /api/register no tenían ningún límite de tasa -- ver
-// App\Providers\AppServiceProvider::configureRateLimiting().
+// Hallazgo CRÍTICO (especialista-seguridad, 2026-07-13): /api/login no tenía
+// ningún límite de tasa -- ver
+// App\Providers\AppServiceProvider::configureRateLimiting(). El mismo
+// criterio se aplicó desde el inicio a /api/invitations/accept (mecanismo de
+// invitación que reemplaza el registro público eliminado).
 
 test('el rate limiter de login (10/min por IP+login) responde 429 al superarse', function () {
     foreach (range(1, 10) as $attempt) {
@@ -49,27 +51,20 @@ test('el rate limiter de login agrega un techo por IP sola: password spraying co
         ->assertStatus(429);
 });
 
-test('el rate limiter de register (5/min por IP) responde 429 al superarse', function () {
+test('el rate limiter de invitation-accept (5/min por IP) responde 429 al superarse', function () {
+    // Un token inexistente ya responde 422 (mensaje genérico, ver
+    // InvitationController::accept()) -- suficiente para agotar el balde sin
+    // depender de ninguna invitación real.
     foreach (range(1, 5) as $i) {
-        $this->postJson('/api/register', [
-            'first_name' => 'Ana',
-            'last_name' => 'Gomez',
-            'document_type' => 'CC',
-            'document_number' => "100000000{$i}",
-            'username' => "ana.gomez.{$i}",
-            'email' => "ana.gomez.{$i}@example.com",
+        $this->postJson('/api/invitations/accept', [
+            'token' => "no-existe-{$i}",
             'password' => 'Passw0rd123',
             'password_confirmation' => 'Passw0rd123',
-        ])->assertCreated();
+        ])->assertStatus(422);
     }
 
-    $this->postJson('/api/register', [
-        'first_name' => 'Ana',
-        'last_name' => 'Gomez',
-        'document_type' => 'CC',
-        'document_number' => '9999999999',
-        'username' => 'ana.gomez.extra',
-        'email' => 'ana.gomez.extra@example.com',
+    $this->postJson('/api/invitations/accept', [
+        'token' => 'no-existe-extra',
         'password' => 'Passw0rd123',
         'password_confirmation' => 'Passw0rd123',
     ])->assertStatus(429);

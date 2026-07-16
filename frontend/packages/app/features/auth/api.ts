@@ -1,4 +1,10 @@
-import type { ChangePasswordFormValues, LoginFormValues, RegisterFormValues, ResetPasswordFormValues } from './schemas'
+import type {
+  AcceptInvitationFormValues,
+  ChangePasswordFormValues,
+  LoginFormValues,
+  RequestInvitationFormValues,
+  ResetPasswordFormValues,
+} from './schemas'
 
 // RN-181: Sanctum SPA (cookie de sesión). Todo request va con
 // credentials: 'include' y el ciclo csrf-cookie -> X-XSRF-TOKEN que exige
@@ -78,17 +84,6 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   return body as T
 }
 
-/**
- * El username no se le pide al usuario (no está en el diseño ni aporta
- * valor mostrárselo) -- se deriva del correo. Si el backend lo rechaza por
- * duplicado (username es UNIQUE, distinto de email), register() reintenta
- * una vez con un sufijo numérico, de forma transparente.
- */
-function deriveUsername(email: string, suffix = 0): string {
-  const base = email.split('@')[0]!.toLowerCase().replace(/[^a-z0-9.]/g, '.')
-  return suffix === 0 ? base : `${base}${suffix}`
-}
-
 // GET /api/user (AuthController::me) carga la relación `person` -- login y
 // register solo devuelven los campos planos de `users` (ver
 // AuthController::login/register, `$user->only([...])`), así que `person`
@@ -101,40 +96,60 @@ export type AuthPerson = {
   full_name: string
 }
 
+// RBAC (revisión de seguridad del lote admin/*): permisos efectivos del
+// usuario -- unión plana de códigos (ej. "users.read") de todos sus roles
+// activos. Solo llega poblado por GET /api/user (AuthController::me), igual
+// que `person` -- login/register no lo incluyen. Base del gating de
+// autorización en el frontend (sidebar + useRequireAuth), ver
+// provider/auth/index.tsx. El backend sigue siendo la autoridad real (403
+// por endpoint) -- esto es solo defensa en profundidad en la UI.
+// Hallazgo Alto (especialista-seguridad, 2026-07-14, revisión del mecanismo
+// de invitación): `is_platform_staff` (AuthController::me(), vía
+// User::isPlatformStaff()) -- true solo si el tenant del usuario es la
+// organización PLATAFORMA (organizations.is_platform_tenant=true). Base del
+// gating de InvitationRequestsListScreen (defensa en profundidad, el backend
+// ya rechaza con 403 -- ver InvitationRequestController).
 export type AuthUser = {
   id: number
   uuid: string
   username: string
   email: string
+  permissions?: string[]
+  is_platform_staff?: boolean
   person?: AuthPerson
 }
 
-export async function register(values: RegisterFormValues): Promise<{ user: AuthUser }> {
-  const payload = {
-    document_type: values.documentType,
-    document_number: values.documentNumber,
-    first_name: values.firstName,
-    last_name: values.lastName,
-    email: values.email,
-    phone: values.phone || undefined,
-    password: values.password,
-    password_confirmation: values.passwordConfirmation,
-  }
+// CU-006.1 modificado (mecanismo de invitación, reemplaza el register()
+// eliminado): solicitud pública sin contraseña, encolada PENDING para
+// revisión de un administrador. RN-181: el backend SIEMPRE responde el
+// mismo mensaje genérico de éxito (anti-enumeración) -- la UI no debe
+// intentar inferir nada más allá de ese mensaje.
+export async function requestInvitation(values: RequestInvitationFormValues): Promise<{ message: string }> {
+  return apiFetch('/api/invitation-requests', {
+    method: 'POST',
+    body: JSON.stringify({
+      document_type: values.documentType,
+      document_number: values.documentNumber,
+      first_name: values.firstName,
+      last_name: values.lastName,
+      email: values.email,
+      phone: values.phone || undefined,
+    }),
+  })
+}
 
-  try {
-    return await apiFetch('/api/register', {
-      method: 'POST',
-      body: JSON.stringify({ ...payload, username: deriveUsername(values.email) }),
-    })
-  } catch (error) {
-    if (error instanceof ApiValidationError && error.firstError('username')) {
-      return await apiFetch('/api/register', {
-        method: 'POST',
-        body: JSON.stringify({ ...payload, username: deriveUsername(values.email, Date.now() % 10000) }),
-      })
-    }
-    throw error
-  }
+// InvitationController::accept() -- público (sin auth:sanctum), fija la
+// contraseña real y activa la cuenta (PENDING_ACTIVATION -> ACTIVE). Sin
+// login automático: el caller redirige a /login por separado.
+export async function acceptInvitation(values: AcceptInvitationFormValues): Promise<{ message: string }> {
+  return apiFetch('/api/invitations/accept', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: values.token,
+      password: values.password,
+      password_confirmation: values.passwordConfirmation,
+    }),
+  })
 }
 
 export async function login(values: LoginFormValues): Promise<{ user: AuthUser }> {

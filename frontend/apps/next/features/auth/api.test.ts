@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { ApiValidationError, RateLimitError, changePassword, login, register } from 'app/features/auth/api'
+import {
+  ApiValidationError,
+  RateLimitError,
+  acceptInvitation,
+  changePassword,
+  login,
+  requestInvitation,
+} from 'app/features/auth/api'
 
 function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
@@ -37,26 +44,81 @@ describe('auth api client', () => {
     expect(result.user.username).toBe('ana')
   })
 
-  test('register retries once with a numeric suffix if the username is taken', async () => {
+  // CU-006.1 modificado: reemplaza al register() eliminado -- sin
+  // username/password, POSTea a /api/invitation-requests.
+  test('requestInvitation POSTs the identity fields without username/password', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({})) // csrf
-      .mockResolvedValueOnce(jsonResponse({ message: 'x', errors: { username: ['ya existe'] } }, 422))
-      .mockResolvedValueOnce(jsonResponse({})) // csrf (2nd attempt)
-      .mockResolvedValueOnce(jsonResponse({ user: { id: 2, uuid: 'u2', username: 'ana1234', email: 'ana@example.com' } }))
+      .mockResolvedValueOnce(jsonResponse({ message: 'Tu solicitud fue enviada. Un administrador la revisará.' }))
 
-    const result = await register({
+    const result = await requestInvitation({
       documentType: 'CC',
       documentNumber: '123',
       firstName: 'Ana',
       lastName: 'Gomez',
       email: 'ana@example.com',
       phone: '',
+    })
+
+    const [url, options] = fetchMock.mock.calls[1]!
+    expect(url).toContain('/api/invitation-requests')
+    const body = JSON.parse(options.body as string)
+    expect(body).toEqual({
+      document_type: 'CC',
+      document_number: '123',
+      first_name: 'Ana',
+      last_name: 'Gomez',
+      email: 'ana@example.com',
+    })
+    expect(body.username).toBeUndefined()
+    expect(body.password).toBeUndefined()
+    expect(result.message).toBe('Tu solicitud fue enviada. Un administrador la revisará.')
+  })
+
+  // InvitationController::accept() -- token + contraseña nueva, sin login
+  // automático (el caller redirige a /login por separado).
+  test('acceptInvitation POSTs token/password/password_confirmation', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({})) // csrf
+      .mockResolvedValueOnce(jsonResponse({ message: 'Cuenta activada correctamente. Ya puedes iniciar sesión.' }))
+
+    const result = await acceptInvitation({
+      token: 'a-valid-token',
       password: 'Passw0rd123',
       passwordConfirmation: 'Passw0rd123',
     })
 
-    expect(fetchMock).toHaveBeenCalledTimes(4)
-    expect(result.user.email).toBe('ana@example.com')
+    const [url, options] = fetchMock.mock.calls[1]!
+    expect(url).toContain('/api/invitations/accept')
+    expect(JSON.parse(options.body as string)).toEqual({
+      token: 'a-valid-token',
+      password: 'Passw0rd123',
+      password_confirmation: 'Passw0rd123',
+    })
+    expect(result.message).toBe('Cuenta activada correctamente. Ya puedes iniciar sesión.')
+  })
+
+  // Enlace inválido/expirado/ya usado -- InvitationController::accept()
+  // siempre responde el mismo error genérico bajo el campo `token`
+  // (anti-enumeración, mismo criterio que PasswordRecoveryController).
+  test('acceptInvitation surfaces the generic token error as ApiValidationError', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { message: 'x', errors: { token: ['Enlace de invitación inválido o expirado.'] } },
+          422
+        )
+      )
+
+    const error = await acceptInvitation({
+      token: 'expired-token',
+      password: 'Passw0rd123',
+      passwordConfirmation: 'Passw0rd123',
+    }).catch((e) => e)
+
+    expect(error).toBeInstanceOf(ApiValidationError)
+    expect((error as ApiValidationError).firstError('token')).toBe('Enlace de invitación inválido o expirado.')
   })
 
   test('throws ApiValidationError with field errors on 422', async () => {

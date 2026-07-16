@@ -1,8 +1,11 @@
 import { z } from 'zod'
 
-// Espejo de las reglas de validación del backend (AuthController::register,
-// backend/app/Http/Controllers/Api/AuthController.php) — mismos mínimos de
-// contraseña, mismos campos obligatorios de esquema-bd (people/users).
+// Espejo de las reglas de validación del backend. El registro público
+// (AuthController::register) fue eliminado -- reemplazado por el mecanismo
+// de invitación (InvitationRequestController::store() /
+// InvitationController::accept(), CU-006.1 modificado): mismos campos
+// obligatorios de esquema-bd (people/users), pero la solicitud pública ya no
+// pide contraseña (la fija el usuario al aceptar la invitación).
 export const documentTypeOptions = [
   { value: 'CC', label: 'Cédula de ciudadanía' },
   { value: 'CE', label: 'Cédula de extranjería' },
@@ -16,14 +19,29 @@ const passwordSchema = z
   .regex(/[A-Z]/, 'Debe incluir al menos una mayúscula.')
   .regex(/[0-9]/, 'Debe incluir al menos un número.')
 
-export const registerSchema = z
+// POST /api/invitation-requests (InvitationRequestController::store()) --
+// mismos campos de identidad que tenía el registro eliminado, MENOS
+// username/password (la solicitud pública no crea la cuenta todavía, solo
+// la encola para revisión de un administrador).
+export const requestInvitationSchema = z.object({
+  documentType: z.enum(['CC', 'CE', 'PA']),
+  documentNumber: z.string().trim().min(1, 'Ingresa tu número de documento.'),
+  firstName: z.string().trim().min(1, 'Ingresa tus nombres.'),
+  lastName: z.string().trim().min(1, 'Ingresa tus apellidos.'),
+  email: z.string().trim().email('Ingresa un correo válido.'),
+  phone: z.string().trim().optional().or(z.literal('')),
+})
+
+export type RequestInvitationFormValues = z.infer<typeof requestInvitationSchema>
+
+// POST /api/invitations/accept (InvitationController::accept()) -- el token
+// viaja por query string del link del correo (?token=...), es la prueba de
+// invitación en sí (a diferencia del email de ResetPasswordForm, que nunca
+// viaja por query string por PII -- aquí no hay PII, el token ya es
+// suficiente y es el patrón universal de links de invitación).
+export const acceptInvitationSchema = z
   .object({
-    documentType: z.enum(['CC', 'CE', 'PA']),
-    documentNumber: z.string().trim().min(1, 'Ingresa tu número de documento.'),
-    firstName: z.string().trim().min(1, 'Ingresa tus nombres.'),
-    lastName: z.string().trim().min(1, 'Ingresa tus apellidos.'),
-    email: z.string().trim().email('Ingresa un correo válido.'),
-    phone: z.string().trim().optional().or(z.literal('')),
+    token: z.string().min(1, 'Enlace de invitación inválido o incompleto.'),
     password: passwordSchema,
     passwordConfirmation: z.string(),
   })
@@ -32,7 +50,7 @@ export const registerSchema = z
     path: ['passwordConfirmation'],
   })
 
-export type RegisterFormValues = z.infer<typeof registerSchema>
+export type AcceptInvitationFormValues = z.infer<typeof acceptInvitationSchema>
 
 export const loginSchema = z.object({
   login: z.string().trim().min(1, 'Ingresa tu correo.'),
