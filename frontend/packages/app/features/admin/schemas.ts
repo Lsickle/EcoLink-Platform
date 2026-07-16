@@ -286,6 +286,40 @@ export const createBranchSchema = z.object({
 
 export type CreateBranchFormValues = z.infer<typeof createBranchSchema>
 
+// POST /api/admin/vehicles -- ver VehicleController::store()/
+// validationRules(). `organizationId` opcional (el form solo lo llena si
+// `user.is_platform_staff`, mismo criterio que `createBranchSchema`).
+// `manufacturingYear` valida 4 dígitos (mismo `digits:4` del backend, sin
+// acotar el rango real de años -- ese matiz se deja al 422 del servidor).
+// `maxLoadCapacity` > 0 si se envía (RN-VEH-008, `min:0.01` en el backend).
+// Sin `.max()` en `code`/`plateNumber`/`vin` -- los límites `max:50`/
+// `max:20`/`max:100` del backend no se duplican aquí, mismo criterio ya
+// usado en el resto de este archivo.
+export const createVehicleSchema = z.object({
+  organizationId: z.number().int().positive().optional(),
+  branchId: z.number().int().positive().optional(),
+  code: z.string().trim().optional().or(z.literal('')),
+  plateNumber: z.string().trim().min(1, 'Ingresa la placa.'),
+  vin: z.string().trim().optional().or(z.literal('')),
+  vehicleTypeId: z.number().int().positive('Selecciona un tipo de vehículo.'),
+  brand: z.string().trim().optional().or(z.literal('')),
+  model: z.string().trim().optional().or(z.literal('')),
+  manufacturingYear: z
+    .number()
+    .int()
+    .min(1000, 'Ingresa un año de 4 dígitos.')
+    .max(9999, 'Ingresa un año de 4 dígitos.')
+    .optional(),
+  maxLoadCapacity: z.number().min(0.01, 'La capacidad debe ser mayor a 0.').optional(),
+  capacityUnit: z.string().trim().min(1, 'Ingresa una unidad.'),
+  supportsHazmat: z.boolean(),
+  hasGps: z.boolean(),
+  soatExpirationDate: z.string().trim().optional().or(z.literal('')),
+  technicalInspectionExpiration: z.string().trim().optional().or(z.literal('')),
+})
+
+export type CreateVehicleFormValues = z.infer<typeof createVehicleSchema>
+
 // POST /api/admin/organizations/{id}/contacts -- rama "persona nueva" del
 // diálogo "Crear Contacto" (ver OrganizationController::storeContact()).
 export const createContactSchema = z.object({

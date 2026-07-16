@@ -1295,3 +1295,114 @@ export type ImportResult = {
   updated: number
   errors: ImportRowError[]
 }
+
+// ---- Vehículos (/api/admin/vehicles) --------------------------------------
+// CRUD de Vehículos (RN-VEH-001 a RN-VEH-008, CU-051.1/.2/.3/.4) -- mismo
+// patrón EXACTO de acceso DUAL que `AdminBranch`: platform staff gestiona
+// TODOS los vehículos de CUALQUIER organización; un admin de tenant (o un
+// usuario con permiso `vehicles.read` sin ser platform staff) solo los de su
+// propia organización (ver `VehicleController`/`VehiclePolicy`). SIN
+// restricción de business_role para poseer vehículos -- desviación
+// deliberada de RN-090 tal como está escrita hoy, ya confirmada por el
+// usuario: cualquier organización puede registrar vehículos, el selector de
+// Organización del formulario de creación NO filtra por tipo de
+// organización.
+//
+// `operational_status` es una lista CERRADA de texto (no un catálogo FK) --
+// 3 valores reales que el backend acepta como filtro
+// (`VehicleController::OPERATIONAL_STATUSES`), aunque store()/activate()/
+// deactivate() solo producen 'ACTIVE'/'OUT_OF_SERVICE' hoy (MAINTENANCE
+// existe en el dominio de filtro pero ningún endpoint lo asigna todavía).
+export type VehicleOperationalStatus = 'ACTIVE' | 'OUT_OF_SERVICE' | 'MAINTENANCE'
+
+// Shape base de `Vehicle` -- devuelto por `index()` con
+// `organization:id,legal_name`/`vehicleType:id,name` SIEMPRE eager-cargados
+// (a diferencia de `AdminBranch.organization`/`.branch_type`, que index() de
+// Sedes NO carga -- ver AVISO corregido en el docblock de
+// `VehicleController::index()`, lección explícita de un bug reciente de
+// Sedes). `activate()`/`deactivate()` en cambio devuelven el modelo base SIN
+// esas 2 relaciones (`vehicle->fresh()` plano) -- quedan opcionales aquí,
+// nunca asumidas presentes en esas 2 respuestas puntuales.
+export type AdminVehicle = {
+  id: number
+  uuid: string
+  organization_id: number
+  branch_id: number | null
+  code: string | null
+  plate_number: string
+  vin: string | null
+  vehicle_type_id: number
+  brand: string | null
+  model: string | null
+  manufacturing_year: number | null
+  max_load_capacity: number | string | null
+  capacity_unit: string
+  supports_hazmat: boolean
+  has_gps: boolean
+  operational_status: VehicleOperationalStatus
+  soat_expiration_date: string | null
+  technical_inspection_expiration: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  created_by: number | null
+  updated_by: number | null
+  organization?: { id: number; legal_name: string }
+  vehicle_type?: { id: number; name: string }
+}
+
+// GET /api/admin/vehicles/{id} -- ver VehicleController::show(). A
+// diferencia de `AdminVehicle` (fila de index()), aquí TODAS las relaciones
+// vienen SIEMPRE eager-cargadas: `organization`/`branch`/`vehicleType`
+// completo (no solo id/name)/`created_by`/`updated_by` ({id, username}).
+export type AdminVehicleDetail = Omit<AdminVehicle, 'organization' | 'vehicle_type' | 'created_by' | 'updated_by'> & {
+  organization: { id: number; legal_name: string }
+  branch: { id: number; name: string } | null
+  vehicle_type: AdminVehicleType
+  created_by: AdminActorRef | null
+  updated_by: AdminActorRef | null
+}
+
+// KPIs del listado -- objeto PLANO por `is_active` (NO por
+// `operational_status`), mismo criterio que `BranchKpis` pero con solo 3
+// conteos (Sedes tiene 4, un estado más -- Vehículos no tiene equivalente a
+// "Suspendida"), misma visibilidad que `index()` (ver
+// `VehicleController::statusKpis()`).
+export type VehicleKpis = {
+  total: number
+  active: number
+  inactive: number
+}
+
+// POST /api/admin/vehicles -- ver VehicleController::store()/
+// validationRules(). `organization_id` SOLO se manda si el actor es
+// `is_platform_staff` (REQUERIDO en ese caso) -- para cualquier otro actor
+// el backend lo IGNORA y fuerza su propia organización. `operational_status`/
+// `is_active` NUNCA viajan aquí -- el backend los fuerza SIEMPRE a
+// 'ACTIVE'/true en creación, sin importar lo que el cliente envíe (RN-VEH-005,
+// hallazgo Medio ya corregido por especialista-seguridad 2026-07-16).
+export type CreateVehiclePayload = {
+  organization_id?: number
+  branch_id?: number
+  code?: string
+  plate_number: string
+  vin?: string
+  vehicle_type_id: number
+  brand?: string
+  model?: string
+  manufacturing_year?: number
+  max_load_capacity?: number
+  capacity_unit?: string
+  supports_hazmat?: boolean
+  has_gps?: boolean
+  soat_expiration_date?: string
+  technical_inspection_expiration?: string
+}
+
+// PUT /api/admin/vehicles/{id} -- mismos campos que `CreateVehiclePayload`
+// MENOS `organization_id` (inmutable tras crear). `operational_status`/
+// `is_active` tampoco viajan aquí -- se gestionan exclusivamente vía
+// activate()/deactivate() (permiso granular `vehicles.activate`/
+// `.deactivate`, distinto de `vehicles.update` -- hallazgo Medio ya
+// corregido por especialista-seguridad 2026-07-16).
+export type UpdateVehiclePayload = Omit<CreateVehiclePayload, 'organization_id'>

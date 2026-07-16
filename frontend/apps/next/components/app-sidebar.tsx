@@ -16,7 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon } from "lucide-react"
+import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon } from "lucide-react"
 import { useAuth } from "app/provider/auth"
 
 // Sin módulos de negocio todavía (Residuos, Solicitudes, Manifiestos, etc.)
@@ -66,6 +66,20 @@ const data = {
       url: "/admin/contacts",
       icon: <IdCardIcon />,
       permission: "contacts.read",
+    },
+    // CRUD de Vehículos (RN-VEH-001 a RN-VEH-008, CU-051.1/.2/.3/.4,
+    // 2026-07-16) -- mismo mecanismo de acceso DUAL EXACTO que "Sedes"/
+    // "Contactos" (platform staff gestiona TODOS los vehículos de cualquier
+    // organización; un admin de tenant solo los de la suya, ver
+    // `VehicleController`/`VehiclePolicy`), por eso vive en "Administración"
+    // gateado por `vehicles.read` y NO en "Plataforma". `CarFrontIcon` en vez
+    // de `TruckIcon` (ya usado por "Códigos UN"/"Tipos de Vehículo") para no
+    // repetir ícono dentro del mismo grupo de navegación.
+    {
+      title: "Vehículos",
+      url: "/admin/vehicles",
+      icon: <CarFrontIcon />,
+      permission: "vehicles.read",
     },
     // Mecanismo de invitación (CU-006.1 modificado, reemplaza el registro
     // público eliminado): mismo permiso `users.read` que "Usuarios" -- es el

@@ -27,6 +27,8 @@ import type {
   AdminUnCode,
   AdminUnCodeDetail,
   AdminUser,
+  AdminVehicle,
+  AdminVehicleDetail,
   AdminVehicleType,
   AdminWasteCategory,
   AdminWasteStream,
@@ -48,6 +50,7 @@ import type {
   CreateRolePayload,
   CreateUnCodePayload,
   CreateUserPayload,
+  CreateVehiclePayload,
   CreateVehicleTypePayload,
   CreateWasteCategoryPayload,
   CreateWasteStreamPayload,
@@ -74,10 +77,12 @@ import type {
   UpdateRolePayload,
   UpdateUnCodePayload,
   UpdateUserPayload,
+  UpdateVehiclePayload,
   UpdateVehicleTypePayload,
   UpdateWasteCategoryPayload,
   UpdateWasteStreamPayload,
   UserActivityEvent,
+  VehicleKpis,
 } from './types'
 
 export { ApiValidationError, RateLimitError } from '../../lib/api-client'
@@ -1455,6 +1460,79 @@ export async function fetchBranchActivity(
 ): Promise<Paginated<RoleActivityEvent>> {
   const query = buildQuery({ page: params.page, per_page: params.perPage })
   return apiFetch(`/api/admin/branches/${branchId}/activity${query}`)
+}
+
+// ---- Vehículos (/api/admin/vehicles) ---------------------------------------
+// CRUD de Vehículos (RN-VEH-001 a RN-VEH-008, CU-051.1/.2/.3/.4) -- mismo
+// patrón EXACTO que fetchBranches()/fetchBranch()/etc. (acceso DUAL, ver
+// docblock de `AdminVehicle` en types.ts). `organizationId` como filtro SOLO
+// tiene efecto para platform staff, mismo criterio que `fetchBranches()`.
+export async function fetchVehicles(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    organizationId?: number | string
+    vehicleTypeId?: number | string
+    operationalStatus?: string
+    supportsHazmat?: boolean
+    hasGps?: boolean
+    sort?: string
+    direction?: 'asc' | 'desc'
+  } = {}
+): Promise<Paginated<AdminVehicle> & { kpis: VehicleKpis }> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    organization_id: params.organizationId,
+    vehicle_type_id: params.vehicleTypeId,
+    operational_status: params.operationalStatus,
+    supports_hazmat: params.supportsHazmat === undefined ? undefined : String(params.supportsHazmat),
+    has_gps: params.hasGps === undefined ? undefined : String(params.hasGps),
+    sort: params.sort,
+    direction: params.direction,
+  })
+  return apiFetch(`/api/admin/vehicles${query}`)
+}
+
+export async function fetchVehicle(id: number | string): Promise<{ vehicle: AdminVehicleDetail }> {
+  return apiFetch(`/api/admin/vehicles/${id}`)
+}
+
+export async function createVehicle(payload: CreateVehiclePayload): Promise<{ vehicle: AdminVehicle }> {
+  return apiFetch('/api/admin/vehicles', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// `organization_id` NUNCA viaja aquí -- inmutable tras crear (ver
+// `UpdateVehiclePayload` en types.ts).
+export async function updateVehicle(
+  id: number | string,
+  payload: UpdateVehiclePayload
+): Promise<{ vehicle: AdminVehicle }> {
+  return apiFetch(`/api/admin/vehicles/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+// `operational_status`/`is_active` se gestionan EXCLUSIVAMENTE aquí, nunca
+// vía updateVehicle() -- permiso granular `vehicles.activate`/`.deactivate`,
+// distinto de `vehicles.update` (ver VehicleController::activate()).
+export async function activateVehicle(id: number | string): Promise<{ vehicle: AdminVehicle }> {
+  return apiFetch(`/api/admin/vehicles/${id}/activate`, { method: 'POST' })
+}
+
+export async function deactivateVehicle(id: number | string): Promise<{ vehicle: AdminVehicle }> {
+  return apiFetch(`/api/admin/vehicles/${id}/deactivate`, { method: 'POST' })
+}
+
+// Tab "Actividad" -- exige `audit.read` además de acceso al vehículo, mismo
+// shape {event_type, description, actor, created_at} que
+// fetchBranchActivity()/fetchOrganizationActivity().
+export async function fetchVehicleActivity(
+  vehicleId: number | string,
+  params: { page?: number; perPage?: number } = {}
+): Promise<Paginated<RoleActivityEvent>> {
+  const query = buildQuery({ page: params.page, per_page: params.perPage })
+  return apiFetch(`/api/admin/vehicles/${vehicleId}/activity${query}`)
 }
 
 export type * from './types'
