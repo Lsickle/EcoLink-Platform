@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -60,5 +61,16 @@ class Person extends Model
     public function user(): HasOne
     {
         return $this->hasOne(User::class);
+    }
+
+    /**
+     * esquema-bd: organization_contacts (D-P02 / L-08) -- TODOS los
+     * vínculos de esta persona en rol de contacto, a través de todas sus
+     * organizaciones (activos e inactivos/revocados). Ver
+     * `Organization::contacts()`/`Branch::contacts()` para el lado inverso.
+     */
+    public function organizationLinks(): HasMany
+    {
+        return $this->hasMany(OrganizationContact::class, 'contact_id');
     }
 }
