@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import { Moon, Sun } from 'lucide-react'
 import { useTheme } from 'next-themes'
+import { cn } from '@/lib/utils'
 
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme()
   // Evita un mismatch de hidratación: el tema real solo se conoce en el
   // cliente (depende de localStorage/preferencia del SO).
@@ -12,7 +13,7 @@ export function ThemeToggle() {
   useEffect(() => setMounted(true), [])
 
   if (!mounted) {
-    return <div className="size-6" aria-hidden />
+    return <div className={cn('size-6', className)} aria-hidden />
   }
 
   const isDark = resolvedTheme === 'dark'
@@ -21,7 +22,7 @@ export function ThemeToggle() {
     <button
       type="button"
       onClick={() => setTheme(isDark ? 'light' : 'dark')}
-      className="flex size-6 items-center justify-center text-foreground"
+      className={cn('flex size-6 items-center justify-center text-foreground', className)}
       aria-label={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
     >
       {isDark ? <Sun className="size-5" /> : <Moon className="size-5" />}

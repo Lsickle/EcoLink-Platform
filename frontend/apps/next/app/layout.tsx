@@ -3,6 +3,7 @@ import './globals.css'
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from '@/components/theme-provider'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { AuthProvider } from 'app/provider/auth'
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
@@ -31,7 +32,9 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <AuthProvider>
-            <StylesProvider>{children}</StylesProvider>
+            <TooltipProvider>
+              <StylesProvider>{children}</StylesProvider>
+            </TooltipProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

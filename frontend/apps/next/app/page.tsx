@@ -1,10 +1,10 @@
-import { AuthLayout } from '@/features/auth/AuthLayout'
+import { DashboardShell } from '@/components/dashboard-shell'
 import { WelcomeScreen } from '@/features/home/WelcomeScreen'
 
 export default function HomePage() {
   return (
-    <AuthLayout>
+    <DashboardShell>
       <WelcomeScreen />
-    </AuthLayout>
+    </DashboardShell>
   )
 }

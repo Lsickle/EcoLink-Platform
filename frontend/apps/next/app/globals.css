@@ -2,6 +2,15 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* El escaneo automático de contenido de Tailwind v4 no detecta con
+   fiabilidad clases usadas solo dentro de packages/app (paquete compartido
+   fuera de apps/next) -- confirmado: las variantes con opacidad (bg-red-500/10)
+   sí compilan porque usan color-mix() sobre variables del tema, pero las
+   clases sólidas (bg-red-500) referenciadas dinámicamente desde
+   packages/app/features/admin/riskLevel.ts (RISK_LEVEL_BAR_CLASSES) nunca se
+   generaban. Se declaran aquí explícitamente en vez de depender del escaneo. */
+@source inline("bg-emerald-500 bg-yellow-500 bg-orange-500 bg-red-500");
+
 @custom-variant dark (&:is(.dark *));
 
 html,
