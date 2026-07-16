@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureUserIsActive;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,6 +17,10 @@ return Application::configure(basePath: dirname(__DIR__))
         // RN-181: autenticación Sanctum con cookie de sesión para el SPA
         // web (stateful, dominios en config/sanctum.php + SANCTUM_STATEFUL_DOMAINS).
         $middleware->statefulApi();
+
+        // Hallazgo Alto (especialista-seguridad, 2026-07-13): alias para el
+        // grupo `auth:sanctum` de routes/api.php -- ver EnsureUserIsActive.
+        $middleware->alias(['active' => EnsureUserIsActive::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

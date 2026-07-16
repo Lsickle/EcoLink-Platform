@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -27,11 +28,13 @@ class AppServiceProvider extends ServiceProvider
 
     /**
      * Hallazgo CRÍTICO (revisión especialista-seguridad, 2026-07-13):
-     * /api/login y /api/register no tenían ningún límite de tasa, lo que
-     * permitía fuerza bruta distribuida (evitando el umbral de bloqueo por
-     * cuenta de RN-033 atacando muchas cuentas distintas desde el mismo
-     * origen) y DoS por el costo de CPU de bcrypt (rounds=12) sin límite de
-     * requests.
+     * /api/login (y, en su momento, /api/register -- eliminado junto con el
+     * registro público, ver AuthController) no tenían ningún límite de tasa,
+     * lo que permitía fuerza bruta distribuida (evitando el umbral de
+     * bloqueo por cuenta de RN-033 atacando muchas cuentas distintas desde
+     * el mismo origen) y DoS por el costo de CPU de bcrypt (rounds=12) sin
+     * límite de requests. `invitation-accept` (mecanismo de invitación que
+     * reemplaza el registro) lleva el mismo tratamiento desde su creación.
      */
     private function configureRateLimiting(): void
     {
@@ -64,10 +67,24 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
-        // Por IP sola, más laxo que login: evita que un mismo origen
-        // registre decenas de cuentas por minuto, sin ser tan estricto como
-        // el límite de login (no hay una cuenta concreta que combinar aquí).
-        RateLimiter::for('register', function (Request $request) {
+        // Mecanismo de invitación (reemplaza el registro público, limiter
+        // 'register' eliminado junto con AuthController::register()): por
+        // IP sola, mismo criterio que 'register' tenía -- evita que un mismo
+        // origen agote invitaciones ajenas por fuerza bruta del token (40
+        // caracteres, espacio enorme, pero igual se acota el volumen de
+        // intentos/minuto como defensa en profundidad, mismo espíritu que
+        // password-recovery). 5/min es un criterio propio de este lote, no
+        // confirmado con negocio.
+        RateLimiter::for('invitation-accept', function (Request $request) {
+            return Limit::perMinute(5)->by($request->ip());
+        });
+
+        // Solicitud de invitación (tarea 2 del mecanismo de invitación,
+        // reemplaza el registro público): mismo criterio que
+        // 'invitation-accept' -- por IP sola, 5/min, evita que un mismo
+        // origen agote el endpoint público con solicitudes de spam/enumeración
+        // masiva. Criterio propio de este lote, no confirmado con negocio.
+        RateLimiter::for('invitation-request', function (Request $request) {
             return Limit::perMinute(5)->by($request->ip());
         });
 
@@ -91,6 +108,29 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(5)->by($request->ip().'|'.$request->input('email')),
                 Limit::perMinute(20)->by($request->ip()),
             ];
+        });
+
+        // Hallazgo Medio (especialista-seguridad, 2026-07-14): `POST
+        // /admin/users/{user}/reset-password` (CU-006.9) dispara un correo
+        // real (OTP) al usuario OBJETIVO sin ningún límite de tasa -- un
+        // admin malicioso o con sesión comprometida podía spamear el buzón
+        // del usuario objetivo, o "grief-ear" (invalidar) un reset de
+        // autoservicio legítimo en curso reemplazando repetidamente el
+        // código OTP vigente. Clave por actor+objetivo (no solo por IP,
+        // como `login`/`password-recovery`): el actor ya está autenticado,
+        // así que lo relevante es acotar cuántos resets puede disparar UN
+        // admin contra UN mismo usuario objetivo por minuto, no el volumen
+        // agregado de la IP. `$request->route('user')` puede devolver el
+        // id crudo del parámetro de ruta o el modelo `User` ya resuelto
+        // según el orden de la pipeline de middleware -- se normaliza a su
+        // clave primaria en ambos casos para que la clave del limiter sea
+        // estable. 5/min es un criterio propio de este lote, mismo orden de
+        // magnitud que `password-recovery`, no confirmado con negocio.
+        RateLimiter::for('admin-password-reset', function (Request $request) {
+            $targetUser = $request->route('user');
+            $targetUserId = $targetUser instanceof User ? $targetUser->getKey() : $targetUser;
+
+            return Limit::perMinute(5)->by($request->user()?->id.'|'.$targetUserId);
         });
     }
 }
