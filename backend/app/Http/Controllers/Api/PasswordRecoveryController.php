@@ -6,8 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\PasswordHistory;
 use App\Models\SecurityLog;
 use App\Models\User;
-use App\Notifications\PasswordRecoveryCodeNotification;
 use App\Notifications\PasswordResetConfirmationNotification;
+use App\Services\PasswordResetOtpService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -82,8 +82,13 @@ class PasswordRecoveryController extends Controller
      * memorizable por el usuario debe vivir mucho menos tiempo que un
      * enlace: 10 minutos es suficiente para que la persona revise su correo
      * y lo escriba, y acota mucho más la ventana de fuerza bruta que 60.
+     *
+     * Definida en términos de {@see PasswordResetOtpService::OTP_TTL_MINUTES}
+     * -- único punto de verdad del valor, reutilizado también por
+     * `UserManagementController::resetPassword()` (CU-006.9). No se duplica
+     * el número aquí, solo se referencia.
      */
-    private const OTP_TTL_MINUTES = 10;
+    private const OTP_TTL_MINUTES = PasswordResetOtpService::OTP_TTL_MINUTES;
 
     /**
      * Hallazgo Alta (especialista-seguridad, 2026-07-13): mismo umbral que
@@ -112,29 +117,13 @@ class PasswordRecoveryController extends Controller
         $user = $this->findUserByEmail($email);
 
         if ($user) {
-            $code = (string) random_int(100000, 999999);
-
-            // Hallazgo Baja-Media (especialista-seguridad, 2026-07-13):
-            // `updateOrInsert()` hace exists()+insert()/update() como pasos
-            // separados, no es atómico -- dos forgot() concurrentes para el
-            // mismo correo pueden colisionar en el INSERT sobre la PK
-            // `email` y lanzar una excepción no capturada. `upsert()` es una
-            // sola sentencia INSERT ... ON CONFLICT, atómica a nivel de BD.
-            // `attempts` se incluye en las columnas a actualizar para que
-            // una solicitud nueva siempre reinicie el contador de intentos
-            // del código anterior.
-            DB::table('password_reset_tokens')->upsert(
-                [[
-                    'email' => $email,
-                    'token' => Hash::make($code),
-                    'attempts' => 0,
-                    'created_at' => now(),
-                ]],
-                ['email'],
-                ['token', 'attempts', 'created_at'],
-            );
-
-            $user->notify(new PasswordRecoveryCodeNotification($code, self::OTP_TTL_MINUTES));
+            // Extraído a PasswordResetOtpService::issueFor() (mismo criterio
+            // que UserProvisioningService) -- reutilizado tal cual por
+            // UserManagementController::resetPassword() (CU-006.9). El
+            // hallazgo Baja-Media (especialista-seguridad, 2026-07-13,
+            // `upsert()` atómico vs. `updateOrInsert()`) vive ahora dentro
+            // del servicio, no se duplica aquí.
+            PasswordResetOtpService::issueFor($user);
 
             $this->logSecurityEvent($request, 'PASSWORD_RESET_REQUESTED', 'SUCCESS', 'Solicitud de código de recuperación de contraseña.', $user);
         } else {
