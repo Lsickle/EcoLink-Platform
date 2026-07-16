@@ -1,0 +1,897 @@
+[
+  {
+    "tipo": "A",
+    "code": "A1010",
+    "name": "Desechos metálicos y desechos que contengan aleaciones de cualquiera de las sustancias siguientes: Antimonio, Arsénico, Berilio, Cadmio, Plomo, Mercurio, Selenio, Telurio, Talio."
+  },
+  {
+    "tipo": "A",
+    "code": "A1020",
+    "name": "Desechos que tengan como constituyentes o contaminantes, excluidos los desechos de metal en forma masiva, cualquiera de las sustancias siguientes: Antimonio; compuestos de antimonio, Berilio; compuestos de berilio, Cadmio; compuestos de cadmio, Plomo; compuestos de plomo, Selenio; compuestos d"
+  },
+  {
+    "tipo": "A",
+    "code": "A1030",
+    "name": "Desechos que tengan como constituyentes o contaminantes cualquiera de las sustancias siguientes: Arsénico; compuestos de arsénico. Mercurio; compuestos de mercurio. Talio; compuestos de talio."
+  },
+  {
+    "tipo": "A",
+    "code": "A1040",
+    "name": "Desechos que tengan como constituyentes: Carbonilos de metal Compuestos de cromo hexavalente."
+  },
+  {
+    "tipo": "A",
+    "code": "A1050",
+    "name": "Desechos que tengan como constituyentes:Lodos galvánicos."
+  },
+  {
+    "tipo": "A",
+    "code": "A1060",
+    "name": "Desechos que tengan como constituyentes:Líquidos de desecho del decapaje de metales."
+  },
+  {
+    "tipo": "A",
+    "code": "A1070",
+    "name": "Desechos que tengan como constituyentes: Residuos de lixiviación del tratamiento del zinc, polvos y lodos como jarosita, hematites, etc."
+  },
+  {
+    "tipo": "A",
+    "code": "A1080",
+    "name": "Desechos que tengan como constituyentes: Residuos de desechos de zinc no incluidos en la lista B,"
+  },
+  {
+    "tipo": "A",
+    "code": "A1090",
+    "name": "Desechos que tengan como constituyentes: Cenizas de la incineración de cables de cobre recubiertos."
+  },
+  {
+    "tipo": "A",
+    "code": "A1100",
+    "name": "Desechos que tengan como constituyentes: Polvos y residuos de los sistemas de depuración de gases de las fundiciones de cobre."
+  },
+  {
+    "tipo": "A",
+    "code": "A1110",
+    "name": "Desechos que tengan como constituyentes: Soluciones electrolíticas usadas de las operaciones de refinación y extracción electrolítica del cobre."
+  },
+  {
+    "tipo": "A",
+    "code": "A1120",
+    "name": "Desechos que tengan como constituyentes: Lodos residuales, excluidos los fangos anódicos, de los sistemas de depuración electrolítica de las operaciones de refinación y extracción electrolítica del cobre."
+  },
+  {
+    "tipo": "A",
+    "code": "A1130",
+    "name": "Desechos que tengan como constituyentes: Soluciones de ácidos para grabar usadas que contengan cobre disuelto."
+  },
+  {
+    "tipo": "A",
+    "code": "A1140",
+    "name": "Desechos que tengan como constituyentes: Desechos de catalizadores de cloruro cúprico y cianuro de cobre."
+  },
+  {
+    "tipo": "A",
+    "code": "A1150",
+    "name": "Desechos que tengan como constituyentes: Cenizas de metales preciosos procedentes de la incineración de circuitos impresos no incluidos en la lista B3 ."
+  },
+  {
+    "tipo": "A",
+    "code": "A1160",
+    "name": "Desechos que tengan como constituyentes: Acumuladores de plomo de desecho, enteros o triturados."
+  },
+  {
+    "tipo": "A",
+    "code": "A1170",
+    "name": "Desechos que tengan como constituyentes:Desechos que tengan como constituyentes: Acumuladores de desecho sin seleccionar excluidas mezclas de acumuladores sólo de la lista B."
+  },
+  {
+    "tipo": "A",
+    "code": "A1180",
+    "name": "Montajes eléctricos y electrónicos de desecho o restos de estos4 que contengan componentes como acumuladores y otras baterías incluidos en la lista A, interruptores de mercurio, vidrios de tubos de rayos catódicos y otros vidrios activados y capacitadores de PCB, o contaminados con constituyen"
+  },
+  {
+    "tipo": "A",
+    "code": "A1181",
+    "name": "Desechos de equipo eléctricos y electrónicos."
+  },
+  {
+    "tipo": "A",
+    "code": "A2010",
+    "name": "Desechos de vidrio de tubos de rayos catódicos y otros vidrios activados."
+  },
+  {
+    "tipo": "A",
+    "code": "A2020",
+    "name": "Desechos de compuestos inorgánicos de flúor en forma de líquidos o lodos, pero excluidos los desechos de ese tipo especificados en la lista B."
+  },
+  {
+    "tipo": "A",
+    "code": "A2030",
+    "name": "Desechos de catalizadores, pero excluidos los desechos de este tipo especificados en la lista B."
+  },
+  {
+    "tipo": "A",
+    "code": "A2040",
+    "name": "Yeso de desecho procedente de procesos de la industria química, si contiene constituyentes del Anexo I en tal grado que presenten una característica peligrosa del Anexo III (véase la entrada correspondiente en la lista B B2080)."
+  },
+  {
+    "tipo": "A",
+    "code": "A2050",
+    "name": "Desechos de amianto (polvo y fibras)."
+  },
+  {
+    "tipo": "A",
+    "code": "A2060",
+    "name": "Cenizas volantes de centrales eléctricas de carbón que contengan sustancias del Anexo I en concentraciones tales que presenten características del Anexo III"
+  },
+  {
+    "tipo": "A",
+    "code": "A3010",
+    "name": "Desechos resultantes de la producción o el tratamiento de coque de petróleo y asfalto."
+  },
+  {
+    "tipo": "A",
+    "code": "A3020",
+    "name": "Aceites minerales de desecho no aptos para el uso al que estaban destinados."
+  },
+  {
+    "tipo": "A",
+    "code": "A3020.1",
+    "name": "Aceite, lubricante usado(Ej. aceite lubricante mineral, sintetico, hidraulico usado)"
+  },
+  {
+    "tipo": "A",
+    "code": "A3020.2",
+    "name": "Elementos o materiales contaminados con aceite lubricante usado(Ej. EPP, estopas, trapos, filtros, cauchos, aserrin, plasticos, grasas minerales, tapas casing)"
+  },
+  {
+    "tipo": "A",
+    "code": "A3020.3",
+    "name": "Lodos, tierra o sedimientos impregnados de aceite lubricante usado"
+  },
+  {
+    "tipo": "A",
+    "code": "A3020.4",
+    "name": "Mezclas de aceites lubricante usado con agua"
+  },
+  {
+    "tipo": "A",
+    "code": "A3020.5",
+    "name": "Aceites dielectricos de desecho con una concentracion menor a 50mg/kg (50ppm) de PCB. Si el aceite dielectrico contiene 50ppm o mas de PCB, clasifiquelo por las corrientes Y10.2 o A3180.2"
+  },
+  {
+    "tipo": "A",
+    "code": "A3020.6",
+    "name": "Envases, recipientes, canecas, bidones o contenedores que contienen o que estan contaminados con aceites usados"
+  },
+  {
+    "tipo": "A",
+    "code": "A3020.7",
+    "name": "Otros desechos de mezclas de aceite y agua no clasificados previamente"
+  },
+  {
+    "tipo": "A",
+    "code": "A3030",
+    "name": "Desechos que contengan, estén integrados o estén contaminados por lodos de compuestos antidetonantes con plomo."
+  },
+  {
+    "tipo": "A",
+    "code": "A3040",
+    "name": "Desechos de líquidos térmicos (transferencia de calor)."
+  },
+  {
+    "tipo": "A",
+    "code": "A3050",
+    "name": "Desechos resultantes de la producción, preparación y utilización de resinas, látex, plastificantes o colas/adhesivos excepto los desechos especificados en la lista B (véase el apartado correspondiente en la lista B B4020)."
+  },
+  {
+    "tipo": "A",
+    "code": "A3060",
+    "name": "Nitrocelulosa de desecho."
+  },
+  {
+    "tipo": "A",
+    "code": "A3070",
+    "name": "Desechos de fenoles, compuestos fenólicos, incluido el clorofenol en forma de líquido o de lodo."
+  },
+  {
+    "tipo": "A",
+    "code": "A3080",
+    "name": "Desechos de éteres excepto los especificados en la lista B."
+  },
+  {
+    "tipo": "A",
+    "code": "A3090",
+    "name": "Desechos de cuero en forma de polvo, cenizas, lodos y harinas que contengan compuestos de plomo hexavalente o biocidas"
+  },
+  {
+    "tipo": "A",
+    "code": "A3100",
+    "name": "Raeduras y otros desechos del cuero o de cuero regenerado que no sirvan para la fabricación de artículos de cuero, que contengan compuestos de cromo hexavalente o biocidas"
+  },
+  {
+    "tipo": "A",
+    "code": "A3110",
+    "name": "Desechos del curtido de pieles que contengan compuestos de cromo hexavalente o biocidas o sustancias infecciosas"
+  },
+  {
+    "tipo": "A",
+    "code": "A3120",
+    "name": "Pelusas - fragmentos ligeros resultantes del desmenuzamiento."
+  },
+  {
+    "tipo": "A",
+    "code": "A3130",
+    "name": "Desechos de compuestos de fósforo orgánicos."
+  },
+  {
+    "tipo": "A",
+    "code": "A3140",
+    "name": "Desechos de disolventes orgánicos no halogenados pero con exclusión de los desechos especificados en la lista B."
+  },
+  {
+    "tipo": "A",
+    "code": "A3150",
+    "name": "Desechos de disolventes orgánicos halogenados."
+  },
+  {
+    "tipo": "A",
+    "code": "A3160",
+    "name": "Desechos resultantes de residuos no acuosos de destilación halogenados o no halogenados derivados de operaciones de recuperación de disolventes orgánicos."
+  },
+  {
+    "tipo": "A",
+    "code": "A3170",
+    "name": "Desechos resultantes de la producción de hidrocarburos halogenados alifáticos (tales como clorometano, dicloroetano, cloruro de vinilo, cloruro de alilo y epicloridrina)."
+  },
+  {
+    "tipo": "A",
+    "code": "A3180",
+    "name": "Desechos, sustancias y artículos que contienen, consisten o están contaminados con bifenilo policlorado (PCB), terfenilo policlorado (PCT), naftaleno policlorado (PCN) o bifenilo polibromad o (PBB), o cualquier otro compuesto polibromado análogo, con una concentración igual o superior a 50 mg/"
+  },
+  {
+    "tipo": "A",
+    "code": "A3180.1",
+    "name": "Equipos desechados: equipos que hayan contenido o contengan aceites dielectricos con una concentracion mayor a 50 ppm de PCB o carcazas cuando la superficie solida"
+  },
+  {
+    "tipo": "A",
+    "code": "A3180.2",
+    "name": "Aceites dilectricos que consistan, contengan o esten contaminados con PCB: aceites dielectricos con una concentracion igual o mayor a 50 ppm de PCB"
+  },
+  {
+    "tipo": "A",
+    "code": "A3180.3",
+    "name": "Desechos o residuos que contengan o esten contaminados con PCB: elementos, sustancias, fluidos diferentes a los aceites dielectricos y materiales con PCB en una concentracion"
+  },
+  {
+    "tipo": "A",
+    "code": "A3180.4",
+    "name": "Envases, recipientes, canecas, bidones o contenedores que contienen o que estan contaminados con PCB"
+  },
+  {
+    "tipo": "A",
+    "code": "A3180.5",
+    "name": "Sustancias y articulos de desecho que contengan o esten contaminados con terfenilos policlorados(PCT), bifenilos polibromados(PBB), naftaleno policlorado(PCN) o culaquiera de estas"
+  },
+  {
+    "tipo": "A",
+    "code": "A3190",
+    "name": "Desechos de residuos alquitranados (con exclusión de los cementos asfálticos) resultantes de la refinación, destilación o cualquier otro tratamiento pirolítico de materiales orgánicos."
+  },
+  {
+    "tipo": "A",
+    "code": "A3200",
+    "name": "Material bituminoso (desechos de asfalto) con contenido de alquitrán resultantes de la construcción y el mantenimiento de carreteras (obsérvese el artículo correspondiente B2130 de la lista B)."
+  },
+  {
+    "tipo": "A",
+    "code": "A4010",
+    "name": "Desechos resultantes de la producción, preparación y utilización de productos farmacéuticos, pero con exclusión de los desechos especificados en la lista B."
+  },
+  {
+    "tipo": "A",
+    "code": "A4020",
+    "name": "Desechos clínicos y afines; es decir, desechos resultantes de prácticas médicas, de enfermería, dentales, veterinarias o actividades similares, y desechos generados en hospitales u otras instalaciones durante actividades de investigación o el tratamiento de pacientes, o de proyectos de investi"
+  },
+  {
+    "tipo": "A",
+    "code": "A4020.1",
+    "name": "DESECHOS CLINICOS Y AFINES ANATOMOPATOLOGICOS"
+  },
+  {
+    "tipo": "A",
+    "code": "A4020.2",
+    "name": "DESECHOS CLINICOS Y AFINES BIOSANITARIOS"
+  },
+  {
+    "tipo": "A",
+    "code": "A4020.3",
+    "name": "DESECHOS CLINICOS Y AFINES CORTOPUNZANTES"
+  },
+  {
+    "tipo": "A",
+    "code": "A4020.4",
+    "name": "DESECHOS CLINICOS Y AFINES DE ANIMALES"
+  },
+  {
+    "tipo": "A",
+    "code": "A4030",
+    "name": "Desechos resultantes de la producción, la preparación y la utilización de biocidas y productos fitofarmacéuticos, con inclusión de desechos de plaguicidas y herbicidas que no respondan a las especificaciones, caducados, en desuso o no aptos para el uso previsto originalmente."
+  },
+  {
+    "tipo": "A",
+    "code": "A4030.1",
+    "name": "Plaguicidas, biocidas, productos fitofarmacéuticos obsoletos (ej. fuera de especificaciones, caducados o en desuso)"
+  },
+  {
+    "tipo": "A",
+    "code": "A4030.2",
+    "name": "Elementos o materiales contaminados con plaguicidas, biocidas, productos fitofarmacéuticos (ej. EPP, estopas, trapos, cauchos, aserrín, arena, materiales de embalaje)"
+  },
+  {
+    "tipo": "A",
+    "code": "A4030.3",
+    "name": "Tierra o sedimentos impregnados con plaguicidas, biocidas o productos fitofarmacéuticos"
+  },
+  {
+    "tipo": "A",
+    "code": "A4030.4",
+    "name": "Residuos de bolsas plásticas impregnadas de plaguicidas o biocidas (ej. residuos de bolsas utilizadas en cultivos de plátano y banano)"
+  },
+  {
+    "tipo": "A",
+    "code": "A4030.5",
+    "name": "Envases, recipientes, canecas, bidones o contenedores que contienen o que están contaminados con plaguicidas, biocidas o productos fitofarmacéuticos"
+  },
+  {
+    "tipo": "A",
+    "code": "A4030.6",
+    "name": "Otros residuos de plaguicidas, biocidas o productos fitofarmacéuticos no clasificados previamente"
+  },
+  {
+    "tipo": "A",
+    "code": "A4040",
+    "name": "Desechos resultantes de la fabricación, preparación y utilización de productos químicos para la preservación de la madera"
+  },
+  {
+    "tipo": "A",
+    "code": "A4050",
+    "name": "Desechos que contienen, consisten o están contaminados con algunos de los productos siguientes:Cianuros inorgánicos, con excepción de residuos que contienen metales preciosos, en forma sólida, con trazas de cianuros inorgánicos. Cianuros orgánicos."
+  },
+  {
+    "tipo": "A",
+    "code": "A4060",
+    "name": "Desechos de mezclas y emulsiones de aceite y agua o de hidrocarburos y agua."
+  },
+  {
+    "tipo": "A",
+    "code": "A4060.1",
+    "name": "Lodos y cortes de perforacion base aceite, borras y lodos aceitosos"
+  },
+  {
+    "tipo": "A",
+    "code": "A4060.2",
+    "name": "Elementos o materiales contaminados con hidrocarburos(Ej. EPP, estopas, textiles, plasticos, caucho, sierras, geomembranas)"
+  },
+  {
+    "tipo": "A",
+    "code": "A4060.3",
+    "name": "Solidos o semisolidos impregnados con hidrocarburo(Ej. tierra, suelo, arena)"
+  },
+  {
+    "tipo": "A",
+    "code": "A4060.4",
+    "name": "Mezclas o emulsiones liquidas de agua con hidrocarburo con contenido de solidos < 15% e hidrocarburo > 3%"
+  },
+  {
+    "tipo": "A",
+    "code": "A4060.5",
+    "name": "Envases, recipientes, canecas, bidones o contenedores que contienen o que estan contaminados con hidrocarburos"
+  },
+  {
+    "tipo": "A",
+    "code": "A4060.6",
+    "name": "Otros desechos de mezclas y emulsiones de hidrocarburos y agua no clasificados previamente"
+  },
+  {
+    "tipo": "A",
+    "code": "A4070",
+    "name": "Desechos resultantes de la producción, preparación y utilización de tintas, colorantes, pigmentos, pinturas, lacas o barnices, con exclusión de los desechos especificados en la lista B (véase el apartado correspondiente de la lista B B4010)."
+  },
+  {
+    "tipo": "A",
+    "code": "A4080",
+    "name": "Desechos de carácter explosivo (pero con exclusión de los desechos especificados en la lista B)."
+  },
+  {
+    "tipo": "A",
+    "code": "A4090",
+    "name": "Desechos de soluciones ácidas o básicas, distintas de las especificadas en el apartado correspondiente de la lista B (véase el apartado correspondiente de la lista B B2120)."
+  },
+  {
+    "tipo": "A",
+    "code": "A4100",
+    "name": "Desechos resultantes de la utilización de dispositivos de control de la contaminación industrial para la depuración de los gases industriales, pero con exclusión de los desechos especificados en la lista B."
+  },
+  {
+    "tipo": "A",
+    "code": "A4110",
+    "name": "Desechos que contienen, consisten o están contaminados con algunos de los productos siguientes: Cualquier sustancia del grupo de los dibenzofuranos policlorados. Cualquier sustancia del grupo de las dibenzodioxinas policloradas."
+  },
+  {
+    "tipo": "A",
+    "code": "A4120",
+    "name": "Desechos que contienen, consisten o están contaminados con peróxidos"
+  },
+  {
+    "tipo": "A",
+    "code": "A4130",
+    "name": "Envases y contenedores de desechos que contienen sustancias incluidas en el Anexo I, en concentraciones suficientes como para mostrar las características peligrosas del Anexo III."
+  },
+  {
+    "tipo": "A",
+    "code": "A4130.1",
+    "name": "Otros envases, recipientes, canecas, bidones o contenedores que contienen o que están contaminados con productos o sustancias químicas peligrosas, DIFERENTES a plaguicidas, biocidas, productos fitofarmacéuticos"
+  },
+  {
+    "tipo": "A",
+    "code": "A4140",
+    "name": "Desechos consistentes o que contienen productos químicos que no responden a las especificaciones o caducados"
+  },
+  {
+    "tipo": "A",
+    "code": "A4150",
+    "name": "Sustancias químicas de desecho, no identificadas o nuevas, resultantes de la investigación y el desarrollo o de las actividades de enseñanza y cuyos efectos en el ser humano o el medio ambiente no se conozcan."
+  },
+  {
+    "tipo": "A",
+    "code": "A4160",
+    "name": "Carbono activado consumido no incluido en la lista B (véase el correspondiente apartado de la lista B B2060)."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y1",
+    "name": "Desechos clínicos resultantes de la atención médica prestada en hospitales, centros médicos y clínicas."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y1.1",
+    "name": "Desechos clínicos ANATOMOPATOLÓGICOS resultantes de la aténción en salud en hospitales, consultorios, clínicas y otros"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y1.2",
+    "name": "Desechos clinicos BIOSANITARIOS resultantes de la atención en salud n hospitales, consultorios, clínicas y otros"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y1.3",
+    "name": "Desechos clínicos CORTOPUNZANTES resultantes de la anteción en hospitales, consultorios, clínicas y otros"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y1.4",
+    "name": "Desechos de ANIMALES-residuos decomisos NO aprovechables"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y2",
+    "name": "Desechos resultantes de la producción y preparación de productos farmacéuticos."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y3",
+    "name": "Desechos de medicamentos y productos farmacéuticos."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y3.1",
+    "name": "Desechos de medicamentos y productos farmacéuticos vencidos o deteriorados incluyendo sus envases y/o empaques"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y3.2",
+    "name": "Desechos de medicamentos y productos farmacéuticos consumidos o parcialmente consumidos incluyendo sus envases y/o empaques."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y3.3",
+    "name": "Desechos de medicamentos de control especial (Fondo Nacional de Estupefacientes)"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y4",
+    "name": "Desechos resultantes de la producción, la preparación y la utilización de biocidas y productos fitofarmacéuticos."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y4.1",
+    "name": "Plaguicidas, biocidas, productos fitofarmacéuticos obsoletos (ej. fuera de especificaciones, caducados o en desuso)"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y4.2",
+    "name": "Elementos o materiales contaminados con plaguicidas, biocidas, productos fitofarmacéuticos (ej. EPP, estopas, trapos, cauchos, aserrín, arena, materiales de embalaje)"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y4.3",
+    "name": "Tierra o sedimentos impregnados con plaguicidas, biocidas o productos fitofarmacéuticos"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y4.4",
+    "name": "Residuos de bolsas plásticas impregnadas de plaguicidas o biocidas (ej. residuos de bolsas utilizadas en cultivos de plátano y banano)"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y4.5",
+    "name": "Envases, recipientes, canecas, bidones o contenedores que contienen o que están contaminados con plaguicidas, biocidas o productos fitofarmacéuticos"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y4.6",
+    "name": "Otros residuos de plaguicidas, biocidas o productos fitofarmacéuticos no clasificados previamente"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y5",
+    "name": "Desechos resultantes de la fabricación, preparación y utilización de productos químicos para la preservación de la madera."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y6",
+    "name": "Desechos resultantes de la producción, la preparación y la utilización de disolventes orgánicos."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y7",
+    "name": "Desechos que contengan cianuros, resultantes del tratamiento térmico y las operaciones de temple."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y8",
+    "name": "Desechos de aceites minerales no aptos para el uso a que estaban destinados."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y8.1",
+    "name": "Aceite, lubricante usado(Ej. aceite lubricante mineral, sintetico, hidraulico usado)"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y8.2",
+    "name": "Elementos o materiales contaminados con aceite lubricante usado(Ej. EPP, estopas, trapos, filtros, cauchos, aserrin, plasticos, grasas minerales, tapas casing)"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y8.3",
+    "name": "Lodos, tierra o sedimientos impregnados de aceite lubricante usado"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y8.4",
+    "name": "Mezclas de aceites lubricante usado con agua"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y8.5",
+    "name": "Aceites dielectricos de desecho con una concentracion menor a 50mg/kg (50ppm) de PCB. Si el aceite dielectrico contiene 50ppm o mas de PCB, clasifiquelo por las corrientes Y10.2 o A3180.2"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y8.6",
+    "name": "Envases, recipientes, canecas, bidones o contenedores que contienen o que estan contaminados con aceites usados"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y8.7",
+    "name": "Otros desechos de mezclas de aceite y agua no clasificados previamente"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y9",
+    "name": "Mezclas y emulsiones de desechos de aceite y agua o de hidrocarburos y agua."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y9.1",
+    "name": "Lodos y cortes de perforacion base aceite, borras y lodos aceitosos"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y9.2",
+    "name": "Elementos o materiales contaminados con hidrocarburos(Ej. EPP, estopas, textiles, plasticos, caucho, sierras, geomembranas)"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y9.3",
+    "name": "Solidos o semisolidos impregnados con hidrocarburo(Ej. tierra, suelo, arena)"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y9.4",
+    "name": "Mezclas o emulsiones liquidas de agua con hidrocarburo con contenido de solidos < 15% e hidrocarburo > 3%"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y9.5",
+    "name": "Envases, recipientes, canecas, bidones o contenedores que contienen o que estan contaminados con hidrocarburos"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y9.6",
+    "name": "Otros desechos de mezclas y emulsiones de hidrocarburos y agua no clasificados previamente"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y10",
+    "name": "Sustancias y artículos de desecho que contengan, o estén contaminados por, bifenilos policlorados (PCB), terfenilos policlorados (PCT) o bifenilos polibromados (PBB)."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y10.1",
+    "name": "Equipos desechados: equipos que hayan contenido o contengan aceites dielectricos con una concentracion mayor a 50 ppm de PCB o carcazas cuando la superficie solida"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y10.2",
+    "name": "Aceites dilectricos que consistan, contengan o esten contaminados con PCB: aceites dielectricos con una concentracion igual o mayor a 50 ppm de PCB"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y10.3",
+    "name": "Desechos o residuos que contengan o esten contaminados con PCB: elementos, sustancias, fluidos diferentes a los aceites dielectricos y materiales con PCB en una concentracion"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y10.4",
+    "name": "Envases, recipientes, canecas, bidones o contenedores que contienen o que estan contaminados con PCB"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y10.5",
+    "name": "Sustancias y articulos de desecho que contengan o esten contaminados con terfenilos policlorados(PCT), bifenilos polibromados(PBB), naftaleno policlorado(PCN) o culaquiera de estas"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y11",
+    "name": "Residuos alquitranados resultantes de la refinación, destilación o cualquier otro tratamiento pirolítico."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y12",
+    "name": "Desechos resultantes de la producción, preparación y utilización de tintas, colorantes, pigmentos, pinturas, lacas o barnices."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y13",
+    "name": "Desechos resultantes de la producción, preparación y utilización de resinas, látex, plastificantes o colas y adhesivos."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y14",
+    "name": "Sustancias químicas de desecho, no identificadas o nuevas, resultantes de la investigación y el desarrollo o de las actividades de enseñanza y cuyos efectos en el ser humano o el medio ambiente no se conozcan."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y15",
+    "name": "Desechos de carácter explosivo que no estén sometidos a una legislación diferente."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y16",
+    "name": "Desechos resultantes de la producción; preparación y utilización de productos químicos y materiales para fines fotográficos."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y17",
+    "name": "Desechos resultantes del tratamiento de superficie de metales y plásticos."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y18",
+    "name": "Residuos resultantes de las operaciones de eliminación de desechos industriales."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y19",
+    "name": "Desechos que tengan como constituyentes: Metales carbonilos."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y20",
+    "name": "Desechos que tengan como constituyentes: Berilio, compuestos de berilio"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y21",
+    "name": "Desechos que tengan como constituyentes:Compuestos de cromo hexavalente."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y22",
+    "name": "Desechos que tengan como constituyentes: Compuestos de cobre."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y23",
+    "name": "Desechos que tengan como constituyentes:Compuestos de zinc."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y24",
+    "name": "Desechos que tengan como constituyentes:Arsénico, compuestos de arsénico."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y25",
+    "name": "Desechos que tengan como constituyentes: Selenio, compuestos de selenio."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y26",
+    "name": "Desechos que tengan como constituyentes: Cadmio, compuestos de cadmio."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y27",
+    "name": "Desechos que tengan como constituyentes: Antimonio, compuestos de antimonio."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y28",
+    "name": "Desechos que tengan como constituyentes: Telurio, compuestos de telurio."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y29",
+    "name": "Desechos que tengan como constituyentes: Mercurio, compuestos de mercurio."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y29.1",
+    "name": "Desechos que constan de mercurio o compuestos de mercurio (Ej. mercurio metálico, desechos de cloruro de mercurio, sulfuro de mercurio)"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y29.2",
+    "name": "Desechos que contienen mercurio o compuestos de mercurio (ej. Lámparas fluorescentes compactas o lineales, lámparas de vapor de mercurio, amalgama dental, termómetros de mercurio, manómetros no electrónicos)."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y29.3",
+    "name": "Desechos contaminados con mercurio o compuestos de mercurio (Ej. tierra, relaves, materiales o elementos contaminados con mercurio, trapos, estopas)."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y30",
+    "name": "Desechos que tengan como constituyentes: Talio, compuestos de talio."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y31",
+    "name": "Desechos que tengan como constituyentes: Plomo, compuestos de plomo."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y32",
+    "name": "Desechos que tengan como constituyentes:Compuestos inorgánicos de flúor, con exclusión del fluoruro cálcico"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y33",
+    "name": "Desechos que tengan como constituyentes: Cianuros inorgánicos."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y34",
+    "name": "Desechos que tengan como constituyentes: Soluciones ácidas o ácidos en forma sólida."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y35",
+    "name": "Desechos que tengan como constituyentes: Soluciones básicas o bases en forma sólida."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y36",
+    "name": "Desechos que tengan como constituyentes: Asbesto (polvo y fibras)."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y37",
+    "name": "Desechos que tengan como constituyentes: Compuestos orgánicos de fósforo."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y38",
+    "name": "Desechos que tengan como constituyentes:Cianuros orgánicos."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y39",
+    "name": "Desechos que tengan como constituyentes: Fenoles, compuestos fenólicos, con inclusión de clorofenoles."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y40",
+    "name": "Desechos que tengan como constituyentes: Eteres."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y41",
+    "name": "Desechos que tengan como constituyentes: Solventes orgánicos halogenados."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y41.1",
+    "name": "Desechos que tengan como constituyentes: solventes organicos halogenados de sustancias clorofluorocarbonadas(CFC), hidroclofluorocarbonadas(HCFC)."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y41.2",
+    "name": "Otros desechos que tengan como constituyentes: solventes organicos halogenados"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y42",
+    "name": "Desechos que tengan como constituyentes:Disolventes orgánicos, con exclusión de disolventes halogenados."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y43",
+    "name": "Desechos que tengan como constituyentes:Cualquier sustancia del grupo de los dibenzofuranos policlorados."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y44",
+    "name": "Desechos que tengan como constituyentes: Cualquier sustancia del grupo de las dibenzoparadioxinas policloradas."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y45",
+    "name": "Desechos que tengan como constituyentes: Compuestos organohalogenados, que no sean las sustancias mencionadas en el presente anexo (por ejemplo, Y39, Y41, Y42, Y43, Y44)."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y45.1",
+    "name": "Residuos o desechos de sustancias o contaminados con clorofluorocarbonos (CFC) utilizados como: refrigerantes, agentes espumantes, propelentes o agentes de extinción de incendios. Reporte aquí únicamente el peso de la sustancia y reporte los envases o cilindros vacíos por la corriente Y45.6"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y45.2",
+    "name": "Residuos o desechos de sustancias o contaminados con hidroclorofluorocarbonos (HCFC) utilizados como: refrigerantes, agentes espumantes, propelentes o agentes de extinción de incendios."
+  },
+  {
+    "tipo": "Y",
+    "code": "Y45.3",
+    "name": "Residuos o desechos de sustancias o contaminados con Hidrofluorocarbonos (HFC) utilizados como: refrigerantes, agentes espumantes, propelentes o agentes de extinción de incendios. Reporte aquí únicamente el peso de la sustancia y reporte los envases o cilindros vacíos por la corriente Y45.6"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y45.4",
+    "name": "Residuos o desechos de sustancias o contaminados con halones utilizados como: refrigerantes, agentes espumantes, propelentes o agentes de extinción de incendios. Reporte aquí únicamente el peso de la sustancia y reporte los envases o cilindros vacíos por la corriente Y45.6"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y45.5",
+    "name": "Residuos o desechos de mezclas de CFC, HCFC, HFC y halones. Reporte aquí únicamente el peso de la mezcla y reporte los envases o cilindros vacíos por la corriente Y45.6"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y45.6",
+    "name": "Envases o cilindros vacíos de refrigerantes, agentes espumantes, propelentes, solventes o agentes de extinción de incendios que hayan contenido sustancias CFC, HCFC, HFC y halones"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y45.7",
+    "name": "Otros residuos o desechos de compuestos organohalogenados no clasificados en Y45.1 a Y45.5, que no sean sustancias que se clasifiquen en otra corriente (por ejemplo: Y39, Y41, Y42, Y43, Y44)"
+  },
+  {
+    "tipo": "Y",
+    "code": "Y49",
+    "name": "Desechos de equipo eléctricos y electrónicos."
+  }
+]

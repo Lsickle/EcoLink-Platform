@@ -1,0 +1,262 @@
+[
+  {
+    "code": "UN1013",
+    "name": "Dióxido de carbono comprimido"
+  },
+  {
+    "code": "UN1049",
+    "name": "Hidrógeno comprimido"
+  },
+  {
+    "code": "UN1075",
+    "name": "Gases licuados de petróleo (GLP)"
+  },
+  {
+    "code": "UN1080",
+    "name": "Hexafluoruro de azufre"
+  },
+  {
+    "code": "UN1090",
+    "name": "Acetona"
+  },
+  {
+    "code": "UN1133",
+    "name": "Adhesivos inflamables"
+  },
+  {
+    "code": "UN1170",
+    "name": "Etanol o soluciones de etanol"
+  },
+  {
+    "code": "UN1202",
+    "name": "Diésel o ACPM"
+  },
+  {
+    "code": "UN1203",
+    "name": "Gasolina"
+  },
+  {
+    "code": "UN1210",
+    "name": "Tinta para impresión inflamable"
+  },
+  {
+    "code": "UN1223",
+    "name": "Queroseno"
+  },
+  {
+    "code": "UN1263",
+    "name": "Pintura o material relacionado con pintura"
+  },
+  {
+    "code": "UN1268",
+    "name": "Destilados de petróleo N.E.P."
+  },
+  {
+    "code": "UN1307",
+    "name": "Xilenos"
+  },
+  {
+    "code": "UN1719",
+    "name": "Líquido cáustico alcalino N.E.P."
+  },
+  {
+    "code": "UN1744",
+    "name": "Bromo o soluciones de bromo"
+  },
+  {
+    "code": "UN1760",
+    "name": "Líquido corrosivo N.E.P."
+  },
+  {
+    "code": "UN1789",
+    "name": "Ácido clorhídrico"
+  },
+  {
+    "code": "UN1791",
+    "name": "Solución de hipoclorito"
+  },
+  {
+    "code": "UN1824",
+    "name": "Hidróxido de sodio en solución"
+  },
+  {
+    "code": "UN1830",
+    "name": "Ácido sulfúrico"
+  },
+  {
+    "code": "UN1845",
+    "name": "Hielo seco (CO₂ sólido)"
+  },
+  {
+    "code": "UN1866",
+    "name": "Solución de resina"
+  },
+  {
+    "code": "UN1950",
+    "name": "Aerosoles"
+  },
+  {
+    "code": "UN1993",
+    "name": "Líquido inflamable N.E.P."
+  },
+  {
+    "code": "UN2014",
+    "name": "Peróxido de hidrógeno"
+  },
+  {
+    "code": "UN2031",
+    "name": "Ácido nítrico"
+  },
+  {
+    "code": "UN2315",
+    "name": "Bifenilos policlorados (PCB) líquidos"
+  },
+  {
+    "code": "UN2794",
+    "name": "Baterías húmedas con ácido"
+  },
+  {
+    "code": "UN2800",
+    "name": "Baterías húmedas no derramables"
+  },
+  {
+    "code": "UN2810",
+    "name": "Líquido tóxico orgánico N.E.P."
+  },
+  {
+    "code": "UN2811",
+    "name": "Sólido tóxico orgánico N.E.P."
+  },
+  {
+    "code": "UN2814",
+    "name": "Sustancia infecciosa que afecta a seres humanos"
+  },
+  {
+    "code": "UN2900",
+    "name": "Sustancia infecciosa que afecta únicamente a animales"
+  },
+  {
+    "code": "UN2902",
+    "name": "Plaguicida líquido tóxico"
+  },
+  {
+    "code": "UN2922",
+    "name": "Líquido corrosivo tóxico N.E.P."
+  },
+  {
+    "code": "UN2923",
+    "name": "Líquido corrosivo inflamable N.E.P."
+  },
+  {
+    "code": "UN2924",
+    "name": "Líquido inflamable corrosivo N.E.P."
+  },
+  {
+    "code": "UN3017",
+    "name": "Plaguicida sólido tóxico"
+  },
+  {
+    "code": "UN3077",
+    "name": "Sustancia peligrosa para el medio ambiente, sólida N.E.P."
+  },
+  {
+    "code": "UN3082",
+    "name": "Sustancia peligrosa para el medio ambiente, líquida N.E.P."
+  },
+  {
+    "code": "UN3151",
+    "name": "Gas licuado inflamable N.E.P."
+  },
+  {
+    "code": "UN3175",
+    "name": "Sólidos que contienen líquidos inflamables"
+  },
+  {
+    "code": "UN3243",
+    "name": "Sólido tóxico N.E.P."
+  },
+  {
+    "code": "UN3264",
+    "name": "Líquido corrosivo ácido inorgánico N.E.P."
+  },
+  {
+    "code": "UN3266",
+    "name": "Líquido corrosivo básico inorgánico N.E.P."
+  },
+  {
+    "code": "UN3291",
+    "name": "Residuos clínicos o biomédicos regulados"
+  },
+  {
+    "code": "UN3432",
+    "name": "Bifenilos policlorados (PCB) sólidos"
+  },
+  {
+    "code": "UN3506",
+    "name": "Mercurio contenido en artículos manufacturados"
+  },
+  {
+    "code": "UN3509",
+    "name": "Envases, embalajes o recipientes desechados contaminados con sustancias peligrosas"
+  },
+  {
+    "code": "UN1219",
+    "name": "Alcohol isopropílico"
+  },
+  {
+    "code": "UN1294",
+    "name": "Tolueno"
+  },
+  {
+    "code": "UN2796",
+    "name": "Ácido sulfúrico usado"
+  },
+  {
+    "code": "UN1814",
+    "name": "Hidróxido de potasio"
+  },
+  {
+    "code": "UN2024",
+    "name": "Mercurio compuesto líquido"
+  },
+  {
+    "code": "UN2809",
+    "name": "Mercurio metálico"
+  },
+  {
+    "code": "UN3480",
+    "name": "Baterías de ion litio"
+  },
+  {
+    "code": "UN3481",
+    "name": "Baterías de ion litio contenidas en equipos"
+  },
+  {
+    "code": "UN1017",
+    "name": "Cloro"
+  },
+  {
+    "code": "UN1005",
+    "name": "Amoníaco anhidro"
+  },
+  {
+    "code": "UN3171",
+    "name": "Vehículos o equipos accionados por baterías"
+  },
+  {
+    "code": "UN1230",
+    "name": "Metanol"
+  },
+  {
+    "code": "UN1549",
+    "name": "Peróxido de hidrógeno estabilizado"
+  },
+  {
+    "code": "UN1479",
+    "name": "Sólido oxidante N.E.P."
+  },
+  {
+    "code": "UN1490",
+    "name": "Permanganato de potasio"
+  }
+]

@@ -1,0 +1,42 @@
+[
+  {
+    "id": 1,
+    "name": "INDUSTRIAL",
+    "description": "Residuos generados en actividades industriales, productivas y de mantenimiento, incluyendo residuos peligrosos y no peligrosos."
+  },
+  {
+    "id": 2,
+    "name": "HOSPITALARIO Y SIMILARES",
+    "description": "Residuos generados en servicios de salud, laboratorios, investigación y actividades afines."
+  },
+  {
+    "id": 3,
+    "name": "APROVECHABLE",
+    "description": "Residuos o excedentes susceptibles de reutilización, reciclaje o valorización, tales como papel, cartón, plásticos, metales, vidrio, madera y aceites usados aprovechables."
+  },
+  {
+    "id": 4,
+    "name": "ORGÁNICO",
+    "description": "Residuos biodegradables de origen vegetal o animal susceptibles de tratamiento biológico."
+  },
+  {
+    "id": 5,
+    "name": "POSCONSUMO",
+    "description": "Residuos sujetos a programas de devolución y gestión posconsumo, como RAEE, pilas, baterías, llantas, luminarias, medicamentos vencidos y tóners."
+  },
+  {
+    "id": 6,
+    "name": "RCD",
+    "description": "Residuos provenientes de actividades de construcción, remodelación, excavación o demolición."
+  },
+  {
+    "id": 7,
+    "name": "ESPECIAL",
+    "description": "Residuos que requieren manejo diferenciado por sus características o regulación específica."
+  },
+  {
+    "id": 8,
+    "name": "ORDINARIO",
+    "description": "Residuos no peligrosos sin potencial de aprovechamiento que requieren disposición final."
+  }
+]

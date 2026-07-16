@@ -1,0 +1,118 @@
+[
+  {
+    "id": 1,
+    "name": "Bolsa"
+  },
+  {
+    "id": 2,
+    "name": "Bolsa de seguridad"
+  },
+  {
+    "id": 3,
+    "name": "Saco"
+  },
+  {
+    "id": 4,
+    "name": "Big Bag"
+  },
+  {
+    "id": 5,
+    "name": "Caja de cartón"
+  },
+  {
+    "id": 6,
+    "name": "Caja plástica"
+  },
+  {
+    "id": 7,
+    "name": "Caneca plástica"
+  },
+  {
+    "id": 8,
+    "name": "Caneca metálica"
+  },
+  {
+    "id": 9,
+    "name": "Tambor plástico"
+  },
+  {
+    "id": 10,
+    "name": "Tambor metálico"
+  },
+  {
+    "id": 11,
+    "name": "Bidón plástico"
+  },
+  {
+    "id": 12,
+    "name": "Bidón metálico"
+  },
+  {
+    "id": 13,
+    "name": "Garrafa"
+  },
+  {
+    "id": 14,
+    "name": "Contenedor plástico"
+  },
+  {
+    "id": 15,
+    "name": "Contenedor metálico"
+  },
+  {
+    "id": 16,
+    "name": "Contenedor IBC"
+  },
+  {
+    "id": 17,
+    "name": "Estiba con embalaje"
+  },
+  {
+    "id": 18,
+    "name": "Recipiente hermético"
+  },
+  {
+    "id": 19,
+    "name": "Frasco"
+  },
+  {
+    "id": 20,
+    "name": "Botella"
+  },
+  {
+    "id": 21,
+    "name": "Ampolla"
+  },
+  {
+    "id": 22,
+    "name": "Cilindro"
+  },
+  {
+    "id": 23,
+    "name": "Tanque portátil"
+  },
+  {
+    "id": 24,
+    "name": "Caja para cortopunzantes"
+  },
+  {
+    "id": 25,
+    "name": "Contenedor para residuos biosanitarios"
+  },
+  {
+    "id": 26,
+    "name": "Contenedor refrigerado"
+  },
+  {
+    "id": 27,
+    "name": "A granel"
+  },
+  {
+    "id": 28,
+    "name": "Otro"
+  },
+  {
+    "id": 29,
+    "name": "No aplica"
+  }
+]

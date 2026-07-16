@@ -1,0 +1,29 @@
+[
+  {
+    "name": "CORROSIVO"
+  },
+  {
+    "name": "INFLAMABLE"
+  },
+  {
+    "name": "TOXICO"
+  },
+  {
+    "name": "EXPLOSIVO"
+  },
+  {
+    "name": "REACTIVO"
+  },
+  {
+    "name": "INFECCIOSO"
+  },
+  {
+    "name": "RADIOACTIVO"
+  },
+  {
+    "name": "ECOTOXICO"
+  },
+  {
+    "name": "IRRITANTE"
+  }
+]

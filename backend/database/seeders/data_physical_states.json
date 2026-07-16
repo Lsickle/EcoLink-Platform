@@ -1,0 +1,66 @@
+[
+  {
+    "id": 1,
+    "name": "Sólido"
+  },
+  {
+    "id": 2,
+    "name": "Líquido"
+  },
+  {
+    "id": 3,
+    "name": "Gaseoso"
+  },
+  {
+    "id": 4,
+    "name": "Semisólido"
+  },
+  {
+    "id": 5,
+    "name": "Lodo"
+  },
+  {
+    "id": 6,
+    "name": "Pasta"
+  },
+  {
+    "id": 7,
+    "name": "Gel"
+  },
+  {
+    "id": 8,
+    "name": "Aerosol"
+  },
+  {
+    "id": 9,
+    "name": "Mezcla sólido-líquido"
+  },
+  {
+    "id": 10,
+    "name": "Mezcla líquido-lodo"
+  },
+  {
+    "id": 11,
+    "name": "Polvo"
+  },
+  {
+    "id": 12,
+    "name": "Granulado"
+  },
+  {
+    "id": 13,
+    "name": "Ceniza"
+  },
+  {
+    "id": 14,
+    "name": "Emulsión"
+  },
+  {
+    "id": 15,
+    "name": "Suspensión"
+  },
+  {
+    "id": 16,
+    "name": "No determinado"
+  }
+]
