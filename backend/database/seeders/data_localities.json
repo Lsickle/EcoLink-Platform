@@ -1,0 +1,82 @@
+[
+  {
+    "codigo": 1,
+    "name": "USAQUÉN"
+  },
+  {
+    "codigo": 2,
+    "name": "CHAPINERO"
+  },
+  {
+    "codigo": 3,
+    "name": "SANTA FE"
+  },
+  {
+    "codigo": 4,
+    "name": "SAN CRISTÓBAL"
+  },
+  {
+    "codigo": 5,
+    "name": "USME"
+  },
+  {
+    "codigo": 6,
+    "name": "TUNJUELITO"
+  },
+  {
+    "codigo": 7,
+    "name": "BOSA"
+  },
+  {
+    "codigo": 8,
+    "name": "KENNEDY"
+  },
+  {
+    "codigo": 9,
+    "name": "FONTIBÓN"
+  },
+  {
+    "codigo": 10,
+    "name": "ENGATIVÁ"
+  },
+  {
+    "codigo": 11,
+    "name": "SUBA"
+  },
+  {
+    "codigo": 12,
+    "name": "BARRIOS UNIDOS"
+  },
+  {
+    "codigo": 13,
+    "name": "TEUSAQUILLO"
+  },
+  {
+    "codigo": 14,
+    "name": "LOS MÁRTIRES"
+  },
+  {
+    "codigo": 15,
+    "name": "ANTONIO NARIÑO"
+  },
+  {
+    "codigo": 16,
+    "name": "PUENTE ARANDA"
+  },
+  {
+    "codigo": 17,
+    "name": "LA CANDELARIA"
+  },
+  {
+    "codigo": 18,
+    "name": "RAFAEL URIBE URIBE"
+  },
+  {
+    "codigo": 19,
+    "name": "CIUDAD BOLÍVAR"
+  },
+  {
+    "codigo": 20,
+    "name": "SUMAPAZ"
+  }
+]

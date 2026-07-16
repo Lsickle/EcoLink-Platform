@@ -1,0 +1,134 @@
+[
+  {
+    "id": 1,
+    "name": "AMAZONAS"
+  },
+  {
+    "id": 2,
+    "name": "ANTIOQUIA"
+  },
+  {
+    "id": 3,
+    "name": "ARAUCA"
+  },
+  {
+    "id": 4,
+    "name": "ARCHIPIELAGO DE SAN ANDRES"
+  },
+  {
+    "id": 5,
+    "name": "ATLÁNTICO"
+  },
+  {
+    "id": 6,
+    "name": "BOGOTÁ D.C."
+  },
+  {
+    "id": 7,
+    "name": "BOLIVAR"
+  },
+  {
+    "id": 8,
+    "name": "BOYACÁ"
+  },
+  {
+    "id": 9,
+    "name": "CALDAS"
+  },
+  {
+    "id": 10,
+    "name": "CAQUETA"
+  },
+  {
+    "id": 11,
+    "name": "CASANARE"
+  },
+  {
+    "id": 12,
+    "name": "CAUCA"
+  },
+  {
+    "id": 13,
+    "name": "CESAR"
+  },
+  {
+    "id": 14,
+    "name": "CHOCO"
+  },
+  {
+    "id": 15,
+    "name": "CORDOBA"
+  },
+  {
+    "id": 16,
+    "name": "CUNDINAMARCA"
+  },
+  {
+    "id": 17,
+    "name": "GUAINIA"
+  },
+  {
+    "id": 18,
+    "name": "GUAVIARE"
+  },
+  {
+    "id": 19,
+    "name": "HUILA"
+  },
+  {
+    "id": 20,
+    "name": "LA GUAJIRA"
+  },
+  {
+    "id": 21,
+    "name": "MAGDALENA"
+  },
+  {
+    "id": 22,
+    "name": "META"
+  },
+  {
+    "id": 23,
+    "name": "NARIÑO"
+  },
+  {
+    "id": 24,
+    "name": "NORTE DE SANTANDER"
+  },
+  {
+    "id": 25,
+    "name": "PUTUMAYO"
+  },
+  {
+    "id": 26,
+    "name": "QUINDIO"
+  },
+  {
+    "id": 27,
+    "name": "RISARALDA"
+  },
+  {
+    "id": 28,
+    "name": "SANTANDER"
+  },
+  {
+    "id": 29,
+    "name": "SUCRE"
+  },
+  {
+    "id": 30,
+    "name": "TOLIMA"
+  },
+  {
+    "id": 31,
+    "name": "VALLE DEL CAUCA"
+  },
+  {
+    "id": 32,
+    "name": "VAUPES"
+  },
+  {
+    "id": 33,
+    "name": "VICHADA"
+  }
+]
