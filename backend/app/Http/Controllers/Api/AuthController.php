@@ -4,10 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\PasswordHistory;
-use App\Models\Person;
 use App\Models\SecurityLog;
 use App\Models\User;
-use App\Models\UserStatus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -20,6 +18,13 @@ use Laravel\Sanctum\PersonalAccessToken;
  * stateful para el SPA web, token Bearer (personal_access_tokens) para la
  * app móvil. El mismo endpoint de login decide el modo según si el cliente
  * manda `device_name` (móvil) o no (web).
+ *
+ * Mecanismo de invitación (reemplaza el registro público): `register()` se
+ * ELIMINÓ de esta clase -- ya no existe alta pública de usuarios. Un usuario
+ * nace `PENDING_ACTIVATION` vía `Admin\UserManagementController::store()`
+ * (creado por un admin) o el comando de consola `user:create-admin`
+ * (bootstrap, nace `ACTIVE` directo), y activa su propia cuenta vía
+ * `InvitationController::accept()`. Ver esos archivos para el detalle.
  *
  * RN-033: "Los usuarios bloqueados solo podrán ser habilitados por personal
  * autorizado" -- sin desbloqueo automático por tiempo. `locked_until` se usa
@@ -66,56 +71,6 @@ class AuthController extends Controller
      * un criterio propio de este lote, no confirmado con negocio.
      */
     private const MOBILE_TOKEN_TTL_DAYS = 14;
-
-    public function register(Request $request)
-    {
-        $data = $request->validate([
-            'first_name' => ['required', 'string', 'max:100'],
-            'middle_name' => ['nullable', 'string', 'max:100'],
-            'last_name' => ['required', 'string', 'max:100'],
-            'second_last_name' => ['nullable', 'string', 'max:100'],
-            'document_type' => ['required', 'string', 'max:20'],
-            'document_number' => ['required', 'string', 'max:50', 'unique:people,document_number'],
-            'username' => ['required', 'string', 'max:100', 'unique:users,username'],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email', 'unique:people,email'],
-            'phone' => ['nullable', 'string', 'max:50'],
-            'password' => ['required', 'confirmed', Password::min(8)->letters()->mixedCase()->numbers()],
-        ]);
-
-        $person = Person::query()->create([
-            'document_type' => $data['document_type'],
-            'document_number' => $data['document_number'],
-            'first_name' => $data['first_name'],
-            'middle_name' => $data['middle_name'] ?? null,
-            'last_name' => $data['last_name'],
-            'second_last_name' => $data['second_last_name'] ?? null,
-            'email' => $data['email'],
-            'phone' => $data['phone'] ?? null,
-        ]);
-
-        // Placeholder de ciclo de vida: sin flujo de verificación de correo
-        // implementado todavía, así que el usuario nace ACTIVE en vez de
-        // PENDING_ACTIVATION -- revisar cuando exista ese flujo (fuera de
-        // alcance de este lote de auth).
-        $activeStatus = UserStatus::query()->where('code', 'ACTIVE')->firstOrFail();
-
-        $user = User::query()->create([
-            'person_id' => $person->id,
-            'username' => $data['username'],
-            'email' => $data['email'],
-            'password_hash' => $data['password'],
-            'user_status_id' => $activeStatus->id,
-        ]);
-
-        PasswordHistory::query()->create([
-            'user_id' => $user->id,
-            'password_hash' => $user->password_hash,
-        ]);
-
-        return response()->json([
-            'user' => $user->only(['id', 'uuid', 'username', 'email']),
-        ], 201);
-    }
 
     public function login(Request $request)
     {
@@ -213,10 +168,30 @@ class AuthController extends Controller
         return response()->json(['message' => 'Sesión cerrada.']);
     }
 
+    /**
+     * Hallazgo `especialista-seguridad` sobre el FRONTEND (2026-07-13): el
+     * payload solo exponía `roles` ({id, code, name}), sin capacidades --
+     * el frontend no podía decidir qué ocultar en el menú de administración
+     * sin esa información. Se agrega `permissions`: un array plano de
+     * códigos, unión de todos los permisos de todos los roles activos del
+     * usuario, vía {@see User::effectivePermissionCodes()}.
+     *
+     * Hallazgo Alto (especialista-seguridad, 2026-07-14, revisión del
+     * mecanismo de invitación): se agrega `is_platform_staff` (vía
+     * {@see User::isPlatformStaff()}) -- el frontend lo necesita para ocultar
+     * la pantalla de solicitudes de invitación a admins que no son staff de
+     * la organización plataforma (defensa en profundidad, el backend ya
+     * rechaza con 403, ver InvitationRequestController).
+     */
     public function me(Request $request)
     {
+        $user = $request->user()->load('person', 'organization', 'roles');
+
         return response()->json([
-            'user' => $request->user()->load('person', 'organization', 'roles'),
+            'user' => $user->toArray() + [
+                'permissions' => $user->effectivePermissionCodes(),
+                'is_platform_staff' => $user->isPlatformStaff(),
+            ],
         ]);
     }
 

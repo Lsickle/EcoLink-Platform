@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -12,8 +11,6 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { PasswordInput } from '@/components/ui/password-input'
-import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 import {
   Select,
   SelectContent,
@@ -21,27 +18,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ApiValidationError, RateLimitError, register } from 'app/features/auth/api'
-import { documentTypeOptions, registerSchema } from 'app/features/auth/schemas'
+import { ApiValidationError, RateLimitError, requestInvitation } from 'app/features/auth/api'
+import { documentTypeOptions, requestInvitationSchema } from 'app/features/auth/schemas'
 import { useRateLimitCountdown } from 'app/features/auth/useRateLimitCountdown'
 
-type FieldErrors = Partial<Record<'documentNumber' | 'firstName' | 'lastName' | 'email' | 'password' | 'passwordConfirmation', string>>
+type FieldErrors = Partial<Record<'documentNumber' | 'firstName' | 'lastName' | 'email', string>>
 
-export function RegisterForm() {
-  const router = useRouter()
+// CU-006.1 modificado (mecanismo de invitación, reemplaza el registro
+// público eliminado): POST /api/invitation-requests -- sin username/
+// password, la cuenta la crea un administrador al aprobar. RN-181: el
+// backend SIEMPRE responde el mismo mensaje genérico de éxito, exista o no
+// ya el correo/documento (anti-enumeración) -- por eso, tras enviar, esta
+// pantalla se queda en un estado de confirmación en vez de redirigir a
+// /login (todavía no existe ninguna cuenta con la que iniciar sesión).
+export function RequestInvitationForm() {
   const [documentType, setDocumentType] = useState<'CC' | 'CE' | 'PA'>('CC')
   const [documentNumber, setDocumentNumber] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
-  const [password, setPassword] = useState('')
-  const [passwordConfirmation, setPasswordConfirmation] = useState('')
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  // Rate limiting de /api/register (RateLimiter::for('register', ...)): misma
-  // cuenta regresiva en vivo que LoginForm, ver useRateLimitCountdown.
+  const [isSubmitted, setIsSubmitted] = useState(false)
+  // Rate limiting de /api/invitation-requests (RateLimiter::for('invitation-request', ...)):
+  // mismo patrón de cuenta regresiva en vivo que LoginForm.
   const { secondsRemaining, isRateLimited, start: startRateLimitCountdown } = useRateLimitCountdown()
   const rateLimitMessage =
     secondsRemaining !== null ? `Demasiados intentos. Intenta de nuevo en ${secondsRemaining} segundos.` : null
@@ -54,15 +56,13 @@ export function RegisterForm() {
       return
     }
 
-    const parsed = registerSchema.safeParse({
+    const parsed = requestInvitationSchema.safeParse({
       documentType,
       documentNumber,
       firstName,
       lastName,
       email,
       phone,
-      password,
-      passwordConfirmation,
     })
 
     if (!parsed.success) {
@@ -78,8 +78,8 @@ export function RegisterForm() {
     setFieldErrors({})
     setIsSubmitting(true)
     try {
-      await register(parsed.data)
-      router.push('/login?registered=1')
+      await requestInvitation(parsed.data)
+      setIsSubmitted(true)
     } catch (error) {
       if (error instanceof RateLimitError) {
         startRateLimitCountdown(error.retryAfterSeconds)
@@ -93,11 +93,35 @@ export function RegisterForm() {
     }
   }
 
+  if (isSubmitted) {
+    return (
+      <Card className="w-full max-w-sm">
+        <CardHeader className="text-center">
+          <CardTitle className="text-xl">Solicitud enviada</CardTitle>
+          <CardDescription>
+            Tu solicitud fue enviada. Un administrador la revisará y, si es aprobada, recibirás un correo con un
+            enlace para activar tu cuenta.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-center text-sm text-muted-foreground">
+            ¿Ya tienes cuenta?{' '}
+            <a href="/login" className="underline underline-offset-4">
+              Inicia sesión
+            </a>
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <Card className="w-full max-w-sm">
       <CardHeader className="text-center">
-        <CardTitle className="text-xl">Crea tu cuenta</CardTitle>
-        <CardDescription>Regístrate para empezar a usar EcoLink</CardDescription>
+        <CardTitle className="text-xl">Solicita acceso a EcoLink</CardTitle>
+        <CardDescription>
+          Envía tus datos para que un administrador revise tu solicitud de acceso
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-6" noValidate>
@@ -203,35 +227,6 @@ export function RegisterForm() {
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="password">Contraseña</Label>
-              <PasswordInput
-                id="password"
-                autoComplete="new-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                aria-invalid={Boolean(fieldErrors.password)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="passwordConfirmation">Confirmar contraseña</Label>
-              <PasswordInput
-                id="passwordConfirmation"
-                autoComplete="new-password"
-                value={passwordConfirmation}
-                onChange={(event) => setPasswordConfirmation(event.target.value)}
-                aria-invalid={Boolean(fieldErrors.passwordConfirmation)}
-              />
-            </div>
-          </div>
-          <div className="-mt-4 flex flex-col gap-1.5">
-            <PasswordStrengthMeter password={password} />
-            <p className="text-xs text-muted-foreground" role={fieldErrors.password || fieldErrors.passwordConfirmation ? 'alert' : undefined}>
-              {fieldErrors.password ?? fieldErrors.passwordConfirmation ?? 'Debe tener al menos 8 caracteres, con mayúscula, minúscula y número.'}
-            </p>
-          </div>
-
           {(formError || rateLimitMessage) && (
             <p className="text-sm text-destructive" role="alert" aria-live="polite">
               {rateLimitMessage ?? formError}
@@ -239,7 +234,7 @@ export function RegisterForm() {
           )}
 
           <Button type="submit" disabled={isSubmitting || isRateLimited} className="w-full">
-            {isSubmitting ? 'Creando cuenta…' : 'Crear cuenta'}
+            {isSubmitting ? 'Enviando…' : 'Enviar solicitud'}
           </Button>
 
           <p className="text-center text-sm text-muted-foreground">

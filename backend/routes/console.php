@@ -13,3 +13,8 @@ Artisan::command('inspire', function () {
 // de `password_reset_tokens` (comando nativo de Laravel). Laravel 13 no usa
 // app/Console/Kernel.php; la programación vive en este archivo.
 Schedule::command('auth:clear-resets')->daily();
+
+// Retención de 90 días para invitation_requests REJECTED (decisión explícita
+// del usuario del proyecto, revisión de seguridad del mecanismo de
+// invitación, 2026-07-14) -- ver PurgeRejectedInvitationsCommand.
+Schedule::command('invitations:purge-rejected')->daily();
