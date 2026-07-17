@@ -42,6 +42,13 @@ class RolePermissionSeeder extends Seeder
         'vehicles.read', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate',
         'treatments.read', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate',
         'branch_treatments.read', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate',
+        'waste_types.read', 'waste_types.manage',
+        'measurement_units.read', 'measurement_units.manage',
+        'generation_frequencies.read', 'generation_frequencies.manage',
+        'waste_operational_statuses.read', 'waste_operational_statuses.manage',
+        'wastes.read', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate',
+        'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject',
+        'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate',
     ];
 
     /**

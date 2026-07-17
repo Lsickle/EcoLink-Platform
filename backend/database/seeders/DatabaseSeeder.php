@@ -51,6 +51,15 @@ class DatabaseSeeder extends Seeder
         // seeders de este bloque.
         $this->call(TreatmentSeeder::class);
 
+        // Núcleo del Módulo Residuos (declaración + clasificación): 4
+        // catálogos globales nuevos, mismo patrón exacto que los Batches 1-3
+        // de Catálogos Maestros -- sin dependencias entre sí ni con los
+        // anteriores.
+        $this->call(WasteTypeSeeder::class);
+        $this->call(MeasurementUnitSeeder::class);
+        $this->call(GenerationFrequencySeeder::class);
+        $this->call(WasteOperationalStatusSeeder::class);
+
         // Datos de demostración (no de catálogo crítico): 3 organizaciones
         // reales (Generador/Gestor/Subgestor) con sedes y contactos -- ver
         // docblock de DemoOrganizationsSeeder.

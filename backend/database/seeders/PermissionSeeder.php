@@ -82,6 +82,28 @@ use Illuminate\Database\Seeder;
  * catálogo) -- pendiente señalado: los Gestores (sin rol RBAC propio
  * sembrado todavía, ver RoleSeeder) necesitarán este permiso de lectura
  * cuando exista un rol de negocio para ellos.
+ *
+ * `waste_types.*`/`measurement_units.*`/`generation_frequencies.*`/
+ * `waste_operational_statuses.*` (Núcleo del Módulo Residuos, 2026-07-18):
+ * mismo GAP y mismo patrón `.read`/`.manage` que el resto de catálogos
+ * maestros del proyecto -- sin fuente confirmada en `Catálogo de
+ * Permisos.md`. `wastes.*` (CRUD + workflow de declaración) sigue el mismo
+ * criterio granular que `branches.*`/`vehicles.*`/`branch_treatments.*`
+ * (`.activate`/`.deactivate` separados de `.update`), más 4 permisos
+ * dedicados a las transiciones de workflow (`.submit`/`.review`/`.classify`/
+ * `.reject`) -- ninguno es `is_critical`. Acceso dual SIN restricción de
+ * business_role (confirmado por el usuario: "cualquier rol de negocio puede
+ * registrar residuos").
+ *
+ * `treatment_approvals.*` (Evaluación del Gestor, `waste_treatment_approvals`,
+ * 2026-07-19): mismo GAP ya documentado -- sin fuente confirmada en
+ * `Catálogo de Permisos.md`. `.create` lo necesita el GENERADOR (dueño del
+ * residuo, sin ser necesariamente Gestor) para solicitar la evaluación desde
+ * su propio residuo; `.read`/`.update` los necesita el GESTOR para
+ * gestionar las suyas. Se separa `.evaluate` (las 4 transiciones de
+ * technical_status/commercial_status) de `.update` (edición de términos
+ * comerciales/técnicos) -- ver docblock de `WasteTreatmentApprovalPolicy`
+ * para el razonamiento completo de esta decisión. Ninguno es `is_critical`.
  */
 class PermissionSeeder extends Seeder
 {
@@ -95,8 +117,8 @@ class PermissionSeeder extends Seeder
 
     /** @var array<int, list<string>> */
     private const PRIORITY_LEVELS = [
-        1 => ['users.read', 'roles.read', 'permissions.read', 'audit.read', 'waste_streams.read', 'un_codes.read', 'geography.read', 'branch_types.read', 'organizational_areas.read', 'hazard_characteristics.read', 'waste_categories.read', 'physical_states.read', 'packaging_types.read', 'packaging_conditions.read', 'vehicle_types.read', 'contacts.read', 'branches.read', 'vehicles.read', 'treatments.read', 'branch_treatments.read'],
-        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate'],
+        1 => ['users.read', 'roles.read', 'permissions.read', 'audit.read', 'waste_streams.read', 'un_codes.read', 'geography.read', 'branch_types.read', 'organizational_areas.read', 'hazard_characteristics.read', 'waste_categories.read', 'physical_states.read', 'packaging_types.read', 'packaging_conditions.read', 'vehicle_types.read', 'contacts.read', 'branches.read', 'vehicles.read', 'treatments.read', 'branch_treatments.read', 'waste_types.read', 'measurement_units.read', 'generation_frequencies.read', 'waste_operational_statuses.read', 'wastes.read', 'treatment_approvals.read'],
+        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate', 'waste_types.manage', 'measurement_units.manage', 'generation_frequencies.manage', 'waste_operational_statuses.manage', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate', 'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate'],
         3 => ['users.reset-password', 'roles.assign', 'permissions.assign'],
         4 => ['users.delete', 'roles.delete'],
     ];
@@ -197,6 +219,35 @@ class PermissionSeeder extends Seeder
             ['code' => 'branch_treatments.update', 'name' => 'Modificar tratamientos por sede', 'module' => 'branch_treatments', 'action' => 'update'],
             ['code' => 'branch_treatments.activate', 'name' => 'Activar tratamientos por sede', 'module' => 'branch_treatments', 'action' => 'activate'],
             ['code' => 'branch_treatments.deactivate', 'name' => 'Inactivar tratamientos por sede', 'module' => 'branch_treatments', 'action' => 'deactivate'],
+
+            // Núcleo del Módulo Residuos (declaración + clasificación) --
+            // ver aviso de GAP en el docblock de esta clase. 4 catálogos
+            // globales nuevos + CRUD/workflow de `wastes`.
+            ['code' => 'waste_types.read', 'name' => 'Consultar tipos de residuo', 'module' => 'waste_types', 'action' => 'read'],
+            ['code' => 'waste_types.manage', 'name' => 'Gestionar tipos de residuo', 'module' => 'waste_types', 'action' => 'manage'],
+            ['code' => 'measurement_units.read', 'name' => 'Consultar unidades de medida', 'module' => 'measurement_units', 'action' => 'read'],
+            ['code' => 'measurement_units.manage', 'name' => 'Gestionar unidades de medida', 'module' => 'measurement_units', 'action' => 'manage'],
+            ['code' => 'generation_frequencies.read', 'name' => 'Consultar frecuencias de generación', 'module' => 'generation_frequencies', 'action' => 'read'],
+            ['code' => 'generation_frequencies.manage', 'name' => 'Gestionar frecuencias de generación', 'module' => 'generation_frequencies', 'action' => 'manage'],
+            ['code' => 'waste_operational_statuses.read', 'name' => 'Consultar estados operativos de residuo', 'module' => 'waste_operational_statuses', 'action' => 'read'],
+            ['code' => 'waste_operational_statuses.manage', 'name' => 'Gestionar estados operativos de residuo', 'module' => 'waste_operational_statuses', 'action' => 'manage'],
+
+            ['code' => 'wastes.read', 'name' => 'Consultar residuos', 'module' => 'wastes', 'action' => 'read'],
+            ['code' => 'wastes.create', 'name' => 'Crear residuos', 'module' => 'wastes', 'action' => 'create'],
+            ['code' => 'wastes.update', 'name' => 'Modificar residuos', 'module' => 'wastes', 'action' => 'update'],
+            ['code' => 'wastes.activate', 'name' => 'Activar residuos', 'module' => 'wastes', 'action' => 'activate'],
+            ['code' => 'wastes.deactivate', 'name' => 'Inactivar residuos', 'module' => 'wastes', 'action' => 'deactivate'],
+            ['code' => 'wastes.submit', 'name' => 'Declarar residuos (Borrador -> Declarado)', 'module' => 'wastes', 'action' => 'submit'],
+            ['code' => 'wastes.review', 'name' => 'Iniciar revisión de residuos (Declarado -> En Revisión)', 'module' => 'wastes', 'action' => 'review'],
+            ['code' => 'wastes.classify', 'name' => 'Clasificar residuos (En Revisión -> Clasificado)', 'module' => 'wastes', 'action' => 'classify'],
+            ['code' => 'wastes.reject', 'name' => 'Rechazar residuos (a Borrador)', 'module' => 'wastes', 'action' => 'reject'],
+
+            // Evaluación del Gestor (waste_treatment_approvals) -- ver
+            // aviso de GAP en el docblock de esta clase.
+            ['code' => 'treatment_approvals.read', 'name' => 'Consultar evaluaciones de tratamiento', 'module' => 'treatment_approvals', 'action' => 'read'],
+            ['code' => 'treatment_approvals.create', 'name' => 'Solicitar evaluación de tratamiento', 'module' => 'treatment_approvals', 'action' => 'create'],
+            ['code' => 'treatment_approvals.update', 'name' => 'Modificar términos de evaluación de tratamiento', 'module' => 'treatment_approvals', 'action' => 'update'],
+            ['code' => 'treatment_approvals.evaluate', 'name' => 'Aprobar/rechazar evaluación de tratamiento (técnico/comercial)', 'module' => 'treatment_approvals', 'action' => 'evaluate'],
         ];
 
         foreach ($permissions as $permission) {

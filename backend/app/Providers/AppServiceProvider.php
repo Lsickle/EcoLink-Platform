@@ -132,5 +132,26 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute(5)->by($request->user()?->id.'|'.$targetUserId);
         });
+
+        // Hallazgo Media (especialista-seguridad, Módulo Residuos,
+        // 2026-07-16): `POST /admin/files` no tenía ningún límite de tasa --
+        // más allá del tope de CANTIDAD por categoría/entidad ya impuesto por
+        // FileController, un actor autenticado podía spamear cargas sin techo
+        // agregado por minuto. Por usuario (ya pasó auth:sanctum, no hace
+        // falta IP): 30/min es un criterio propio de este lote, alto para no
+        // afectar ráfagas legítimas (ej. las 5 fotos del wizard casi
+        // simultáneas), no confirmado con negocio.
+        RateLimiter::for('files-upload', function (Request $request) {
+            return Limit::perMinute(30)->by($request->user()?->id ?? $request->ip());
+        });
+
+        // Mismo hallazgo, `POST /admin/wastes/{waste}/treatment-approvals` --
+        // evita que un actor spamee solicitudes de evaluación a volumen alto,
+        // en profundidad junto al 422 de duplicado (ver
+        // WasteTreatmentApprovalController::storeForWaste()). 10/min por
+        // usuario, criterio propio de este lote.
+        RateLimiter::for('treatment-approval-request', function (Request $request) {
+            return Limit::perMinute(10)->by($request->user()?->id ?? $request->ip());
+        });
     }
 }

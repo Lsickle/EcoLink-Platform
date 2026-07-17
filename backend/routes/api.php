@@ -7,8 +7,11 @@ use App\Http\Controllers\Api\Admin\BusinessRoleController;
 use App\Http\Controllers\Api\Admin\ContactController;
 use App\Http\Controllers\Api\Admin\CountryController;
 use App\Http\Controllers\Api\Admin\DepartmentController;
+use App\Http\Controllers\Api\Admin\FileController;
+use App\Http\Controllers\Api\Admin\GenerationFrequencyController;
 use App\Http\Controllers\Api\Admin\HazardCharacteristicController;
 use App\Http\Controllers\Api\Admin\LocalityController;
+use App\Http\Controllers\Api\Admin\MeasurementUnitController;
 use App\Http\Controllers\Api\Admin\MunicipalityController;
 use App\Http\Controllers\Api\Admin\OrganizationalAreaController;
 use App\Http\Controllers\Api\Admin\OrganizationController;
@@ -24,7 +27,11 @@ use App\Http\Controllers\Api\Admin\UserManagementController;
 use App\Http\Controllers\Api\Admin\VehicleController;
 use App\Http\Controllers\Api\Admin\VehicleTypeController;
 use App\Http\Controllers\Api\Admin\WasteCategoryController;
+use App\Http\Controllers\Api\Admin\WasteController;
+use App\Http\Controllers\Api\Admin\WasteOperationalStatusController;
 use App\Http\Controllers\Api\Admin\WasteStreamController;
+use App\Http\Controllers\Api\Admin\WasteTreatmentApprovalController;
+use App\Http\Controllers\Api\Admin\WasteTypeController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\InvitationRequestController;
@@ -316,6 +323,9 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         // branch_treatments, validado en BranchTreatmentController::store().
         Route::get('branch-treatments', [BranchTreatmentController::class, 'index'])->name('branch-treatments.index');
         Route::post('branch-treatments', [BranchTreatmentController::class, 'store'])->name('branch-treatments.store');
+        // Debe declararse ANTES de la ruta con {branchTreatment} -- de lo
+        // contrario "available" se interpretaría como un id.
+        Route::get('branch-treatments/available', [BranchTreatmentController::class, 'available'])->name('branch-treatments.available');
         Route::get('branch-treatments/{branchTreatment}', [BranchTreatmentController::class, 'show'])->name('branch-treatments.show');
         Route::put('branch-treatments/{branchTreatment}', [BranchTreatmentController::class, 'update'])->name('branch-treatments.update');
         Route::post('branch-treatments/{branchTreatment}/activate', [BranchTreatmentController::class, 'activate'])->name('branch-treatments.activate');
@@ -323,5 +333,90 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::get('branch-treatments/{branchTreatment}/activity', [BranchTreatmentController::class, 'activity'])->name('branch-treatments.activity');
         Route::put('branch-treatments/{branchTreatment}/allowed-waste-streams', [BranchTreatmentController::class, 'syncAllowedWasteStreams'])->name('branch-treatments.allowed-waste-streams.sync');
         Route::put('branch-treatments/{branchTreatment}/allowed-un-codes', [BranchTreatmentController::class, 'syncAllowedUnCodes'])->name('branch-treatments.allowed-un-codes.sync');
+
+        // Núcleo del Módulo Residuos (declaración + clasificación): 4
+        // catálogos globales nuevos, mismo patrón exacto que
+        // hazard-characteristics/waste-categories/physical-states.
+        Route::get('waste-types', [WasteTypeController::class, 'index'])->name('waste-types.index');
+        Route::post('waste-types', [WasteTypeController::class, 'store'])->name('waste-types.store');
+        Route::get('waste-types/{wasteType}', [WasteTypeController::class, 'show'])->name('waste-types.show');
+        Route::put('waste-types/{wasteType}', [WasteTypeController::class, 'update'])->name('waste-types.update');
+        Route::post('waste-types/{wasteType}/activate', [WasteTypeController::class, 'activate'])->name('waste-types.activate');
+        Route::post('waste-types/{wasteType}/deactivate', [WasteTypeController::class, 'deactivate'])->name('waste-types.deactivate');
+
+        Route::get('measurement-units', [MeasurementUnitController::class, 'index'])->name('measurement-units.index');
+        Route::post('measurement-units', [MeasurementUnitController::class, 'store'])->name('measurement-units.store');
+        Route::get('measurement-units/{measurementUnit}', [MeasurementUnitController::class, 'show'])->name('measurement-units.show');
+        Route::put('measurement-units/{measurementUnit}', [MeasurementUnitController::class, 'update'])->name('measurement-units.update');
+        Route::post('measurement-units/{measurementUnit}/activate', [MeasurementUnitController::class, 'activate'])->name('measurement-units.activate');
+        Route::post('measurement-units/{measurementUnit}/deactivate', [MeasurementUnitController::class, 'deactivate'])->name('measurement-units.deactivate');
+
+        Route::get('generation-frequencies', [GenerationFrequencyController::class, 'index'])->name('generation-frequencies.index');
+        Route::post('generation-frequencies', [GenerationFrequencyController::class, 'store'])->name('generation-frequencies.store');
+        Route::get('generation-frequencies/{generationFrequency}', [GenerationFrequencyController::class, 'show'])->name('generation-frequencies.show');
+        Route::put('generation-frequencies/{generationFrequency}', [GenerationFrequencyController::class, 'update'])->name('generation-frequencies.update');
+        Route::post('generation-frequencies/{generationFrequency}/activate', [GenerationFrequencyController::class, 'activate'])->name('generation-frequencies.activate');
+        Route::post('generation-frequencies/{generationFrequency}/deactivate', [GenerationFrequencyController::class, 'deactivate'])->name('generation-frequencies.deactivate');
+
+        Route::get('waste-operational-statuses', [WasteOperationalStatusController::class, 'index'])->name('waste-operational-statuses.index');
+        Route::post('waste-operational-statuses', [WasteOperationalStatusController::class, 'store'])->name('waste-operational-statuses.store');
+        Route::get('waste-operational-statuses/{wasteOperationalStatus}', [WasteOperationalStatusController::class, 'show'])->name('waste-operational-statuses.show');
+        Route::put('waste-operational-statuses/{wasteOperationalStatus}', [WasteOperationalStatusController::class, 'update'])->name('waste-operational-statuses.update');
+        Route::post('waste-operational-statuses/{wasteOperationalStatus}/activate', [WasteOperationalStatusController::class, 'activate'])->name('waste-operational-statuses.activate');
+        Route::post('waste-operational-statuses/{wasteOperationalStatus}/deactivate', [WasteOperationalStatusController::class, 'deactivate'])->name('waste-operational-statuses.deactivate');
+
+        // Núcleo del Módulo Residuos: CRUD de `wastes` + workflow de
+        // declaración (BR/DEC/REV/CLS/RCH) + clasificación N:M (corrientes
+        // Y/A, códigos UN, características de peligrosidad). Acceso DUAL,
+        // mismo patrón exacto que Sedes/Vehículos/Tratamientos por Sede.
+        Route::get('wastes', [WasteController::class, 'index'])->name('wastes.index');
+        Route::post('wastes', [WasteController::class, 'store'])->name('wastes.store');
+        Route::get('wastes/{waste}', [WasteController::class, 'show'])->name('wastes.show');
+        Route::put('wastes/{waste}', [WasteController::class, 'update'])->name('wastes.update');
+        Route::post('wastes/{waste}/activate', [WasteController::class, 'activate'])->name('wastes.activate');
+        Route::post('wastes/{waste}/deactivate', [WasteController::class, 'deactivate'])->name('wastes.deactivate');
+        Route::get('wastes/{waste}/activity', [WasteController::class, 'activity'])->name('wastes.activity');
+        Route::post('wastes/{waste}/submit', [WasteController::class, 'submit'])->name('wastes.submit');
+        Route::post('wastes/{waste}/start-review', [WasteController::class, 'startReview'])->name('wastes.start-review');
+        Route::post('wastes/{waste}/classify', [WasteController::class, 'classify'])->name('wastes.classify');
+        Route::post('wastes/{waste}/reject', [WasteController::class, 'reject'])->name('wastes.reject');
+        Route::put('wastes/{waste}/waste-streams', [WasteController::class, 'syncWasteStreams'])->name('wastes.waste-streams.sync');
+        Route::put('wastes/{waste}/un-codes', [WasteController::class, 'syncUnCodes'])->name('wastes.un-codes.sync');
+        Route::put('wastes/{waste}/hazard-characteristics', [WasteController::class, 'syncHazardCharacteristics'])->name('wastes.hazard-characteristics.sync');
+        Route::get('wastes/{waste}/files', [WasteController::class, 'files'])->name('wastes.files');
+
+        // "Evaluación del Gestor" (waste_treatment_approvals) -- mecanismo
+        // de invitación simple: el Generador elige un branch_treatment_id
+        // de un Gestor y crea la solicitud, esa elección ES la invitación.
+        // Acceso CRUZADO controlado (distinto del dual platform-staff-vs-
+        // tenant del resto del proyecto) -- ver
+        // WasteTreatmentApproval::isAccessibleBy()/isEditableBy() y
+        // WasteTreatmentApprovalPolicy.
+        Route::get('wastes/{waste}/treatment-approvals', [WasteTreatmentApprovalController::class, 'indexForWaste'])->name('wastes.treatment-approvals.index');
+        Route::post('wastes/{waste}/treatment-approvals', [WasteTreatmentApprovalController::class, 'storeForWaste'])->name('wastes.treatment-approvals.store')->middleware('throttle:treatment-approval-request');
+
+        // Preaprobación automática ("Tratamiento Preaprobado Detectado").
+        Route::get('wastes/{waste}/preapproved-matches', [WasteTreatmentApprovalController::class, 'preapprovedMatches'])->name('wastes.preapproved-matches.index');
+        Route::post('wastes/{waste}/preapproved-matches/{treatmentApproval}/use', [WasteTreatmentApprovalController::class, 'usePreapprovedMatch'])->name('wastes.preapproved-matches.use');
+
+        Route::get('treatment-approvals', [WasteTreatmentApprovalController::class, 'index'])->name('treatment-approvals.index');
+        Route::get('treatment-approvals/{treatmentApproval}', [WasteTreatmentApprovalController::class, 'show'])->name('treatment-approvals.show');
+        Route::put('treatment-approvals/{treatmentApproval}', [WasteTreatmentApprovalController::class, 'update'])->name('treatment-approvals.update');
+        Route::post('treatment-approvals/{treatmentApproval}/approve-technical', [WasteTreatmentApprovalController::class, 'approveTechnical'])->name('treatment-approvals.approve-technical');
+        Route::post('treatment-approvals/{treatmentApproval}/reject-technical', [WasteTreatmentApprovalController::class, 'rejectTechnical'])->name('treatment-approvals.reject-technical');
+        Route::post('treatment-approvals/{treatmentApproval}/approve-commercial', [WasteTreatmentApprovalController::class, 'approveCommercial'])->name('treatment-approvals.approve-commercial');
+        Route::post('treatment-approvals/{treatmentApproval}/reject-commercial', [WasteTreatmentApprovalController::class, 'rejectCommercial'])->name('treatment-approvals.reject-commercial');
+        Route::post('treatment-approvals/{treatmentApproval}/quote', [WasteTreatmentApprovalController::class, 'quote'])->name('treatment-approvals.quote');
+        Route::post('treatment-approvals/{treatmentApproval}/negotiate', [WasteTreatmentApprovalController::class, 'negotiate'])->name('treatment-approvals.negotiate');
+        Route::post('treatment-approvals/{treatmentApproval}/cancel', [WasteTreatmentApprovalController::class, 'cancel'])->name('treatment-approvals.cancel');
+
+        // Subsistema TRANSVERSAL de archivos (esquema-bd: `files`). La
+        // autorización real vive SIEMPRE en la entidad dueña (Policy
+        // resuelta por FileController vía `File::resolveEntity()`) -- NO
+        // hay permiso `files.*` propio, ver docblock de FileController.
+        Route::post('files', [FileController::class, 'store'])->name('files.store')->middleware('throttle:files-upload');
+        Route::get('files/{file}', [FileController::class, 'show'])->name('files.show');
+        Route::get('files/{file}/download', [FileController::class, 'download'])->name('files.download');
+        Route::delete('files/{file}', [FileController::class, 'destroy'])->name('files.destroy');
     });
 });
