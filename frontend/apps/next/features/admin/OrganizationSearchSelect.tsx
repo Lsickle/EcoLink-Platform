@@ -18,6 +18,7 @@ export function OrganizationSearchSelect({
   label,
   htmlId,
   excludeId,
+  capability,
   selectedId,
   selectedLabel,
   onSelect,
@@ -26,6 +27,14 @@ export function OrganizationSearchSelect({
   label: string
   htmlId: string
   excludeId?: number | string
+  /**
+   * Filtra el resultado por business_role activo (ej. `can_treat_waste` para
+   * el selector de Organización Gestor de CreateBranchTreatmentForm.tsx) --
+   * ver `capability` en `searchOrganizations()`/`OrganizationController::
+   * search()`. Sin este prop, el comportamiento es idéntico al de antes
+   * (sin filtrar por capacidad).
+   */
+  capability?: string
   selectedId: number | null
   selectedLabel: string | null
   onSelect: (result: OrganizationSearchResult) => void
@@ -41,12 +50,12 @@ export function OrganizationSearchSelect({
       return
     }
     const timeout = setTimeout(() => {
-      searchOrganizations({ q: query.trim(), excludeId, perPage: 10 })
+      searchOrganizations({ q: query.trim(), excludeId, capability, perPage: 10 })
         .then((result) => setResults(result.data))
         .catch(() => setResults([]))
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timeout)
-  }, [query, excludeId])
+  }, [query, excludeId, capability])
 
   return (
     <div className="flex flex-col gap-1.5">

@@ -145,7 +145,7 @@ describe('AppSidebar -- gating de "Catálogos" por permisos', () => {
 
     expect(screen.queryByText('Catálogos')).not.toBeInTheDocument()
     expect(screen.queryByText('Países')).not.toBeInTheDocument()
-    expect(screen.queryByText('Tipos de Sede')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tipos de Sucursal')).not.toBeInTheDocument()
   })
 
   test('shows the 4 geography items when the user has geography.read', () => {
@@ -157,14 +157,14 @@ describe('AppSidebar -- gating de "Catálogos" por permisos', () => {
     expect(screen.getByText('Departamentos')).toBeInTheDocument()
     expect(screen.getByText('Municipios')).toBeInTheDocument()
     expect(screen.getByText('Localidades')).toBeInTheDocument()
-    expect(screen.queryByText('Tipos de Sede')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tipos de Sucursal')).not.toBeInTheDocument()
   })
 
-  test('shows only "Tipos de Sede" when the user has branch_types.read but not geography.read', () => {
+  test('shows only "Tipos de Sucursal" when the user has branch_types.read but not geography.read', () => {
     mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['branch_types.read'] }
     renderSidebar()
 
-    expect(screen.getByText('Tipos de Sede')).toBeInTheDocument()
+    expect(screen.getByText('Tipos de Sucursal')).toBeInTheDocument()
     expect(screen.queryByText('Países')).not.toBeInTheDocument()
   })
 

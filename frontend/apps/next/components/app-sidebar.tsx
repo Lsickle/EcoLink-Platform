@@ -16,7 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon } from "lucide-react"
+import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon } from "lucide-react"
 import { useAuth } from "app/provider/auth"
 
 // Sin módulos de negocio todavía (Residuos, Solicitudes, Manifiestos, etc.)
@@ -50,7 +50,7 @@ const data = {
     // Permisos) y NO en "Plataforma" (exclusivo de `is_platform_staff`, sin
     // permiso RBAC asociado -- ver `navPlatform` más abajo).
     {
-      title: "Sedes",
+      title: "Sucursales",
       url: "/admin/branches",
       icon: <WarehouseIcon />,
       permission: "branches.read",
@@ -80,6 +80,19 @@ const data = {
       url: "/admin/vehicles",
       icon: <CarFrontIcon />,
       permission: "vehicles.read",
+    },
+    // Módulo Tratamiento (RN-063/D-R02) -- "Tratamientos de Sucursal"
+    // (`branch_treatments`), acceso DUAL, mismo patrón EXACTO que Sedes/
+    // Vehículos (ver `BranchTreatmentController`/`BranchTreatmentPolicy`).
+    // Distinto del catálogo GLOBAL "Tratamientos" (navCatalogs, exclusivo de
+    // platform staff para escritura) -- `FlaskRoundIcon` en vez de
+    // `FlaskConicalIcon` (ya usado por el catálogo en navCatalogs) para
+    // distinguirlos visualmente aunque estén en grupos distintos.
+    {
+      title: "Tratamientos de Sucursal",
+      url: "/admin/branch-treatments",
+      icon: <FlaskRoundIcon />,
+      permission: "branch_treatments.read",
     },
     // Mecanismo de invitación (CU-006.1 modificado, reemplaza el registro
     // público eliminado): mismo permiso `users.read` que "Usuarios" -- es el
@@ -165,7 +178,7 @@ const data = {
       permission: "geography.read",
     },
     {
-      title: "Tipos de Sede",
+      title: "Tipos de Sucursal",
       url: "/admin/catalogs/branch-types",
       icon: <Building2Icon />,
       permission: "branch_types.read",
@@ -229,6 +242,20 @@ const data = {
       url: "/admin/catalogs/vehicle-types",
       icon: <TruckIcon />,
       permission: "vehicle_types.read",
+    },
+    // Módulo Tratamiento (RN-063/D-R02, backend cerrado -- 762 tests, ver
+    // TreatmentController): catálogo GLOBAL de tipos de tratamiento
+    // ambiental. Gestionado EXCLUSIVAMENTE por platform staff (la lectura sí
+    // está disponible para cualquier actor con `treatments.read` -- los
+    // Gestores lo necesitan para configurar sus `branch_treatments`, ver
+    // "Tratamientos de Sucursal" en navAdmin). El ítem del sidebar se
+    // muestra igual para cualquiera con el permiso -- la pantalla misma
+    // oculta los controles de escritura si `!user.is_platform_staff`.
+    {
+      title: "Tratamientos",
+      url: "/admin/catalogs/treatments",
+      icon: <FlaskConicalIcon />,
+      permission: "treatments.read",
     },
   ],
   // Plan "CRUD de Organizaciones vs. Figma (solo Organizaciones)" -- pantalla

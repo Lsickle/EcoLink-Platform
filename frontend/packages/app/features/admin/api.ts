@@ -2,6 +2,8 @@ import { apiFetch } from '../../lib/api-client'
 import type {
   AdminBranch,
   AdminBranchDetail,
+  AdminBranchTreatment,
+  AdminBranchTreatmentDetail,
   AdminBranchType,
   AdminBusinessRole,
   AdminContact,
@@ -24,6 +26,8 @@ import type {
   AdminPhysicalState,
   AdminRole,
   AdminRoleDetail,
+  AdminTreatment,
+  AdminTreatmentDetail,
   AdminUnCode,
   AdminUnCodeDetail,
   AdminUser,
@@ -37,8 +41,10 @@ import type {
   AssignPermissionPayload,
   AssignRolePayload,
   BranchKpis,
+  BranchTreatmentKpis,
   ContactSearchResult,
   CreateBranchPayload,
+  CreateBranchTreatmentPayload,
   CreateBranchTypePayload,
   CreateHazardCharacteristicPayload,
   CreateOrganizationalAreaPayload,
@@ -48,6 +54,7 @@ import type {
   CreatePackagingTypePayload,
   CreatePhysicalStatePayload,
   CreateRolePayload,
+  CreateTreatmentPayload,
   CreateUnCodePayload,
   CreateUserPayload,
   CreateVehiclePayload,
@@ -65,6 +72,7 @@ import type {
   RejectInvitationRequestPayload,
   RoleActivityEvent,
   UpdateBranchPayload,
+  UpdateBranchTreatmentPayload,
   UpdateBranchTypePayload,
   UpdateContactPayload,
   UpdateHazardCharacteristicPayload,
@@ -75,6 +83,7 @@ import type {
   UpdatePackagingTypePayload,
   UpdatePhysicalStatePayload,
   UpdateRolePayload,
+  UpdateTreatmentPayload,
   UpdateUnCodePayload,
   UpdateUserPayload,
   UpdateVehiclePayload,
@@ -1317,11 +1326,20 @@ export async function revokeBusinessRoleFromOrganization(
 
 // Selector "Organización Matriz" (`parent_organization_id`) -- ver
 // OrganizationController::search(). `excludeId` evita que el formulario de
-// edición se ofrezca a sí mismo como su propia matriz.
+// edición se ofrezca a sí mismo como su propia matriz. `capability` filtra
+// por business_role activo (ej. `can_treat_waste` para el selector de
+// organizaciones Gestor de CreateBranchTreatmentForm.tsx) -- mismo mecanismo
+// que `Organization::hasCapability()`, ver whitelist de valores aceptados en
+// `OrganizationController::search()`.
 export async function searchOrganizations(
-  params: { q?: string; excludeId?: number | string; perPage?: number } = {}
+  params: { q?: string; excludeId?: number | string; perPage?: number; capability?: string } = {}
 ): Promise<Paginated<OrganizationSearchResult>> {
-  const query = buildQuery({ q: params.q, exclude_id: params.excludeId, per_page: params.perPage })
+  const query = buildQuery({
+    q: params.q,
+    exclude_id: params.excludeId,
+    per_page: params.perPage,
+    capability: params.capability,
+  })
   return apiFetch(`/api/admin/organizations/search${query}`)
 }
 
@@ -1533,6 +1551,162 @@ export async function fetchVehicleActivity(
 ): Promise<Paginated<RoleActivityEvent>> {
   const query = buildQuery({ page: params.page, per_page: params.perPage })
   return apiFetch(`/api/admin/vehicles/${vehicleId}/activity${query}`)
+}
+
+// ---- Catálogo "Tratamientos" (/api/admin/treatments) ----------------------
+// Módulo Tratamiento (RN-063/D-R02) -- mismo patrón EXACTO que
+// fetchWasteCategories()/etc. (catálogo global, CRUD completo). Escritura
+// (`create`/`update`/`activate`/`deactivate`) EXCLUSIVA de platform staff en
+// el backend (`TreatmentPolicy`) -- el caller oculta esos controles si
+// `!user.is_platform_staff`, ver TreatmentDetailScreen.tsx/
+// TreatmentsListScreen.tsx.
+export async function fetchTreatments(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    treatmentType?: string
+    riskLevel?: string
+    status?: 'active' | 'inactive'
+    sort?: string
+    direction?: 'asc' | 'desc'
+  } = {}
+): Promise<Paginated<AdminTreatment>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    treatment_type: params.treatmentType,
+    risk_level: params.riskLevel,
+    status: params.status,
+    sort: params.sort,
+    direction: params.direction,
+  })
+  return apiFetch(`/api/admin/treatments${query}`)
+}
+
+export async function createTreatment(payload: CreateTreatmentPayload): Promise<{ treatment: AdminTreatment }> {
+  return apiFetch('/api/admin/treatments', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export async function fetchTreatment(id: number | string): Promise<{ treatment: AdminTreatmentDetail }> {
+  return apiFetch(`/api/admin/treatments/${id}`)
+}
+
+export async function updateTreatment(
+  id: number | string,
+  payload: UpdateTreatmentPayload
+): Promise<{ treatment: AdminTreatment }> {
+  return apiFetch(`/api/admin/treatments/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+export async function activateTreatment(id: number | string): Promise<{ treatment: AdminTreatment }> {
+  return apiFetch(`/api/admin/treatments/${id}/activate`, { method: 'POST' })
+}
+
+export async function deactivateTreatment(id: number | string): Promise<{ treatment: AdminTreatment }> {
+  return apiFetch(`/api/admin/treatments/${id}/deactivate`, { method: 'POST' })
+}
+
+// ---- "Tratamientos de Sucursal" (/api/admin/branch-treatments) -----------
+// Habilitación de Tratamientos por Sede (RN-063/D-R02) -- mismo patrón
+// EXACTO que fetchVehicles()/fetchVehicle()/etc. (acceso DUAL, ver docblock
+// de `AdminBranchTreatment` en types.ts). `organizationId` como filtro SOLO
+// tiene efecto para platform staff, mismo criterio que `fetchVehicles()`.
+export async function fetchBranchTreatments(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    organizationId?: number | string
+    branchId?: number | string
+    treatmentId?: number | string
+    operationalStatus?: string
+    sort?: string
+    direction?: 'asc' | 'desc'
+  } = {}
+): Promise<Paginated<AdminBranchTreatment> & { kpis: BranchTreatmentKpis }> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    organization_id: params.organizationId,
+    branch_id: params.branchId,
+    treatment_id: params.treatmentId,
+    operational_status: params.operationalStatus,
+    sort: params.sort,
+    direction: params.direction,
+  })
+  return apiFetch(`/api/admin/branch-treatments${query}`)
+}
+
+export async function fetchBranchTreatment(
+  id: number | string
+): Promise<{ branch_treatment: AdminBranchTreatmentDetail }> {
+  return apiFetch(`/api/admin/branch-treatments/${id}`)
+}
+
+export async function createBranchTreatment(
+  payload: CreateBranchTreatmentPayload
+): Promise<{ branch_treatment: AdminBranchTreatment }> {
+  return apiFetch('/api/admin/branch-treatments', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// `organization_id` NUNCA viaja aquí -- inmutable tras crear (ver
+// `UpdateBranchTreatmentPayload` en types.ts).
+export async function updateBranchTreatment(
+  id: number | string,
+  payload: UpdateBranchTreatmentPayload
+): Promise<{ branch_treatment: AdminBranchTreatment }> {
+  return apiFetch(`/api/admin/branch-treatments/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+export async function activateBranchTreatment(
+  id: number | string
+): Promise<{ branch_treatment: AdminBranchTreatment }> {
+  return apiFetch(`/api/admin/branch-treatments/${id}/activate`, { method: 'POST' })
+}
+
+export async function deactivateBranchTreatment(
+  id: number | string
+): Promise<{ branch_treatment: AdminBranchTreatment }> {
+  return apiFetch(`/api/admin/branch-treatments/${id}/deactivate`, { method: 'POST' })
+}
+
+// Tab "Actividad" -- exige `audit.read` además de acceso al tratamiento de
+// sede, mismo shape {event_type, description, actor, created_at} que
+// fetchVehicleActivity()/fetchBranchActivity().
+export async function fetchBranchTreatmentActivity(
+  branchTreatmentId: number | string,
+  params: { page?: number; perPage?: number } = {}
+): Promise<Paginated<RoleActivityEvent>> {
+  const query = buildQuery({ page: params.page, per_page: params.perPage })
+  return apiFetch(`/api/admin/branch-treatments/${branchTreatmentId}/activity${query}`)
+}
+
+// Tab "Corrientes" -- REEMPLAZA la lista COMPLETA de corrientes Y/A
+// permitidas (selección múltiple tipo checklist, no assign/revoke
+// individual) -- ver `BranchTreatmentController::syncAllowedWasteStreams()`.
+export async function syncBranchTreatmentAllowedWasteStreams(
+  branchTreatmentId: number | string,
+  wasteStreamIds: number[]
+): Promise<{ branch_treatment: AdminBranchTreatmentDetail }> {
+  return apiFetch(`/api/admin/branch-treatments/${branchTreatmentId}/allowed-waste-streams`, {
+    method: 'PUT',
+    body: JSON.stringify({ waste_stream_ids: wasteStreamIds }),
+  })
+}
+
+// Mismo patrón exacto que syncBranchTreatmentAllowedWasteStreams(), eje
+// Códigos UN -- ver `BranchTreatmentController::syncAllowedUnCodes()`.
+export async function syncBranchTreatmentAllowedUnCodes(
+  branchTreatmentId: number | string,
+  unCodeIds: number[]
+): Promise<{ branch_treatment: AdminBranchTreatmentDetail }> {
+  return apiFetch(`/api/admin/branch-treatments/${branchTreatmentId}/allowed-un-codes`, {
+    method: 'PUT',
+    body: JSON.stringify({ un_code_ids: unCodeIds }),
+  })
 }
 
 export type * from './types'

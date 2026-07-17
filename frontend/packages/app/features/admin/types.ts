@@ -1406,3 +1406,225 @@ export type CreateVehiclePayload = {
 // `.deactivate`, distinto de `vehicles.update` -- hallazgo Medio ya
 // corregido por especialista-seguridad 2026-07-16).
 export type UpdateVehiclePayload = Omit<CreateVehiclePayload, 'organization_id'>
+
+// ---- Catálogo "Tratamientos" (/api/admin/treatments) ----------------------
+// Módulo Tratamiento (RN-063/D-R02). Catálogo GLOBAL (tenant_organization_id
+// SIEMPRE null en store(), ver docblock de TreatmentController) gestionado
+// EXCLUSIVAMENTE por platform staff -- `TreatmentPolicy::create()`/
+// `update()` exigen `isPlatformStaff()` ADEMÁS del permiso RBAC, mismo gate
+// binario que OrganizationController/BusinessRoleController. La LECTURA
+// (`treatments.read`) está disponible para cualquier usuario autenticado con
+// el permiso -- los Gestores lo necesitan para configurar sus
+// `branch_treatments`. El frontend OCULTA (no solo deshabilita) los
+// controles de escritura si `!user.is_platform_staff`, mismo criterio ya
+// usado en ContactDetailScreen.tsx para el gate de edición de Persona.
+export const TREATMENT_TYPES = [
+  'THERMAL', 'PHYSICOCHEMICAL', 'BIOLOGICAL', 'STABILIZATION', 'DISPOSAL',
+  'RECOVERY', 'CHEMICAL', 'LIQUID', 'SLUDGE', 'PHYSICAL',
+] as const
+
+export type TreatmentType = (typeof TREATMENT_TYPES)[number]
+
+export const TREATMENT_RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH'] as const
+
+export type TreatmentRiskLevel = (typeof TREATMENT_RISK_LEVELS)[number]
+
+// `min_temperature`/`max_temperature`/`estimated_processing_time_hours` son
+// `decimal:2` en el modelo -- Eloquent los serializa como STRING en JSON
+// (nunca number), mismo criterio ya documentado para
+// `AdminVehicle.max_load_capacity`/`AdminBranch.operational_capacity`.
+export type AdminTreatment = {
+  id: number
+  uuid: string
+  tenant_organization_id: number | null
+  code: string
+  name: string
+  description: string | null
+  treatment_type: TreatmentType
+  parent_treatment_id: number | null
+  requires_environmental_license: boolean
+  requires_special_transport: boolean
+  allows_recovery: boolean
+  requires_certificate: boolean
+  requires_weight_control: boolean
+  min_temperature: string | null
+  max_temperature: string | null
+  temperature_unit: string
+  risk_level: TreatmentRiskLevel
+  estimated_processing_time_hours: string | null
+  is_system: boolean
+  is_active: boolean
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+  created_by?: AdminActorRef | null
+  updated_by?: AdminActorRef | null
+}
+
+// GET /api/admin/treatments/{id} -- ver TreatmentController::show().
+// created_by/updated_by SIEMPRE presentes como {id, username} | null.
+export type AdminTreatmentDetail = AdminTreatment & {
+  created_by: AdminActorRef | null
+  updated_by: AdminActorRef | null
+}
+
+// POST /api/admin/treatments -- ver TreatmentController::store()/
+// validationRules(). El backend SIEMPRE fija tenant_organization_id=null/
+// parent_treatment_id=null/is_system=false/is_active=true/created_by/
+// updated_by server-side (nunca aceptados del cliente).
+export type CreateTreatmentPayload = {
+  code: string
+  name: string
+  description?: string
+  treatment_type?: TreatmentType
+  requires_environmental_license?: boolean
+  requires_special_transport?: boolean
+  allows_recovery?: boolean
+  requires_certificate?: boolean
+  requires_weight_control?: boolean
+  min_temperature?: number
+  max_temperature?: number
+  temperature_unit?: string
+  risk_level?: TreatmentRiskLevel
+  estimated_processing_time_hours?: number
+}
+
+// PUT /api/admin/treatments/{id} -- mismos campos, todos `sometimes` en el
+// backend.
+export type UpdateTreatmentPayload = Partial<CreateTreatmentPayload>
+
+// ---- "Tratamientos de Sucursal" (/api/admin/branch-treatments) -----------
+// Habilitación de un Treatment (catálogo global) en una SEDE concreta de un
+// Gestor, con su propia capacidad/licencia (RN-063/D-R02). Acceso DUAL,
+// mismo patrón EXACTO que AdminVehicle/AdminBranch: platform staff gestiona
+// TODOS los `branch_treatments` de cualquier organización; un admin de
+// tenant (o usuario con `branch_treatments.read` sin ser platform staff)
+// solo los de su propia organización (ver BranchTreatment::isAccessibleBy()/
+// BranchTreatmentPolicy). Restricción de negocio: SOLO organizaciones con
+// business_role GESTOR (`can_treat_waste=true`) pueden tener
+// `branch_treatments` -- el backend lo revalida siempre en store(), el
+// frontend además filtra el selector de Organización del formulario de
+// creación por esa capacidad (ver `capability` en `searchOrganizations()`).
+//
+// `operational_status` es una lista CERRADA de texto (no catálogo FK) --
+// mismo criterio que `BranchStatus`/`VehicleOperationalStatus`. Solo
+// ACTIVE/INACTIVE se producen hoy vía activate()/deactivate() (SUSPENDED
+// existe en el dominio pero ningún endpoint lo asigna todavía, mismo aviso
+// ya documentado para `VehicleOperationalStatus`).
+export type BranchTreatmentOperationalStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED'
+
+// Corriente Y/A permitida para un `branch_treatment` (RN-063/D-R02) -- shape
+// allowlist EXACTO devuelto por `allowedWasteStreams:id,code,name,tipo`.
+export type BranchTreatmentAllowedWasteStream = {
+  id: number
+  code: string
+  name: string
+  tipo: WasteStreamTipo
+}
+
+// Código UN permitido -- shape allowlist EXACTO devuelto por
+// `allowedUnCodes:id,code,name`.
+export type BranchTreatmentAllowedUnCode = {
+  id: number
+  code: string
+  name: string
+}
+
+// Shape base de `BranchTreatment` -- devuelto por `index()` con
+// `organization:id,legal_name`/`branch:id,name`/`treatment:id,code,name`
+// SIEMPRE eager-cargados. `activate()`/`deactivate()` en cambio devuelven el
+// modelo base SIN esas 3 relaciones (`branchTreatment->fresh()` plano) --
+// quedan opcionales aquí, mismo criterio que `AdminVehicle`.
+//
+// `max_capacity`/`daily_capacity`/`monthly_capacity` son `decimal:2` --
+// siempre STRING en JSON, nunca number.
+export type AdminBranchTreatment = {
+  id: number
+  uuid: string
+  tenant_organization_id: number | null
+  organization_id: number
+  branch_id: number
+  treatment_id: number
+  internal_code: string | null
+  operational_name: string | null
+  max_capacity: string | null
+  capacity_unit: string
+  daily_capacity: string | null
+  monthly_capacity: string | null
+  environmental_license_number: string | null
+  valid_from: string | null
+  valid_until: string | null
+  requires_manual_approval: boolean
+  allows_mixed_waste: boolean
+  requires_weight_validation: boolean
+  operational_status: BranchTreatmentOperationalStatus
+  observations: string | null
+  is_active: boolean
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+  created_by: number | null
+  updated_by: number | null
+  organization?: { id: number; legal_name: string }
+  branch?: { id: number; name: string }
+  treatment?: { id: number; code: string; name: string }
+}
+
+// GET /api/admin/branch-treatments/{id} -- ver
+// BranchTreatmentController::show(). A diferencia de `AdminBranchTreatment`
+// (fila de index()), aquí TODAS las relaciones vienen SIEMPRE
+// eager-cargadas: `organization`/`branch`/`treatment` completo (no solo id/
+// code/name)/`allowed_waste_streams`/`allowed_un_codes`/`created_by`/
+// `updated_by` ({id, username}).
+export type AdminBranchTreatmentDetail = Omit<
+  AdminBranchTreatment,
+  'organization' | 'branch' | 'treatment' | 'created_by' | 'updated_by'
+> & {
+  organization: { id: number; legal_name: string }
+  branch: { id: number; name: string }
+  treatment: AdminTreatment
+  allowed_waste_streams: BranchTreatmentAllowedWasteStream[]
+  allowed_un_codes: BranchTreatmentAllowedUnCode[]
+  created_by: AdminActorRef | null
+  updated_by: AdminActorRef | null
+}
+
+// KPIs del listado -- objeto PLANO, mismo shape que `VehicleKpis` (ver
+// `BranchTreatmentController::statusKpis()`).
+export type BranchTreatmentKpis = {
+  total: number
+  active: number
+  inactive: number
+}
+
+// POST /api/admin/branch-treatments -- ver
+// BranchTreatmentController::store()/validationRules(). `organization_id`
+// SOLO se manda si el actor es `is_platform_staff` (REQUERIDO en ese caso) --
+// para cualquier otro actor el backend lo IGNORA y fuerza su propia
+// organización, mismo criterio que `CreateVehiclePayload`.
+// `operational_status`/`is_active` NUNCA viajan aquí -- el backend los fuerza
+// SIEMPRE a 'ACTIVE'/true en creación.
+export type CreateBranchTreatmentPayload = {
+  organization_id?: number
+  branch_id: number
+  treatment_id: number
+  internal_code?: string
+  operational_name?: string
+  max_capacity?: number
+  capacity_unit?: string
+  daily_capacity?: number
+  monthly_capacity?: number
+  environmental_license_number?: string
+  valid_from?: string
+  valid_until?: string
+  requires_manual_approval?: boolean
+  allows_mixed_waste?: boolean
+  requires_weight_validation?: boolean
+  observations?: string
+}
+
+// PUT /api/admin/branch-treatments/{id} -- mismos campos que
+// `CreateBranchTreatmentPayload` MENOS `organization_id` (inmutable tras
+// crear). `operational_status`/`is_active` tampoco viajan aquí -- se
+// gestionan exclusivamente vía activate()/deactivate().
+export type UpdateBranchTreatmentPayload = Omit<CreateBranchTreatmentPayload, 'organization_id'>

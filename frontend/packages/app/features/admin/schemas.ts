@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { documentTypeOptions } from '../auth/schemas'
 import { CURRENCIES, TAX_ID_TYPES, TIMEZONES } from './organizationCatalogs'
-import { ORGANIZATIONAL_AREA_LEVELS } from './types'
+import { ORGANIZATIONAL_AREA_LEVELS, TREATMENT_RISK_LEVELS, TREATMENT_TYPES } from './types'
 
 export { documentTypeOptions }
 
@@ -266,7 +266,7 @@ export type CreateOrganizationFormValues = z.infer<typeof createOrganizationSche
 // `createOrganizationSchema` (max:255 del backend no se duplica aquí).
 export const createBranchSchema = z.object({
   organizationId: z.number().int().positive().optional(),
-  branchTypeId: z.number().int().positive('Selecciona un tipo de sede.'),
+  branchTypeId: z.number().int().positive('Selecciona un tipo de sucursal.'),
   code: z.string().trim().min(1, 'Ingresa un código.'),
   name: z.string().trim().min(1, 'Ingresa un nombre.'),
   status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']),
@@ -350,3 +350,70 @@ export const linkExistingContactSchema = z.object({
 })
 
 export type LinkExistingContactFormValues = z.infer<typeof linkExistingContactSchema>
+
+// POST /api/admin/treatments -- ver TreatmentController::store()/
+// validationRules(). EXCLUSIVO de platform staff (el caller gatea el acceso
+// a este formulario con `useRequireAuth('treatments.create', {
+// requirePlatformStaff: true })`, mismo criterio que
+// InvitationRequestsListScreen.tsx). `minTemperature`/`maxTemperature` solo
+// tienen sentido para tratamientos térmicos -- opcionales aquí, el form los
+// muestra en una sección colapsable, nunca obligatoria. Sin `.max()` en
+// `code`/`name` -- el backend valida `max:50`/`max:255`, mismo criterio ya
+// usado en el resto de este archivo para no duplicar ese límite.
+export const createTreatmentSchema = z
+  .object({
+    code: z.string().trim().min(1, 'Ingresa un código.'),
+    name: z.string().trim().min(1, 'Ingresa un nombre.'),
+    description: z.string().trim().optional().or(z.literal('')),
+    treatmentType: z.enum(TREATMENT_TYPES, { message: 'Selecciona un tipo de tratamiento.' }),
+    requiresEnvironmentalLicense: z.boolean(),
+    requiresSpecialTransport: z.boolean(),
+    allowsRecovery: z.boolean(),
+    requiresCertificate: z.boolean(),
+    requiresWeightControl: z.boolean(),
+    minTemperature: z.number().optional(),
+    maxTemperature: z.number().optional(),
+    temperatureUnit: z.string().trim().min(1, 'Ingresa una unidad.'),
+    riskLevel: z.enum(TREATMENT_RISK_LEVELS, { message: 'Selecciona un nivel de riesgo.' }),
+    estimatedProcessingTimeHours: z.number().min(0).optional(),
+  })
+  .refine((data) => data.maxTemperature === undefined || data.minTemperature === undefined || data.maxTemperature >= data.minTemperature, {
+    message: 'La temperatura máxima debe ser mayor o igual a la mínima.',
+    path: ['maxTemperature'],
+  })
+
+export type CreateTreatmentFormValues = z.infer<typeof createTreatmentSchema>
+
+// POST /api/admin/branch-treatments -- ver
+// BranchTreatmentController::store()/validationRules(). `organizationId`
+// opcional aquí (el form solo lo llena si `user.is_platform_staff`, mismo
+// criterio que `createVehicleSchema`) -- filtrado además por
+// `capability=can_treat_waste` en el selector (RN-063, solo organizaciones
+// Gestor). Sin `.max()` en `internalCode`/`operationalName`/
+// `environmentalLicenseNumber` -- límites del backend no duplicados aquí,
+// mismo criterio ya usado en el resto de este archivo.
+export const createBranchTreatmentSchema = z
+  .object({
+    organizationId: z.number().int().positive().optional(),
+    branchId: z.number().int().positive('Selecciona una sede.'),
+    treatmentId: z.number().int().positive('Selecciona un tratamiento.'),
+    internalCode: z.string().trim().optional().or(z.literal('')),
+    operationalName: z.string().trim().optional().or(z.literal('')),
+    maxCapacity: z.number().min(0).optional(),
+    capacityUnit: z.string().trim().min(1, 'Ingresa una unidad.'),
+    dailyCapacity: z.number().min(0).optional(),
+    monthlyCapacity: z.number().min(0).optional(),
+    environmentalLicenseNumber: z.string().trim().optional().or(z.literal('')),
+    validFrom: z.string().trim().optional().or(z.literal('')),
+    validUntil: z.string().trim().optional().or(z.literal('')),
+    requiresManualApproval: z.boolean(),
+    allowsMixedWaste: z.boolean(),
+    requiresWeightValidation: z.boolean(),
+    observations: z.string().trim().optional().or(z.literal('')),
+  })
+  .refine((data) => !data.validFrom || !data.validUntil || data.validUntil >= data.validFrom, {
+    message: 'La fecha de vigencia final debe ser posterior o igual a la inicial.',
+    path: ['validUntil'],
+  })
+
+export type CreateBranchTreatmentFormValues = z.infer<typeof createBranchTreatmentSchema>
