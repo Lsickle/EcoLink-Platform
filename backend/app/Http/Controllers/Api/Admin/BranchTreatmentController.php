@@ -82,6 +82,55 @@ class BranchTreatmentController extends Controller
         ]);
     }
 
+    /**
+     * GET /admin/branch-treatments/available -- exploración para el
+     * Generador ("¿qué tratamientos de Gestores existen?"). De SOLO
+     * LECTURA, accesible a CUALQUIER usuario autenticado (no solo platform
+     * staff/dueño de la organización Gestor) -- el Generador necesita ver
+     * los tratamientos de OTRAS organizaciones para poder elegir uno y
+     * crear su solicitud de evaluación (ver
+     * `WasteTreatmentApprovalController::storeForWaste()`). Expone SOLO
+     * campos no sensibles -- nunca licencia ambiental, observaciones u
+     * otros datos operativos internos del Gestor. Filtrable por
+     * `waste_stream_ids[]`/`un_code_ids[]` para acotar a los tratamientos
+     * compatibles con las corrientes ya declaradas del residuo.
+     *
+     * Nota de implementación: se define como método dedicado (no
+     * `mode=available` sobre `index()`) porque su forma de respuesta
+     * (campos aplanados, sin paginación) y su autorización (cualquier
+     * autenticado, no `branch_treatments.read`) son deliberadamente
+     * distintas de `index()` -- mezclarlas en un solo método habría
+     * requerido ramificar casi toda su lógica.
+     */
+    public function available(Request $request)
+    {
+        $wasteStreamIds = array_values(array_filter((array) $request->input('waste_stream_ids', [])));
+        $unCodeIds = array_values(array_filter((array) $request->input('un_code_ids', [])));
+
+        $branchTreatments = BranchTreatment::query()
+            ->where('is_active', true)
+            ->whereHas('organization', fn ($query) => $query->withCapability('can_treat_waste'))
+            ->when($wasteStreamIds !== [], fn ($query) => $query->whereHas(
+                'allowedWasteStreams', fn ($query) => $query->whereIn('waste_streams.id', $wasteStreamIds),
+            ))
+            ->when($unCodeIds !== [], fn ($query) => $query->whereHas(
+                'allowedUnCodes', fn ($query) => $query->whereIn('un_codes.id', $unCodeIds),
+            ))
+            ->with(['organization:id,legal_name', 'branch:id,name', 'treatment:id,code,name'])
+            ->get()
+            ->map(fn (BranchTreatment $branchTreatment) => [
+                'id' => $branchTreatment->id,
+                'treatment_name' => $branchTreatment->treatment->name,
+                'organization_name' => $branchTreatment->organization->legal_name,
+                'branch_name' => $branchTreatment->branch->name,
+                'max_capacity' => $branchTreatment->max_capacity,
+                'capacity_unit' => $branchTreatment->capacity_unit,
+            ])
+            ->values();
+
+        return response()->json(['branch_treatments' => $branchTreatments]);
+    }
+
     public function show(Request $request, BranchTreatment $branchTreatment)
     {
         Gate::authorize('view', $branchTreatment);
