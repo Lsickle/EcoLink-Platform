@@ -7,6 +7,16 @@
 // agente frontend-web.
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost'
 
+// Descarga de archivos (`GET /admin/files/{id}/download`, FileController::
+// download()) -- el binario NUNCA pasa por `apiFetch()` (que siempre hace
+// `response.json()`, incompatible con un `Storage::download()` de
+// Laravel). El caller abre esta URL directamente (`window.open`/`<a href>`)
+// -- la sesión Sanctum viaja vía cookie de navegador en una navegación
+// normal, sin necesitar el ciclo CSRF de `apiFetch` (GET, no muta estado).
+export function apiUrl(path: string): string {
+  return `${API_URL}${path}`
+}
+
 export class ApiValidationError extends Error {
   constructor(
     message: string,
