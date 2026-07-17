@@ -127,6 +127,20 @@ describe('AppSidebar -- gating de "Residuos" por permisos', () => {
     expect(screen.getByText('Corrientes Y/A')).toBeInTheDocument()
     expect(screen.getByText('Códigos UN')).toBeInTheDocument()
   })
+
+  // Núcleo del Módulo Residuos (wizard de declaración, `wastes.read`) --
+  // mismo mecanismo de gating individual que "Corrientes Y/A"/"Códigos UN".
+  test('shows "Residuos" (wizard de declaración) only when the user has wastes.read', () => {
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['waste_streams.read'] }
+    renderSidebar()
+
+    expect(screen.queryByText('Residuos', { selector: 'span' })).not.toBeInTheDocument()
+
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['wastes.read'] }
+    renderSidebar()
+
+    expect(screen.getByText('Residuos', { selector: 'span' })).toBeInTheDocument()
+  })
 })
 
 // Batch 1/3 de Catálogos Maestros (geografía en cascada + Tipos de Sede) --

@@ -109,11 +109,24 @@ export type AuthPerson = {
 // organización PLATAFORMA (organizations.is_platform_tenant=true). Base del
 // gating de InvitationRequestsListScreen (defensa en profundidad, el backend
 // ya rechaza con 403 -- ver InvitationRequestController).
+// `tenant_organization_id` (columna real de `users`, ver esquema-bd) --
+// agregado para el lote "Evaluación del Gestor" (waste_treatment_approvals,
+// TreatmentApprovalDetailScreen.tsx): el ÚNICO caso del proyecto donde el
+// FRONTEND necesita conocer la organización del propio actor, para
+// distinguir en un recurso de acceso CRUZADO (una fila visible para AMBOS
+// lados de la relación, Gestor evaluador Y dueño del residuo) cuál de los
+// dos es el actor actual -- en el resto del proyecto (acceso dual simple)
+// el backend ya filtra todo server-side y el frontend nunca necesita este
+// dato. Ya viaja en la respuesta real de `GET /api/user`
+// (`AuthController::me()` hace `$user->toArray() + [...]`, que incluye
+// todas las columnas del modelo) -- esto solo cierra el gap de tipado, no
+// requiere cambio de backend.
 export type AuthUser = {
   id: number
   uuid: string
   username: string
   email: string
+  tenant_organization_id?: number | null
   permissions?: string[]
   is_platform_staff?: boolean
   person?: AuthPerson

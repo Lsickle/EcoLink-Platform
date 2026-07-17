@@ -1628,3 +1628,451 @@ export type CreateBranchTreatmentPayload = {
 // crear). `operational_status`/`is_active` tampoco viajan aquí -- se
 // gestionan exclusivamente vía activate()/deactivate().
 export type UpdateBranchTreatmentPayload = Omit<CreateBranchTreatmentPayload, 'organization_id'>
+
+// ---- Núcleo del Módulo Residuos (/api/admin/wastes) ------------------------
+// Declaración + clasificación de residuos (CU-XXX del wizard de 5 pasos,
+// Figma fileKey pX6vqXxnJ66YSIYpE7v9pV nodeId 777:9186). Acceso DUAL, mismo
+// patrón EXACTO que AdminVehicle/AdminBranch: platform staff gestiona TODOS
+// los residuos, un tenant admin (o `wastes.read`) solo los de su propia
+// organización -- ver `Waste::isAccessibleBy()`/`WastePolicy`. SIN
+// restricción de business_role.
+
+// Catálogos de solo lectura nuevos consumidos por el wizard -- mismo shape
+// simple {id,uuid,code,name,is_system,is_active,created_at,updated_at} que
+// AdminPhysicalState (ver WasteTypeController/MeasurementUnitController/
+// GenerationFrequencyController, todos "mismo patrón EXACTO que
+// PhysicalStateController").
+export type AdminWasteType = {
+  id: number
+  uuid: string
+  code: string
+  name: string
+  description: string | null
+  is_system: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type AdminMeasurementUnit = {
+  id: number
+  uuid: string
+  code: string
+  name: string
+  is_system: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type AdminGenerationFrequency = {
+  id: number
+  uuid: string
+  code: string
+  name: string
+  is_system: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+// Waste_operational_statuses -- DISTINTO del workflow de declaración
+// (`WasteStatus` abajo), ver docblock de `WasteOperationalStatus` en el
+// backend. Con `description` (a diferencia de MeasurementUnit/
+// GenerationFrequency, que no la tienen -- ver migración real).
+export type AdminWasteOperationalStatus = {
+  id: number
+  uuid: string
+  code: string
+  name: string
+  description: string | null
+  is_system: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+// Workflow de declaración (`wastes.status`, SIN motor de workflow
+// configurable, esquema-bd punto 14/L-22): BR (Borrador) -> DEC (Declarado)
+// -> REV (En Revisión) -> CLS (Clasificado); RCH (Rechazado, reversible a
+// BR). DISTINTO de `operational_status_id` (catálogo `waste_operational_statuses`,
+// eje independiente is_active/ACTIVE-SUSPENDED-etc).
+export type WasteStatus = 'BR' | 'DEC' | 'REV' | 'CLS' | 'RCH'
+
+// Pivote residuo<->corriente Y/A, tal como lo expone
+// `wasteStreamAssignments.wasteStream` en show() -- mismo criterio de forma
+// "pivote con relación anidada" que el resto del proyecto (ver
+// AdminOrganizationContact).
+export type AdminWasteStreamAssignment = {
+  id: number
+  waste_stream_id: number
+  is_primary: boolean
+  waste_stream: AdminWasteStream
+}
+
+export type AdminWasteUnCodeAssignment = {
+  id: number
+  un_code_id: number
+  is_primary: boolean
+  un_code: AdminUnCode
+}
+
+export type AdminWasteHazardCharacteristicAssignment = {
+  id: number
+  hazard_characteristic_id: number
+  hazard_characteristic: AdminHazardCharacteristic
+}
+
+// Shape base de `Waste` -- devuelto por `index()` con
+// `organization:id,legal_name`/`branch:id,name`/`wasteCategory:id,code,name`
+// SIEMPRE eager-cargados (ver `WasteController::index()`), SIN las 3
+// pivotes de clasificación (esas solo viajan en `show()`, ver
+// `AdminWasteDetail` abajo).
+export type AdminWaste = {
+  id: number
+  uuid: string
+  tenant_organization_id: number | null
+  organization_id: number
+  branch_id: number | null
+  waste_category_id: number | null
+  code: string | null
+  name: string
+  description: string | null
+  status: WasteStatus
+  waste_danger: string | null
+  waste_type_id: number
+  is_template: boolean
+  is_preapproved: boolean
+  preapproved_by_organization_id: number | null
+  requires_characterization: boolean
+  requires_sds: boolean
+  physical_state_id: number | null
+  measurement_unit_id: number
+  average_weight: number | string | null
+  generation_frequency_id: number | null
+  requires_special_transport: boolean
+  requires_special_ppe: boolean
+  operational_status_id: number
+  quantity: number | string | null
+  generation_date: string | null
+  internal_reference: string | null
+  operational_notes: string | null
+  last_classification_review_at?: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  created_by: number | null
+  updated_by: number | null
+  organization?: { id: number; legal_name: string }
+  branch?: { id: number; name: string } | null
+  waste_category?: { id: number; code: string; name: string } | null
+}
+
+// GET /api/admin/wastes/{id} -- ver `WasteController::show()`. TODAS las
+// relaciones vienen SIEMPRE eager-cargadas, incluidas las 3 pivotes de
+// clasificación y `created_by`/`updated_by` ({id, username}).
+export type AdminWasteDetail = Omit<
+  AdminWaste,
+  'organization' | 'branch' | 'waste_category' | 'created_by' | 'updated_by'
+> & {
+  organization: { id: number; legal_name: string }
+  branch: { id: number; name: string } | null
+  waste_category: AdminWasteCategory | null
+  waste_type: AdminWasteType
+  physical_state: AdminPhysicalState | null
+  measurement_unit: AdminMeasurementUnit
+  generation_frequency: AdminGenerationFrequency | null
+  operational_status: AdminWasteOperationalStatus
+  waste_stream_assignments: AdminWasteStreamAssignment[]
+  waste_un_codes: AdminWasteUnCodeAssignment[]
+  waste_hazard_characteristics: AdminWasteHazardCharacteristicAssignment[]
+  created_by: AdminActorRef | null
+  updated_by: AdminActorRef | null
+}
+
+// KPIs del listado -- objeto PLANO, mismo shape que `VehicleKpis` (ver
+// `WasteController::statusKpis()`).
+export type WasteKpis = {
+  total: number
+  active: number
+  inactive: number
+}
+
+// POST /api/admin/wastes -- ver `WasteController::store()`/
+// `validationRules()`. `organization_id` SOLO se manda si el actor es
+// `is_platform_staff` (REQUERIDO en ese caso), mismo criterio que
+// `CreateVehiclePayload`. `status`/`waste_danger`/
+// `last_classification_review_at` NUNCA viajan aquí -- el backend los
+// ignora/fuerza siempre (nace en 'BR', ver docblock del controller).
+export type CreateWastePayload = {
+  organization_id?: number
+  branch_id?: number
+  waste_category_id?: number
+  code?: string
+  name: string
+  description?: string
+  waste_type_id?: number
+  is_template?: boolean
+  requires_characterization?: boolean
+  requires_sds?: boolean
+  physical_state_id?: number
+  measurement_unit_id?: number
+  average_weight?: number
+  generation_frequency_id?: number
+  requires_special_transport?: boolean
+  requires_special_ppe?: boolean
+  quantity?: number
+  generation_date?: string
+  internal_reference?: string
+  operational_notes?: string
+}
+
+// PUT /api/admin/wastes/{id} -- mismos campos que `CreateWastePayload` MENOS
+// `organization_id` (inmutable tras crear). Todos `sometimes` en el backend
+// -- el wizard manda solo los campos del paso actual en cada "Guardar
+// Borrador"/"Siguiente". Solo editable mientras `status` sea BR o RCH (el
+// backend no bloquea explícitamente por status en update(), pero el flujo
+// de negocio del wizard asume eso -- ver docblock de WasteDetailScreen).
+export type UpdateWastePayload = Omit<CreateWastePayload, 'organization_id'>
+
+// POST /api/admin/wastes/{id}/reject -- ver `WasteController::reject()`.
+export type RejectWastePayload = {
+  reason: string
+}
+
+// GET /api/admin/wastes/{waste}/files -- ver `WasteController::files()`.
+// Agrupado por `file_category` en el backend (`->groupBy('file_category')`,
+// Laravel serializa un Collection agrupado como objeto plano
+// {CATEGORIA: [...]}), nunca un array plano.
+export type WasteFileCategory = 'WASTE_PHOTO' | 'SDS' | 'ADDITIONAL_DOCUMENT'
+
+// esquema-bd: `files` -- repositorio documental transversal (primer
+// consumidor real: evidencias del wizard de Residuos, Paso 4). Ver
+// `FileController`.
+export type AdminFile = {
+  id: number
+  uuid: string
+  tenant_organization_id: number | null
+  entity_type: string
+  entity_id: number
+  file_category: string
+  original_filename: string
+  stored_filename: string
+  file_extension: string
+  mime_type: string
+  file_size_bytes: number
+  file_hash_sha256: string | null
+  storage_provider: string
+  storage_path: string
+  visibility_level: string
+  description: string | null
+  uploaded_by_user_id: number | null
+  uploaded_at: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type WasteFilesByCategory = Partial<Record<WasteFileCategory, AdminFile[]>>
+
+// POST /api/admin/files -- multipart, ver `FileController::store()`. SIEMPRE
+// `entity_type='WASTE'` en este lote (único consumidor real).
+export type UploadFilePayload = {
+  file: File
+  entityType: 'WASTE'
+  entityId: number | string
+  fileCategory: WasteFileCategory
+  description?: string
+}
+
+// ---- "Evaluación del Gestor" (/api/admin/treatment-approvals, /api/admin/wastes/{waste}/treatment-approvals) ----
+// waste_treatment_approvals -- acceso CRUZADO controlado (DISTINTO del resto
+// del proyecto, que solo conoce acceso dual platform-staff-vs-tenant):
+// `organization_id` de la fila es SIEMPRE el GESTOR evaluador (dueño de
+// `branch_treatment_id`); `waste_id` puede pertenecer a CUALQUIER otra
+// organización (el Generador, dueño del residuo). Ambos lados pueden VER la
+// fila, solo el Gestor puede EDITARLA/EVALUARLA -- ver
+// `WasteTreatmentApproval::isAccessibleBy()`/`isEditableBy()`.
+export type TreatmentApprovalTechnicalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RESTRICTED'
+export type TreatmentApprovalCommercialStatus = 'DRAFT' | 'QUOTED' | 'NEGOTIATING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+
+// Ref recortado de `waste` tal como lo expone `index()`/`indexForWaste()`
+// (`waste:id,name,code,organization_id` -- SIN `waste.organization`
+// anidado). El detalle (`show()`) SÍ agrega `waste.organization:id,legal_name`
+// -- ver `AdminTreatmentApprovalDetail` abajo.
+export type TreatmentApprovalWasteRef = {
+  id: number
+  name: string
+  code: string | null
+  organization_id: number
+}
+
+// Ref recortado de `branch_treatment` tal como lo expone `index()` GENERAL
+// (`branchTreatment:id,operational_name,branch_id,treatment_id` -- SIN
+// `treatment`/`branch` anidados). DISTINTO del ref completo que exponen
+// `indexForWaste()`/`show()`/`preapprovedMatches()` (ver
+// `TreatmentApprovalBranchTreatmentRef` abajo) -- GAP de contrato
+// documentado en el resumen del lote: el listado general
+// (`TreatmentApprovalsListScreen`) no puede mostrar el nombre del
+// tratamiento base ni el de la sucursal, solo `operational_name` (el
+// nombre que el propio Gestor le dio a esa habilitación).
+export type TreatmentApprovalBranchTreatmentSummaryRef = {
+  id: number
+  operational_name: string | null
+  branch_id: number
+  treatment_id: number
+}
+
+// Ref completo de `branch_treatment` tal como lo exponen
+// `indexForWaste()`/`show()`/`preapprovedMatches()` (TODOS con
+// `branchTreatment.treatment` completo + `branchTreatment.branch:id,name`).
+export type TreatmentApprovalBranchTreatmentRef = {
+  id: number
+  operational_name: string | null
+  branch_id: number
+  treatment_id: number
+  max_capacity: string | null
+  capacity_unit: string
+  treatment: AdminTreatment
+  branch: { id: number; name: string }
+}
+
+// Shape base de `WasteTreatmentApproval` -- devuelto por `index()` GENERAL
+// (perspectiva del Gestor, acceso dual: platform staff ve todas, un Gestor
+// solo las suyas por `organization_id`). `unit_price`/`minimum_quantity`/
+// `maximum_quantity` son `decimal:2` -- siempre STRING en JSON.
+export type AdminTreatmentApproval = {
+  id: number
+  uuid: string
+  tenant_organization_id: number | null
+  organization_id: number
+  waste_id: number
+  branch_treatment_id: number
+  version: number
+  commercial_status: TreatmentApprovalCommercialStatus
+  technical_status: TreatmentApprovalTechnicalStatus
+  unit_price: string | null
+  currency: string
+  billing_unit: string
+  minimum_quantity: string | null
+  maximum_quantity: string | null
+  requires_lab_analysis: boolean
+  requires_sds: boolean
+  restrictions: string | null
+  commercial_notes: string | null
+  technical_notes: string | null
+  technical_approved_at: string | null
+  technical_approved_by: number | null
+  commercial_approved_at: string | null
+  commercial_approved_by: number | null
+  valid_from: string | null
+  valid_until: string | null
+  detailed_notes?: string | null
+  is_active: boolean
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+  organization?: { id: number; legal_name: string }
+  waste?: TreatmentApprovalWasteRef
+  branch_treatment?: TreatmentApprovalBranchTreatmentSummaryRef
+}
+
+// GET /api/admin/wastes/{waste}/treatment-approvals -- perspectiva del
+// DUEÑO DEL RESIDUO (ve todas las evaluaciones que generó, de cualquier
+// Gestor). A diferencia de `AdminTreatmentApproval` (index() general), aquí
+// `branch_treatment` SIEMPRE viene con `treatment`/`branch` completos (ver
+// `WasteTreatmentApprovalController::indexForWaste()`).
+export type AdminTreatmentApprovalForWaste = Omit<AdminTreatmentApproval, 'organization' | 'branch_treatment'> & {
+  organization: { id: number; legal_name: string }
+  branch_treatment: TreatmentApprovalBranchTreatmentRef
+}
+
+// GET /api/admin/wastes/{waste}/preapproved-matches -- mismo shape que
+// `AdminTreatmentApprovalForWaste` (misma forma de eager-load en el
+// controller), sin `waste` (no se carga esa relación en este endpoint).
+export type PreapprovedTreatmentMatch = AdminTreatmentApprovalForWaste
+
+// GET /api/admin/treatment-approvals/{id} -- ambos lados de la relación
+// cruzada pueden ver el detalle. `waste` agrega `waste.organization` (a
+// diferencia de `index()`/`indexForWaste()`) -- pero SIGUE SIN incluir las
+// corrientes/UN/características de peligrosidad del residuo (GAP
+// documentado en el resumen del lote: el Gestor evaluador no tiene forma de
+// consultarlas por otra vía, `WastePolicy::view()` bloquea el acceso
+// cruzado a `GET /admin/wastes/{id}`).
+export type AdminTreatmentApprovalDetail = Omit<
+  AdminTreatmentApproval,
+  'organization' | 'waste' | 'branch_treatment' | 'technical_approved_by' | 'commercial_approved_by'
+> & {
+  organization: { id: number; legal_name: string }
+  waste: TreatmentApprovalWasteRef & {
+    organization: { id: number; legal_name: string }
+    // `WasteTreatmentApprovalController::show()` eager-carga estas 3
+    // relaciones (fix de gap de contrato posterior al lote original) -- el
+    // Gestor evaluador ve la clasificación real del residuo, unica via de
+    // acceso autorizada ya que `WastePolicy::view()` bloquea su acceso
+    // directo a `GET /admin/wastes/{id}`.
+    waste_stream_assignments: AdminWasteStreamAssignment[]
+    waste_un_codes: AdminWasteUnCodeAssignment[]
+    waste_hazard_characteristics: AdminWasteHazardCharacteristicAssignment[]
+  }
+  branch_treatment: TreatmentApprovalBranchTreatmentRef
+  technical_approved_by: AdminActorRef | null
+  commercial_approved_by: AdminActorRef | null
+}
+
+// GET /api/admin/branch-treatments/available -- exploración PÚBLICA (para
+// cualquier usuario autenticado, no solo el Gestor) de tratamientos de sede
+// ACTIVOS de organizaciones Gestor, campos LIMITADOS (sin licencia
+// ambiental/observaciones/internal_code) -- ver
+// `BranchTreatmentController::available()`.
+export type AvailableBranchTreatment = {
+  id: number
+  treatment_name: string
+  organization_name: string
+  branch_name: string
+  max_capacity: string | null
+  capacity_unit: string
+}
+
+// POST /api/admin/wastes/{waste}/treatment-approvals -- el Generador elige
+// un `branch_treatment_id` de un Gestor -- esa elección ES la invitación
+// (sin paso de invitación aparte).
+export type CreateTreatmentApprovalRequestPayload = {
+  branch_treatment_id: number
+}
+
+// PUT /api/admin/treatment-approvals/{id} -- SOLO el Gestor evaluador edita
+// términos comerciales/técnicos (ver `WasteTreatmentApprovalPolicy::update()`).
+// `technical_status`/`commercial_status` NUNCA viajan aquí -- solo vía las
+// transiciones dedicadas de abajo.
+export type UpdateTreatmentApprovalPayload = {
+  unit_price?: number
+  currency?: string
+  billing_unit?: string
+  minimum_quantity?: number
+  maximum_quantity?: number
+  requires_lab_analysis?: boolean
+  requires_sds?: boolean
+  restrictions?: string
+  commercial_notes?: string
+  technical_notes?: string
+  valid_from?: string
+  valid_until?: string
+  detailed_notes?: string
+}
+
+// POST .../approve-technical -- si `restrictions` viene no vacío, el
+// backend resuelve a RESTRICTED en vez de APPROVED.
+export type ApproveTreatmentApprovalTechnicalPayload = {
+  restrictions?: string
+}
+
+// POST .../reject-technical -- `technical_notes` REQUERIDO.
+export type RejectTreatmentApprovalTechnicalPayload = {
+  technical_notes: string
+}
+
+// POST .../reject-commercial -- `commercial_notes` opcional.
+export type RejectTreatmentApprovalCommercialPayload = {
+  commercial_notes?: string
+}

@@ -16,7 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon } from "lucide-react"
+import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon } from "lucide-react"
 import { useAuth } from "app/provider/auth"
 
 // Sin módulos de negocio todavía (Residuos, Solicitudes, Manifiestos, etc.)
@@ -94,6 +94,20 @@ const data = {
       icon: <FlaskRoundIcon />,
       permission: "branch_treatments.read",
     },
+    // "Evaluación del Gestor" (waste_treatment_approvals) -- listado GENERAL
+    // desde la perspectiva del Gestor evaluador (o platform staff viendo
+    // todas), mismo grupo "Administración" que Vehículos/Tratamientos de
+    // Sucursal/Contactos (acceso dual, ver
+    // `WasteTreatmentApprovalController`/`WasteTreatmentApprovalPolicy`).
+    // Sin ítem "Crear" -- las solicitudes SIEMPRE se crean desde el detalle
+    // de un Residuo (tab "Tratamientos" en `WasteDetailScreen.tsx`), nunca
+    // desde este listado.
+    {
+      title: "Evaluaciones de Tratamiento",
+      url: "/admin/treatment-approvals",
+      icon: <ClipboardCheckIcon />,
+      permission: "treatment_approvals.read",
+    },
     // Mecanismo de invitación (CU-006.1 modificado, reemplaza el registro
     // público eliminado): mismo permiso `users.read` que "Usuarios" -- es el
     // mismo gate que usa InvitationRequestController::index() en el backend.
@@ -129,6 +143,19 @@ const data = {
   // RBAC/Administración): mismo mecanismo de filtrado por permiso que
   // navAdmin -- ver visibleResiduosItems abajo.
   navResiduos: [
+    // Núcleo del Módulo Residuos -- declaración/clasificación (wizard de 5
+    // pasos, `wastes`). Acceso DUAL, mismo mecanismo EXACTO que "Vehículos"/
+    // "Tratamientos de Sucursal" (platform staff ve todos, un tenant admin
+    // solo los suyos, ver `WasteController`/`WastePolicy`). Primer ítem del
+    // grupo (antes de los catálogos Corrientes/UN que lo alimentan) --
+    // `ClipboardListIcon` para distinguirlo de `RecycleIcon`/`TruckIcon` ya
+    // usados por los catálogos hermanos de este mismo grupo.
+    {
+      title: "Residuos",
+      url: "/admin/wastes",
+      icon: <ClipboardListIcon />,
+      permission: "wastes.read",
+    },
     {
       title: "Corrientes Y/A",
       url: "/admin/waste-streams",

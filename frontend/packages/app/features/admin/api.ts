@@ -1,4 +1,4 @@
-import { apiFetch } from '../../lib/api-client'
+import { apiFetch, apiUrl } from '../../lib/api-client'
 import type {
   AdminBranch,
   AdminBranchDetail,
@@ -27,19 +27,31 @@ import type {
   AdminRole,
   AdminRoleDetail,
   AdminTreatment,
+  AdminTreatmentApproval,
+  AdminTreatmentApprovalDetail,
+  AdminTreatmentApprovalForWaste,
   AdminTreatmentDetail,
   AdminUnCode,
   AdminUnCodeDetail,
+  AdminFile,
+  AdminGenerationFrequency,
+  AdminMeasurementUnit,
   AdminUser,
   AdminVehicle,
   AdminVehicleDetail,
   AdminVehicleType,
+  AdminWaste,
   AdminWasteCategory,
+  AdminWasteDetail,
+  AdminWasteOperationalStatus,
   AdminWasteStream,
   AdminWasteStreamDetail,
+  AdminWasteType,
   ApproveInvitationRequestPayload,
+  ApproveTreatmentApprovalTechnicalPayload,
   AssignPermissionPayload,
   AssignRolePayload,
+  AvailableBranchTreatment,
   BranchKpis,
   BranchTreatmentKpis,
   ContactSearchResult,
@@ -54,11 +66,13 @@ import type {
   CreatePackagingTypePayload,
   CreatePhysicalStatePayload,
   CreateRolePayload,
+  CreateTreatmentApprovalRequestPayload,
   CreateTreatmentPayload,
   CreateUnCodePayload,
   CreateUserPayload,
   CreateVehiclePayload,
   CreateVehicleTypePayload,
+  CreateWastePayload,
   CreateWasteCategoryPayload,
   CreateWasteStreamPayload,
   ImportResult,
@@ -69,8 +83,14 @@ import type {
   Paginated,
   PermissionActivityEvent,
   PermissionMatrixByModule,
+  PreapprovedTreatmentMatch,
   RejectInvitationRequestPayload,
+  RejectTreatmentApprovalCommercialPayload,
+  RejectTreatmentApprovalTechnicalPayload,
+  RejectWastePayload,
   RoleActivityEvent,
+  TreatmentApprovalCommercialStatus,
+  TreatmentApprovalTechnicalStatus,
   UpdateBranchPayload,
   UpdateBranchTreatmentPayload,
   UpdateBranchTypePayload,
@@ -83,16 +103,25 @@ import type {
   UpdatePackagingTypePayload,
   UpdatePhysicalStatePayload,
   UpdateRolePayload,
+  UpdateTreatmentApprovalPayload,
   UpdateTreatmentPayload,
   UpdateUnCodePayload,
   UpdateUserPayload,
   UpdateVehiclePayload,
   UpdateVehicleTypePayload,
+  UpdateWastePayload,
   UpdateWasteCategoryPayload,
   UpdateWasteStreamPayload,
+  UploadFilePayload,
   UserActivityEvent,
   VehicleKpis,
+  WasteFileCategory,
+  WasteFilesByCategory,
+  WasteKpis,
+  WasteStatus,
 } from './types'
+
+export { apiUrl } from '../../lib/api-client'
 
 export { ApiValidationError, RateLimitError } from '../../lib/api-client'
 
@@ -1707,6 +1736,379 @@ export async function syncBranchTreatmentAllowedUnCodes(
     method: 'PUT',
     body: JSON.stringify({ un_code_ids: unCodeIds }),
   })
+}
+
+// ---- Catálogos de solo lectura del wizard de Residuos ----------------------
+// `waste-types`/`measurement-units`/`generation-frequencies`/
+// `waste-operational-statuses` -- ya sembrados, SOLO lectura para este lote
+// (sin create/update/activate -- esas pantallas de catálogo quedan fuera de
+// alcance). Mismo patrón `buildQuery` que el resto de catálogos simples.
+
+export async function fetchWasteTypes(
+  params: { page?: number; perPage?: number; search?: string; status?: 'active' | 'inactive' } = {}
+): Promise<Paginated<AdminWasteType>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    status: params.status,
+  })
+  return apiFetch(`/api/admin/waste-types${query}`)
+}
+
+export async function fetchMeasurementUnits(
+  params: { page?: number; perPage?: number; search?: string; status?: 'active' | 'inactive' } = {}
+): Promise<Paginated<AdminMeasurementUnit>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    status: params.status,
+  })
+  return apiFetch(`/api/admin/measurement-units${query}`)
+}
+
+export async function fetchGenerationFrequencies(
+  params: { page?: number; perPage?: number; search?: string; status?: 'active' | 'inactive' } = {}
+): Promise<Paginated<AdminGenerationFrequency>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    status: params.status,
+  })
+  return apiFetch(`/api/admin/generation-frequencies${query}`)
+}
+
+export async function fetchWasteOperationalStatuses(
+  params: { page?: number; perPage?: number; search?: string; status?: 'active' | 'inactive' } = {}
+): Promise<Paginated<AdminWasteOperationalStatus>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    status: params.status,
+  })
+  return apiFetch(`/api/admin/waste-operational-statuses${query}`)
+}
+
+// ---- Núcleo del Módulo Residuos (/api/admin/wastes) -----------------------
+// Declaración + clasificación (wizard de 5 pasos) -- mismo patrón EXACTO que
+// fetchVehicles()/fetchVehicle()/etc. (acceso DUAL, ver docblock de
+// `AdminWaste` en types.ts). `organizationId` como filtro SOLO tiene efecto
+// para platform staff, mismo criterio que `fetchVehicles()`.
+export async function fetchWastes(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    organizationId?: number | string
+    branchId?: number | string
+    wasteCategoryId?: number | string
+    status?: WasteStatus
+    operationalStatusId?: number | string
+    sort?: string
+    direction?: 'asc' | 'desc'
+  } = {}
+): Promise<Paginated<AdminWaste> & { kpis: WasteKpis }> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    organization_id: params.organizationId,
+    branch_id: params.branchId,
+    waste_category_id: params.wasteCategoryId,
+    status: params.status,
+    operational_status_id: params.operationalStatusId,
+    sort: params.sort,
+    direction: params.direction,
+  })
+  return apiFetch(`/api/admin/wastes${query}`)
+}
+
+export async function fetchWaste(id: number | string): Promise<{ waste: AdminWasteDetail }> {
+  return apiFetch(`/api/admin/wastes/${id}`)
+}
+
+export async function createWaste(payload: CreateWastePayload): Promise<{ waste: AdminWaste }> {
+  return apiFetch('/api/admin/wastes', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// `organization_id` NUNCA viaja aquí -- inmutable tras crear (ver
+// `UpdateWastePayload` en types.ts).
+export async function updateWaste(id: number | string, payload: UpdateWastePayload): Promise<{ waste: AdminWaste }> {
+  return apiFetch(`/api/admin/wastes/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+export async function activateWaste(id: number | string): Promise<{ waste: AdminWaste }> {
+  return apiFetch(`/api/admin/wastes/${id}/activate`, { method: 'POST' })
+}
+
+export async function deactivateWaste(id: number | string): Promise<{ waste: AdminWaste }> {
+  return apiFetch(`/api/admin/wastes/${id}/deactivate`, { method: 'POST' })
+}
+
+// Workflow de declaración -- BR -> DEC. Ver `WasteController::submit()`
+// (422 si falta algún campo obligatorio o ninguna corriente/UN asignado).
+export async function submitWaste(id: number | string): Promise<{ waste: AdminWaste }> {
+  return apiFetch(`/api/admin/wastes/${id}/submit`, { method: 'POST' })
+}
+
+// DEC -> REV.
+export async function startReviewWaste(id: number | string): Promise<{ waste: AdminWaste }> {
+  return apiFetch(`/api/admin/wastes/${id}/start-review`, { method: 'POST' })
+}
+
+// REV -> CLS.
+export async function classifyWaste(id: number | string): Promise<{ waste: AdminWaste }> {
+  return apiFetch(`/api/admin/wastes/${id}/classify`, { method: 'POST' })
+}
+
+// DEC|REV -> BR (reversible).
+export async function rejectWaste(id: number | string, payload: RejectWastePayload): Promise<{ waste: AdminWaste }> {
+  return apiFetch(`/api/admin/wastes/${id}/reject`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// Reemplaza la pivote COMPLETA de corrientes Y/A asignadas -- Paso 2 del
+// wizard (Caracterización). Ver `WasteController::syncWasteStreams()`.
+export async function syncWasteWasteStreams(
+  wasteId: number | string,
+  wasteStreamIds: number[]
+): Promise<{ waste: AdminWasteDetail }> {
+  return apiFetch(`/api/admin/wastes/${wasteId}/waste-streams`, {
+    method: 'PUT',
+    body: JSON.stringify({ waste_stream_ids: wasteStreamIds }),
+  })
+}
+
+// Mismo patrón exacto que syncWasteWasteStreams(), eje Códigos UN.
+export async function syncWasteUnCodes(
+  wasteId: number | string,
+  unCodeIds: number[]
+): Promise<{ waste: AdminWasteDetail }> {
+  return apiFetch(`/api/admin/wastes/${wasteId}/un-codes`, {
+    method: 'PUT',
+    body: JSON.stringify({ un_code_ids: unCodeIds }),
+  })
+}
+
+// Reemplaza la pivote completa de Características de Peligrosidad -- el
+// backend recalcula `waste_danger` automáticamente tras esto (ver
+// `Waste::recalculateWasteDanger()`), NUNCA se envía `waste_danger` desde
+// aquí.
+export async function syncWasteHazardCharacteristics(
+  wasteId: number | string,
+  hazardCharacteristicIds: number[]
+): Promise<{ waste: AdminWasteDetail }> {
+  return apiFetch(`/api/admin/wastes/${wasteId}/hazard-characteristics`, {
+    method: 'PUT',
+    body: JSON.stringify({ hazard_characteristic_ids: hazardCharacteristicIds }),
+  })
+}
+
+// Tab "Actividad" -- mismo shape {event_type, description, actor, created_at}
+// que fetchVehicleActivity()/fetchBranchTreatmentActivity().
+export async function fetchWasteActivity(
+  wasteId: number | string,
+  params: { page?: number; perPage?: number } = {}
+): Promise<Paginated<RoleActivityEvent>> {
+  const query = buildQuery({ page: params.page, per_page: params.perPage })
+  return apiFetch(`/api/admin/wastes/${wasteId}/activity${query}`)
+}
+
+// Tab "Evidencias" / Paso 4 del wizard -- archivos activos agrupados por
+// `file_category`, ver `WasteController::files()`.
+export async function fetchWasteFiles(
+  wasteId: number | string,
+  params: { fileCategory?: WasteFileCategory } = {}
+): Promise<{ files: WasteFilesByCategory }> {
+  const query = buildQuery({ file_category: params.fileCategory })
+  return apiFetch(`/api/admin/wastes/${wasteId}/files${query}`)
+}
+
+// ---- Archivos transversales (/api/admin/files) ----------------------------
+// Subida REAL a disco (S3 en prod, `local` en dev vía Laravel Storage, ver
+// docblock de `FileController`). `apiFetch` detecta `FormData` y omite
+// `Content-Type: application/json` -- mismo mecanismo que
+// importWasteStreams()/importUnCodes().
+export async function uploadFile(payload: UploadFilePayload): Promise<{ file: AdminFile }> {
+  const formData = new FormData()
+  formData.append('file', payload.file)
+  formData.append('entity_type', payload.entityType)
+  formData.append('entity_id', String(payload.entityId))
+  formData.append('file_category', payload.fileCategory)
+  if (payload.description) formData.append('description', payload.description)
+  return apiFetch('/api/admin/files', { method: 'POST', body: formData })
+}
+
+// Soft-delete únicamente -- ver `FileController::destroy()`.
+export async function deleteFile(id: number | string): Promise<{ message: string }> {
+  return apiFetch(`/api/admin/files/${id}`, { method: 'DELETE' })
+}
+
+// El binario NUNCA se pide vía `apiFetch()` -- el caller abre esta URL
+// directamente (`window.open(getFileDownloadUrl(id), '_blank')`), la cookie
+// de sesión Sanctum viaja igual en una navegación normal del navegador.
+export function getFileDownloadUrl(id: number | string): string {
+  return apiUrl(`/api/admin/files/${id}/download`)
+}
+
+// ---- "Evaluación del Gestor" (waste_treatment_approvals) -------------------
+// Ver docblock de `WasteTreatmentApprovalController`/tipos en types.ts.
+
+// GET /api/admin/branch-treatments/available -- exploración pública
+// (cualquier usuario autenticado) de tratamientos de sede ACTIVOS de
+// organizaciones Gestor, filtrada opcionalmente por corrientes/UN
+// compatibles (arrays -- de ahí el `URLSearchParams.append` manual en vez de
+// `buildQuery`, que solo soporta valores escalares).
+export async function fetchAvailableBranchTreatments(
+  params: { wasteStreamIds?: number[]; unCodeIds?: number[] } = {}
+): Promise<{ branch_treatments: AvailableBranchTreatment[] }> {
+  const query = new URLSearchParams()
+  for (const id of params.wasteStreamIds ?? []) query.append('waste_stream_ids[]', String(id))
+  for (const id of params.unCodeIds ?? []) query.append('un_code_ids[]', String(id))
+  const qs = query.toString()
+  return apiFetch(`/api/admin/branch-treatments/available${qs ? `?${qs}` : ''}`)
+}
+
+// GET /api/admin/wastes/{waste}/treatment-approvals -- visible para el
+// dueño del residuo (ve TODAS) y para cada Gestor (solo la suya) -- ver
+// `indexForWaste()`.
+export async function fetchWasteTreatmentApprovals(
+  wasteId: number | string,
+  params: { page?: number; perPage?: number } = {}
+): Promise<Paginated<AdminTreatmentApprovalForWaste>> {
+  const query = buildQuery({ page: params.page, per_page: params.perPage })
+  return apiFetch(`/api/admin/wastes/${wasteId}/treatment-approvals${query}`)
+}
+
+// POST /api/admin/wastes/{waste}/treatment-approvals -- el dueño del
+// residuo elige un `branch_treatment_id` de un Gestor -- esa elección ES la
+// invitación. Rate-limited (10/min) y rechaza duplicado activo con 422.
+export async function createWasteTreatmentApprovalRequest(
+  wasteId: number | string,
+  payload: CreateTreatmentApprovalRequestPayload
+): Promise<{ treatment_approval: AdminTreatmentApprovalForWaste }> {
+  return apiFetch(`/api/admin/wastes/${wasteId}/treatment-approvals`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+// GET /api/admin/wastes/{waste}/preapproved-matches -- "Tratamiento
+// Preaprobado Detectado" (Paso 2 del wizard / tab Tratamientos). Requiere
+// que el residuo ya tenga corrientes/UN asignados EN EL SERVIDOR (el
+// backend consulta `waste_stream_assignments`/`waste_un_codes`, no el
+// estado local del wizard) -- el caller debe sincronizar la clasificación
+// antes de llamar esto. Puede devolver lista vacía.
+export async function fetchWastePreapprovedMatches(
+  wasteId: number | string
+): Promise<{ matches: PreapprovedTreatmentMatch[] }> {
+  return apiFetch(`/api/admin/wastes/${wasteId}/preapproved-matches`)
+}
+
+// POST /api/admin/wastes/{waste}/preapproved-matches/{treatmentApproval}/use
+// -- el Generador confirma usar la sugerencia. La evaluación nueva SIEMPRE
+// nace PENDING/DRAFT (nunca auto-aprobada) -- el caller debe comunicarlo
+// explícitamente en la UI, no dar a entender que ya quedó aprobada.
+export async function usePreapprovedTreatmentMatch(
+  wasteId: number | string,
+  treatmentApprovalId: number | string
+): Promise<{ treatment_approval: AdminTreatmentApprovalForWaste }> {
+  return apiFetch(`/api/admin/wastes/${wasteId}/preapproved-matches/${treatmentApprovalId}/use`, { method: 'POST' })
+}
+
+// GET /api/admin/treatment-approvals -- listado GENERAL desde la
+// perspectiva del Gestor (acceso dual: platform staff ve todas, un Gestor
+// solo las suyas). Sin KPIs -- `index()` no los calcula (a diferencia de
+// fetchBranchTreatments()/fetchVehicles()).
+export async function fetchTreatmentApprovals(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    technicalStatus?: TreatmentApprovalTechnicalStatus
+    commercialStatus?: TreatmentApprovalCommercialStatus
+    wasteId?: number | string
+  } = {}
+): Promise<Paginated<AdminTreatmentApproval>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    technical_status: params.technicalStatus,
+    commercial_status: params.commercialStatus,
+    waste_id: params.wasteId,
+  })
+  return apiFetch(`/api/admin/treatment-approvals${query}`)
+}
+
+export async function fetchTreatmentApproval(
+  id: number | string
+): Promise<{ treatment_approval: AdminTreatmentApprovalDetail }> {
+  return apiFetch(`/api/admin/treatment-approvals/${id}`)
+}
+
+// PUT /api/admin/treatment-approvals/{id} -- SOLO el Gestor evaluador (ver
+// `WasteTreatmentApprovalPolicy::update()`).
+export async function updateTreatmentApproval(
+  id: number | string,
+  payload: UpdateTreatmentApprovalPayload
+): Promise<{ treatment_approval: AdminTreatmentApproval }> {
+  return apiFetch(`/api/admin/treatment-approvals/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+// Transiciones -- SOLO el Gestor evaluador, permiso `treatment_approvals.evaluate`
+// (ver `WasteTreatmentApprovalPolicy::evaluate()`).
+export async function approveTreatmentApprovalTechnical(
+  id: number | string,
+  payload: ApproveTreatmentApprovalTechnicalPayload = {}
+): Promise<{ treatment_approval: AdminTreatmentApproval }> {
+  return apiFetch(`/api/admin/treatment-approvals/${id}/approve-technical`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function rejectTreatmentApprovalTechnical(
+  id: number | string,
+  payload: RejectTreatmentApprovalTechnicalPayload
+): Promise<{ treatment_approval: AdminTreatmentApproval }> {
+  return apiFetch(`/api/admin/treatment-approvals/${id}/reject-technical`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+// Exige que `unit_price` ya esté fijado -- el backend responde 422 si no.
+export async function approveTreatmentApprovalCommercial(
+  id: number | string
+): Promise<{ treatment_approval: AdminTreatmentApproval }> {
+  return apiFetch(`/api/admin/treatment-approvals/${id}/approve-commercial`, { method: 'POST' })
+}
+
+export async function rejectTreatmentApprovalCommercial(
+  id: number | string,
+  payload: RejectTreatmentApprovalCommercialPayload = {}
+): Promise<{ treatment_approval: AdminTreatmentApproval }> {
+  return apiFetch(`/api/admin/treatment-approvals/${id}/reject-commercial`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function quoteTreatmentApproval(id: number | string): Promise<{ treatment_approval: AdminTreatmentApproval }> {
+  return apiFetch(`/api/admin/treatment-approvals/${id}/quote`, { method: 'POST' })
+}
+
+export async function negotiateTreatmentApproval(
+  id: number | string
+): Promise<{ treatment_approval: AdminTreatmentApproval }> {
+  return apiFetch(`/api/admin/treatment-approvals/${id}/negotiate`, { method: 'POST' })
+}
+
+export async function cancelTreatmentApproval(id: number | string): Promise<{ treatment_approval: AdminTreatmentApproval }> {
+  return apiFetch(`/api/admin/treatment-approvals/${id}/cancel`, { method: 'POST' })
 }
 
 export type * from './types'
