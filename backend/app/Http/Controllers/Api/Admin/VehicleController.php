@@ -342,7 +342,7 @@ class VehicleController extends Controller
 
         if ($branch && (int) $branch->organization_id !== (int) $organizationId) {
             throw ValidationException::withMessages([
-                'branch_id' => ['La sede indicada no pertenece a la organización del vehículo.'],
+                'branch_id' => ['La sucursal indicada no pertenece a la organización del vehículo.'],
             ]);
         }
     }

@@ -3,7 +3,7 @@ import { BranchTypesListScreen } from '@/features/admin/catalogs/BranchTypesList
 
 export default function AdminBranchTypesPage() {
   return (
-    <DashboardShell title="Tipos de Sede">
+    <DashboardShell title="Tipos de Sucursal">
       <BranchTypesListScreen />
     </DashboardShell>
   )

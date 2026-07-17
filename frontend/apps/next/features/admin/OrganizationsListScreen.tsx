@@ -269,7 +269,7 @@ export function OrganizationsListScreen() {
                 <TableHead>Organización</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Ciudad Principal</TableHead>
-                <TableHead>Sedes</TableHead>
+                <TableHead>Sucursales</TableHead>
                 <TableHead>Contactos</TableHead>
                 <TableHead>Usuarios</TableHead>
                 <TableHead>Estado</TableHead>

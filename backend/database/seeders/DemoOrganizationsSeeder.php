@@ -150,7 +150,7 @@ class DemoOrganizationsSeeder extends Seeder
                     ['organization_id' => $organization->id, 'code' => $organizationData['branch_code_prefix'].'_'.strtoupper(Str::ascii($city['name']))],
                     [
                         'branch_type_id' => $branchType->id,
-                        'name' => "Sede {$city['name']}",
+                        'name' => "Sucursal {$city['name']}",
                         'status' => 'ACTIVE',
                         'country_id' => $city['country_id'],
                         'department_id' => $city['department_id'],

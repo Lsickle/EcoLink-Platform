@@ -20,7 +20,7 @@ class BranchFactory extends Factory
             'organization_id' => Organization::factory(),
             'branch_type_id' => BranchType::factory(),
             'code' => strtoupper(fake()->unique()->lexify('BRA_??????')),
-            'name' => fake()->unique()->company().' - Sede',
+            'name' => fake()->unique()->company().' - Sucursal',
             'status' => 'ACTIVE',
             'country_id' => null,
             'department_id' => null,

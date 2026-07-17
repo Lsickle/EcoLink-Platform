@@ -95,7 +95,7 @@ export function CreateBranchTypeForm() {
   return (
     <Card className="w-full max-w-2xl">
       <CardHeader>
-        <CardTitle className="text-xl">Crear Tipo de Sede</CardTitle>
+        <CardTitle className="text-xl">Crear Tipo de Sucursal</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-6" noValidate>
@@ -186,7 +186,7 @@ export function CreateBranchTypeForm() {
               Cancelar
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Creando…' : 'Crear Tipo de Sede'}
+              {isSubmitting ? 'Creando…' : 'Crear Tipo de Sucursal'}
             </Button>
           </div>
         </form>

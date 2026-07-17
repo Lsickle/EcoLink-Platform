@@ -90,11 +90,11 @@ describe('BranchTypesListScreen', () => {
     expect(within(acopioRow as HTMLElement).getByText('Almacenamiento')).toBeInTheDocument()
   })
 
-  test('navigates to /admin/catalogs/branch-types/new when clicking "+ Crear Tipo de Sede"', async () => {
+  test('navigates to /admin/catalogs/branch-types/new when clicking "+ Crear Tipo de Sucursal"', async () => {
     render(<BranchTypesListScreen />)
     await screen.findByText('Planta')
 
-    fireEvent.click(screen.getByRole('button', { name: /crear tipo de sede/i }))
+    fireEvent.click(screen.getByRole('button', { name: /crear tipo de sucursal/i }))
 
     expect(pushMock).toHaveBeenCalledWith('/admin/catalogs/branch-types/new')
   })

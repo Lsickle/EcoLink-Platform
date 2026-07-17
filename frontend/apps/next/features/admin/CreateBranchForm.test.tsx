@@ -85,7 +85,7 @@ describe('CreateBranchForm', () => {
     render(<CreateBranchForm />)
     await screen.findByLabelText('Nombre')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Crear Sede' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Crear Sucursal' }))
 
     expect(await screen.findByText('Ingresa un nombre.')).toBeInTheDocument()
     expect(createBranchMock).not.toHaveBeenCalled()
@@ -98,9 +98,9 @@ describe('CreateBranchForm', () => {
 
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Planta Norte' } })
     fireEvent.change(screen.getByLabelText('Código'), { target: { value: 'S-001' } })
-    fireEvent.click(screen.getByRole('combobox', { name: /tipo de sede/i }))
+    fireEvent.click(screen.getByRole('combobox', { name: /tipo de sucursal/i }))
     fireEvent.click(await screen.findByRole('option', { name: 'Operativa' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Crear Sede' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Crear Sucursal' }))
 
     await vi.waitFor(() => expect(createBranchMock).toHaveBeenCalled())
     expect(createBranchMock).toHaveBeenCalledWith(expect.not.objectContaining({ organization_id: expect.anything() }))
@@ -117,17 +117,17 @@ describe('CreateBranchForm', () => {
 
   test('shows the backend validation error on a duplicate code', async () => {
     createBranchMock.mockRejectedValueOnce(
-      new ApiValidationError('The given data was invalid.', { code: ['Ya existe una sede con este código en la organización.'] })
+      new ApiValidationError('The given data was invalid.', { code: ['Ya existe una sucursal con este código en la organización.'] })
     )
     render(<CreateBranchForm />)
     await screen.findByLabelText('Nombre')
 
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Planta Norte' } })
     fireEvent.change(screen.getByLabelText('Código'), { target: { value: 'S-001' } })
-    fireEvent.click(screen.getByRole('combobox', { name: /tipo de sede/i }))
+    fireEvent.click(screen.getByRole('combobox', { name: /tipo de sucursal/i }))
     fireEvent.click(await screen.findByRole('option', { name: 'Operativa' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Crear Sede' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Crear Sucursal' }))
 
-    expect(await screen.findByText('Ya existe una sede con este código en la organización.')).toBeInTheDocument()
+    expect(await screen.findByText('Ya existe una sucursal con este código en la organización.')).toBeInTheDocument()
   })
 })

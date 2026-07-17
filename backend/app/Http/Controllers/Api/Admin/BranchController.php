@@ -137,13 +137,13 @@ class BranchController extends Controller
             $branch = Branch::query()->create($data);
         } catch (UniqueConstraintViolationException) {
             throw ValidationException::withMessages([
-                'code' => ['Ya existe una sede con este código en la organización.'],
+                'code' => ['Ya existe una sucursal con este código en la organización.'],
             ]);
         }
 
         $this->logSecurityEvent(
             $request, 'BRANCH_CREATED', 'SUCCESS',
-            "Sede '{$branch->name}' creada.", $actor,
+            "Sucursal '{$branch->name}' creada.", $actor,
             ['branch_id' => $branch->id, 'organization_id' => $branch->organization_id],
         );
 
@@ -178,7 +178,7 @@ class BranchController extends Controller
 
         $this->logSecurityEvent(
             $request, 'BRANCH_UPDATED', 'SUCCESS',
-            "Sede '{$branch->name}' modificada.", $actor,
+            "Sucursal '{$branch->name}' modificada.", $actor,
             ['branch_id' => $branch->id, 'organization_id' => $branch->organization_id],
         );
 
@@ -194,13 +194,13 @@ class BranchController extends Controller
     public function activate(Request $request, Branch $branch)
     {
         Gate::authorize('update', $branch);
-        abort_unless($request->user()->hasPermission('branches.activate'), 403, 'No tiene permiso para activar sedes.');
+        abort_unless($request->user()->hasPermission('branches.activate'), 403, 'No tiene permiso para activar sucursales.');
 
         $branch->forceFill(['status' => 'ACTIVE', 'is_active' => true, 'updated_by' => $request->user()->id])->save();
 
         $this->logSecurityEvent(
             $request, 'BRANCH_ACTIVATED', 'SUCCESS',
-            "Sede '{$branch->name}' activada.", $request->user(),
+            "Sucursal '{$branch->name}' activada.", $request->user(),
             ['branch_id' => $branch->id, 'organization_id' => $branch->organization_id],
         );
 
@@ -210,13 +210,13 @@ class BranchController extends Controller
     public function deactivate(Request $request, Branch $branch)
     {
         Gate::authorize('update', $branch);
-        abort_unless($request->user()->hasPermission('branches.deactivate'), 403, 'No tiene permiso para inactivar sedes.');
+        abort_unless($request->user()->hasPermission('branches.deactivate'), 403, 'No tiene permiso para inactivar sucursales.');
 
         $branch->forceFill(['status' => 'INACTIVE', 'is_active' => false, 'updated_by' => $request->user()->id])->save();
 
         $this->logSecurityEvent(
             $request, 'BRANCH_DEACTIVATED', 'SUCCESS',
-            "Sede '{$branch->name}' inactivada.", $request->user(),
+            "Sucursal '{$branch->name}' inactivada.", $request->user(),
             ['branch_id' => $branch->id, 'organization_id' => $branch->organization_id],
         );
 
@@ -271,8 +271,8 @@ class BranchController extends Controller
      */
     public function activity(Request $request, Branch $branch)
     {
-        abort_unless($request->user()->hasPermission('audit.read'), 403, 'No tiene permiso para consultar la auditoría de sedes.');
-        abort_unless($branch->isAccessibleBy($request->user()), 403, 'No tiene acceso a esta sede.');
+        abort_unless($request->user()->hasPermission('audit.read'), 403, 'No tiene permiso para consultar la auditoría de sucursales.');
+        abort_unless($branch->isAccessibleBy($request->user()), 403, 'No tiene acceso a esta sucursal.');
 
         $logs = SecurityLog::query()
             ->whereIn('event_type', self::BRANCH_EVENTS)

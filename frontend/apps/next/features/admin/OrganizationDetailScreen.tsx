@@ -539,10 +539,10 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                 <InfoField label="NIT / Identificación">
                   {organization.tax_id} ({organization.tax_id_type})
                 </InfoField>
-                <InfoField label="País (sede principal)">
+                <InfoField label="País (sucursal principal)">
                   {primaryBranch?.department?.name ? countries.find((c) => c.iso_code === countryCode)?.name ?? countryCode : '—'}
                 </InfoField>
-                <InfoField label="Ciudad Principal (sede principal)">{cityLabel}</InfoField>
+                <InfoField label="Ciudad Principal (sucursal principal)">{cityLabel}</InfoField>
 
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="email">Correo Electrónico</Label>
@@ -858,7 +858,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
             <CardContent>
               <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)}>
                 <TabsList>
-                  <TabsTrigger value="sedes">Sedes</TabsTrigger>
+                  <TabsTrigger value="sedes">Sucursales</TabsTrigger>
                   <TabsTrigger value="contactos">Contactos</TabsTrigger>
                   <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
                   <TabsTrigger value="auditoria">Actividad</TabsTrigger>
@@ -870,7 +870,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                       size="sm"
                       onClick={() => router.push(`/admin/branches/new?organizationId=${organization.id}`)}
                     >
-                      + Crear Sede
+                      + Crear Sucursal
                     </Button>
                   </div>
                   {branchesError && (
@@ -888,7 +888,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                         <TableHeader>
                           <TableRow>
                             <TableHead>Nombre</TableHead>
-                            <TableHead>Tipo de Sede</TableHead>
+                            <TableHead>Tipo de Sucursal</TableHead>
                             <TableHead>Dirección</TableHead>
                             <TableHead>Estado</TableHead>
                           </TableRow>
@@ -897,7 +897,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                           {branches.length === 0 && (
                             <TableRow>
                               <TableCell colSpan={4} className="text-center text-muted-foreground">
-                                Esta organización no tiene sedes registradas.
+                                Esta organización no tiene sucursales registradas.
                               </TableCell>
                             </TableRow>
                           )}
@@ -1028,7 +1028,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
               <CardTitle className="text-base">Resumen</CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-3">
-              <MetricTile label="Sedes" value={String(organization.branches_count)} />
+              <MetricTile label="Sucursales" value={String(organization.branches_count)} />
               <MetricTile label="Contactos" value={String(organization.contacts_count)} />
               <MetricTile className="col-span-2" label="Usuarios" value={String(organization.users_count)} />
             </CardContent>

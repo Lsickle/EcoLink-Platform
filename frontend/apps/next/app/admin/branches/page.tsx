@@ -3,7 +3,7 @@ import { BranchesListScreen } from '@/features/admin/BranchesListScreen'
 
 export default function AdminBranchesPage() {
   return (
-    <DashboardShell title="Sedes">
+    <DashboardShell title="Sucursales">
       <BranchesListScreen />
     </DashboardShell>
   )

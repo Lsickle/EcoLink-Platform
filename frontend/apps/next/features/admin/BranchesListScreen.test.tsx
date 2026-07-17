@@ -170,7 +170,7 @@ describe('BranchesListScreen', () => {
     await screen.findByText('Planta Norte')
     fetchBranchesMock.mockClear()
 
-    fireEvent.change(screen.getByLabelText('Buscar sedes'), { target: { value: 'Norte' } })
+    fireEvent.change(screen.getByLabelText('Buscar sucursales'), { target: { value: 'Norte' } })
 
     await vi.waitFor(() => {
       expect(fetchBranchesMock).toHaveBeenCalledWith(expect.objectContaining({ search: 'Norte' }))
@@ -208,11 +208,11 @@ describe('BranchesListScreen', () => {
     })
   })
 
-  test('navigates to /admin/branches/new when "Crear Sede" is clicked', async () => {
+  test('navigates to /admin/branches/new when "Crear Sucursal" is clicked', async () => {
     render(<BranchesListScreen />)
     await screen.findByText('Planta Norte')
 
-    fireEvent.click(screen.getByRole('button', { name: '+ Crear Sede' }))
+    fireEvent.click(screen.getByRole('button', { name: '+ Crear Sucursal' }))
 
     expect(pushMock).toHaveBeenCalledWith('/admin/branches/new')
   })

@@ -223,7 +223,7 @@ export function BranchesListScreen() {
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             className="sm:max-w-xs"
-            aria-label="Buscar sedes"
+            aria-label="Buscar sucursales"
           />
           {isPlatformStaff && (
             <div className="sm:w-64">
@@ -316,7 +316,7 @@ export function BranchesListScreen() {
               setPage(1)
             }}
           >
-            <SelectTrigger aria-label="Filtrar por tipo de sede" className="w-full sm:w-48">
+            <SelectTrigger aria-label="Filtrar por tipo de sucursal" className="w-full sm:w-48">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -328,7 +328,7 @@ export function BranchesListScreen() {
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={() => router.push('/admin/branches/new')}>+ Crear Sede</Button>
+        <Button onClick={() => router.push('/admin/branches/new')}>+ Crear Sucursal</Button>
       </div>
 
       {loadError && (
@@ -346,7 +346,7 @@ export function BranchesListScreen() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Sede</TableHead>
+                <TableHead>Sucursal</TableHead>
                 {isPlatformStaff && <TableHead>Organización</TableHead>}
                 <TableHead>Ciudad</TableHead>
                 <TableHead>Usuarios</TableHead>
@@ -359,7 +359,7 @@ export function BranchesListScreen() {
               {branches.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={isPlatformStaff ? 7 : 6} className="text-center text-muted-foreground">
-                    No hay sedes que coincidan con los filtros.
+                    No hay sucursales que coincidan con los filtros.
                   </TableCell>
                 </TableRow>
               )}
@@ -409,7 +409,7 @@ export function BranchesListScreen() {
 
       <div className="flex flex-col items-center justify-between gap-3 sm:flex-row">
         <span className="text-sm text-muted-foreground">
-          Mostrando {rangeStart}–{rangeEnd} de {total} sedes
+          Mostrando {rangeStart}–{rangeEnd} de {total} sucursales
         </span>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>

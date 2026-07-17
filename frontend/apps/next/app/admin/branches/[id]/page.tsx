@@ -10,7 +10,7 @@ export default function AdminBranchDetailPage() {
   const { id } = useBranchDetailParams()
 
   return (
-    <DashboardShell title="Detalle de Sede">
+    <DashboardShell title="Detalle de Sucursal">
       <BranchDetailScreen branchId={id} />
     </DashboardShell>
   )

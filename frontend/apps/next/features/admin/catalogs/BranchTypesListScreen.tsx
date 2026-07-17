@@ -198,10 +198,10 @@ export function BranchTypesListScreen() {
   return (
     <div className="flex flex-col gap-4">
       <CatalogPageHeader
-        title="Tipos de Sede"
-        description="Catálogo de tipos de sede, con flags de capacidad operativa."
+        title="Tipos de Sucursal"
+        description="Catálogo de tipos de sucursal, con flags de capacidad operativa."
         colorVariant="purple"
-        actions={<Button onClick={() => router.push('/admin/catalogs/branch-types/new')}>+ Crear Tipo de Sede</Button>}
+        actions={<Button onClick={() => router.push('/admin/catalogs/branch-types/new')}>+ Crear Tipo de Sucursal</Button>}
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -218,7 +218,7 @@ export function BranchTypesListScreen() {
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
               className="sm:max-w-xs"
-              aria-label="Buscar tipos de sede"
+              aria-label="Buscar tipos de sucursal"
             />
             <Select
               items={statusFilterOptions}
@@ -265,7 +265,7 @@ export function BranchTypesListScreen() {
                   {branchTypes.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center text-muted-foreground">
-                        No hay tipos de sede que coincidan con los filtros.
+                        No hay tipos de sucursal que coincidan con los filtros.
                       </TableCell>
                     </TableRow>
                   )}
@@ -332,7 +332,7 @@ export function BranchTypesListScreen() {
           <div className="flex flex-col items-center justify-between gap-3 sm:flex-row">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>
-                Mostrando {rangeStart}–{rangeEnd} de {total} tipos de sede
+                Mostrando {rangeStart}–{rangeEnd} de {total} tipos de sucursal
               </span>
               <Select value={String(perPage)} onValueChange={handlePerPageChange}>
                 <SelectTrigger aria-label="Filas por página" className="w-24">

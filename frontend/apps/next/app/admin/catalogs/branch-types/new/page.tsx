@@ -3,7 +3,7 @@ import { CreateBranchTypeForm } from '@/features/admin/catalogs/CreateBranchType
 
 export default function AdminNewBranchTypePage() {
   return (
-    <DashboardShell title="Crear Tipo de Sede">
+    <DashboardShell title="Crear Tipo de Sucursal">
       <CreateBranchTypeForm />
     </DashboardShell>
   )

@@ -147,7 +147,7 @@ export function BranchTypeDetailScreen({ branchTypeId }: { branchTypeId: number 
   if (loadError || !branchType) {
     return (
       <p className="text-sm text-destructive" role="alert">
-        {loadError ?? 'No se encontró el tipo de sede.'}
+        {loadError ?? 'No se encontró el tipo de sucursal.'}
       </p>
     )
   }

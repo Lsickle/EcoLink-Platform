@@ -261,7 +261,7 @@ export function ContactDetailScreen({ contactId }: { contactId: number | string 
               <TableHeader>
                 <TableRow>
                   <TableHead>Organización</TableHead>
-                  <TableHead>Sede</TableHead>
+                  <TableHead>Sucursal</TableHead>
                   <TableHead>Cargo</TableHead>
                   <TableHead>Tipo de Relación</TableHead>
                   <TableHead>Principal</TableHead>

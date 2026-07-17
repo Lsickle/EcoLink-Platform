@@ -197,7 +197,7 @@ describe('OrganizationDetailScreen', () => {
     await screen.findByText('EcoRecicla S.A.S.')
     const summaryHeading = screen.getByText('Resumen')
     const summaryCard = summaryHeading.closest('[data-slot="card"]') as HTMLElement
-    expect(within(summaryCard).getByText('Sedes')).toBeInTheDocument()
+    expect(within(summaryCard).getByText('Sucursales')).toBeInTheDocument()
     expect(within(summaryCard).getByText('2')).toBeInTheDocument()
     expect(within(summaryCard).getByText('Contactos')).toBeInTheDocument()
     expect(within(summaryCard).getByText('3')).toBeInTheDocument()
@@ -242,7 +242,7 @@ describe('OrganizationDetailScreen', () => {
     expect(revokeBusinessRoleFromOrganizationMock).toHaveBeenCalledWith(7, 1)
   })
 
-  test('lazy-loads the Sedes tab data only once opened', async () => {
+  test('lazy-loads the Sucursales tab data only once opened', async () => {
     render(<OrganizationDetailScreen organizationId={7} />)
     await screen.findByText('EcoRecicla S.A.S.')
 
@@ -273,16 +273,16 @@ describe('OrganizationDetailScreen', () => {
     expect(updateOrganizationMock).toHaveBeenCalledWith(7, expect.objectContaining({ legal_name: 'EcoRecicla Actualizada' }))
   })
 
-  test('navigates to /admin/branches/new with organizationId when "Crear Sede" is clicked (Sedes tab)', async () => {
+  test('navigates to /admin/branches/new with organizationId when "Crear Sucursal" is clicked (Sucursales tab)', async () => {
     render(<OrganizationDetailScreen organizationId={7} />)
     await screen.findByText('EcoRecicla S.A.S.')
 
-    fireEvent.click(screen.getByRole('button', { name: '+ Crear Sede' }))
+    fireEvent.click(screen.getByRole('button', { name: '+ Crear Sucursal' }))
 
     expect(pushMock).toHaveBeenCalledWith('/admin/branches/new?organizationId=7')
   })
 
-  test('navigates to /admin/branches/{id} when a Sedes row is clicked', async () => {
+  test('navigates to /admin/branches/{id} when a Sucursales row is clicked', async () => {
     fetchOrganizationBranchesMock.mockResolvedValueOnce({
       ...emptyPage,
       data: [

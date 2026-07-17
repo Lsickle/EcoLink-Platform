@@ -150,7 +150,7 @@ export function OrganizationContactsPanel({
                 <TableHead>Nombre</TableHead>
                 <TableHead>Correo</TableHead>
                 <TableHead>Cargo</TableHead>
-                {showBranchColumn && <TableHead>Sede</TableHead>}
+                {showBranchColumn && <TableHead>Sucursal</TableHead>}
                 <TableHead>Tipo de Relación</TableHead>
                 <TableHead>Cuenta de Usuario</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
@@ -259,10 +259,10 @@ function LinkFields({
       {lockedBranchId === undefined && (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={`${idPrefix}-branchId`}>
-            Sede <span className="text-muted-foreground">(opcional)</span>
+            Sucursal <span className="text-muted-foreground">(opcional)</span>
           </Label>
           <Select
-            items={[{ value: 'none', label: 'Sin sede específica' }, ...branches.map((b) => ({ value: String(b.id), label: b.name }))]}
+            items={[{ value: 'none', label: 'Sin sucursal específica' }, ...branches.map((b) => ({ value: String(b.id), label: b.name }))]}
             value={branchId !== null ? String(branchId) : 'none'}
             onValueChange={(value) => onBranchIdChange(value === 'none' ? null : Number(value))}
           >
@@ -270,7 +270,7 @@ function LinkFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">Sin sede específica</SelectItem>
+              <SelectItem value="none">Sin sucursal específica</SelectItem>
               {branches.map((branch) => (
                 <SelectItem key={branch.id} value={String(branch.id)}>
                   {branch.name}

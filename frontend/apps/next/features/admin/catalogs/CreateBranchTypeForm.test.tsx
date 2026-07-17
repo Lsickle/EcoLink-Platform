@@ -44,7 +44,7 @@ describe('CreateBranchTypeForm', () => {
   test('shows validation errors when submitting without required fields', async () => {
     render(<CreateBranchTypeForm />)
 
-    fireEvent.click(screen.getByRole('button', { name: /crear tipo de sede/i }))
+    fireEvent.click(screen.getByRole('button', { name: /crear tipo de sucursal/i }))
 
     expect(await screen.findByText('Ingresa un código.')).toBeInTheDocument()
     expect(screen.getByText('Ingresa un nombre.')).toBeInTheDocument()
@@ -62,7 +62,7 @@ describe('CreateBranchTypeForm', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Tratamiento' }))
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /crear tipo de sede/i }))
+      fireEvent.click(screen.getByRole('button', { name: /crear tipo de sucursal/i }))
     })
 
     expect(createBranchTypeMock).toHaveBeenCalledWith({
@@ -86,7 +86,7 @@ describe('CreateBranchTypeForm', () => {
     fireEvent.change(screen.getByLabelText('Categoría'), { target: { value: 'Técnica' } })
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /crear tipo de sede/i }))
+      fireEvent.click(screen.getByRole('button', { name: /crear tipo de sucursal/i }))
     })
 
     expect(await screen.findByText('Ya existe ese código.')).toBeInTheDocument()

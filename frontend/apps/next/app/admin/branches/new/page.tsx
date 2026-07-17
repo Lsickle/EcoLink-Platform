@@ -3,7 +3,7 @@ import { CreateBranchForm } from '@/features/admin/CreateBranchForm'
 
 export default function AdminNewBranchPage() {
   return (
-    <DashboardShell title="Crear Sede">
+    <DashboardShell title="Crear Sucursal">
       <CreateBranchForm />
     </DashboardShell>
   )

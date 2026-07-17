@@ -190,7 +190,7 @@ export function CreateBranchForm() {
     }
 
     if (isPlatformStaff && !parsed.data.organizationId) {
-      setFormError('Selecciona la organización dueña de la sede.')
+      setFormError('Selecciona la organización dueña de la sucursal.')
       return
     }
 
@@ -239,7 +239,7 @@ export function CreateBranchForm() {
   return (
     <Card className="w-full max-w-3xl">
       <CardHeader>
-        <CardTitle className="text-xl">Crear Sede</CardTitle>
+        <CardTitle className="text-xl">Crear Sucursal</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-6" noValidate>
@@ -292,7 +292,7 @@ export function CreateBranchForm() {
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="branchTypeId">Tipo de Sede</Label>
+              <Label htmlFor="branchTypeId">Tipo de Sucursal</Label>
               <Select
                 items={branchTypes.map((type) => ({ value: String(type.id), label: type.name }))}
                 value={branchTypeId !== null ? String(branchTypeId) : null}
@@ -529,7 +529,7 @@ export function CreateBranchForm() {
             <div className="flex items-center gap-2">
               <Checkbox id="isActive" checked={isActive} onCheckedChange={(checked) => setIsActive(checked === true)} />
               <Label htmlFor="isActive" className="font-normal">
-                Sede activa
+                Sucursal activa
               </Label>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -547,7 +547,7 @@ export function CreateBranchForm() {
 
           {catalogsError && (
             <p className="text-sm text-destructive" role="alert" aria-live="polite">
-              No se pudieron cargar los catálogos de Tipo de Sede/Geografía: {catalogsError}
+              No se pudieron cargar los catálogos de Tipo de Sucursal/Geografía: {catalogsError}
             </p>
           )}
 
@@ -562,7 +562,7 @@ export function CreateBranchForm() {
               Cancelar
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Creando…' : 'Crear Sede'}
+              {isSubmitting ? 'Creando…' : 'Crear Sucursal'}
             </Button>
           </div>
         </form>

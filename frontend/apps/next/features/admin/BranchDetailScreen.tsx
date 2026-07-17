@@ -377,7 +377,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
   if (loadError || !branch) {
     return (
       <p className="text-sm text-destructive" role="alert">
-        {loadError ?? 'No se encontró la sede.'}
+        {loadError ?? 'No se encontró la sucursal.'}
       </p>
     )
   }
@@ -433,7 +433,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
               <form onSubmit={handleSave} className="grid grid-cols-1 gap-4 sm:grid-cols-2" noValidate>
                 <InfoField label="Organización">{branch.organization.legal_name}</InfoField>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="branchTypeId">Tipo de Sede</Label>
+                  <Label htmlFor="branchTypeId">Tipo de Sucursal</Label>
                   <Select
                     items={branchTypes.map((type) => ({ value: String(type.id), label: type.name }))}
                     value={branchTypeId !== null ? String(branchTypeId) : null}
@@ -487,7 +487,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
                     onCheckedChange={(checked) => setIsActiveField(checked === true)}
                   />
                   <Label htmlFor="isActiveField" className="font-normal">
-                    Sede activa
+                    Sucursal activa
                   </Label>
                 </div>
 
@@ -720,7 +720,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
                           {users.length === 0 && (
                             <TableRow>
                               <TableCell colSpan={3} className="text-center text-muted-foreground">
-                                Esta sede no tiene usuarios registrados.
+                                Esta sucursal no tiene usuarios registrados.
                               </TableCell>
                             </TableRow>
                           )}
