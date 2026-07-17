@@ -46,6 +46,11 @@ class DatabaseSeeder extends Seeder
         $this->call(PackagingConditionSeeder::class);
         $this->call(VehicleTypeSeeder::class);
 
+        // Módulo Tratamiento (RN-063/D-R02): catálogo GLOBAL de 15
+        // tratamientos ambientales reales -- sin dependencias de otros
+        // seeders de este bloque.
+        $this->call(TreatmentSeeder::class);
+
         // Datos de demostración (no de catálogo crítico): 3 organizaciones
         // reales (Generador/Gestor/Subgestor) con sedes y contactos -- ver
         // docblock de DemoOrganizationsSeeder.
@@ -55,6 +60,12 @@ class DatabaseSeeder extends Seeder
         // organización) -- debe correr DESPUÉS de DemoOrganizationsSeeder y
         // VehicleTypeSeeder (ambos ya corrieron arriba).
         $this->call(DemoVehiclesSeeder::class);
+
+        // Módulo Tratamiento: habilita branch_treatments de demo en las 3
+        // sedes de la organización Gestor -- debe correr DESPUÉS de
+        // DemoOrganizationsSeeder, TreatmentSeeder y WasteStreamSeeder
+        // (todos ya corrieron arriba).
+        $this->call(DemoBranchTreatmentsSeeder::class);
 
         // 12 usuarios de demo (4 por organización, mezcla ADMINISTRADOR/
         // LOGÍSTICA) -- debe correr DESPUÉS de DemoOrganizationsSeeder y de

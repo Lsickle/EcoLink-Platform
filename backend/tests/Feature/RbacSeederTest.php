@@ -42,8 +42,13 @@ use Database\Seeders\RoleSeeder;
 // `vehicles.deactivate`. Este lote también siembra el segundo rol del
 // catálogo canónico, `LOGÍSTICA` (rol #7 de 9), SOLO con `vehicles.read`
 // (decisión ya confirmada: "los coordinadores de logística también pueden
-// ver los vehículos de su organización" -- ver, no crear/editar).
-// ADMINISTRADOR queda con los 51 permisos del catálogo completo.
+// ver los vehículos de su organización" -- ver, no crear/editar). Módulo
+// Tratamiento (RN-063/D-R02, 2026-07-17, mismo GAP -- ver docblock de
+// `PermissionSeeder`): crece a 61 permisos con `treatments.read`/
+// `treatments.create`/`treatments.update`/`treatments.activate`/
+// `treatments.deactivate` y `branch_treatments.read`/`.create`/`.update`/
+// `.activate`/`.deactivate`. ADMINISTRADOR queda con los 61 permisos del
+// catálogo completo.
 
 beforeEach(function () {
     $this->seed(PermissionSeeder::class);
@@ -51,8 +56,8 @@ beforeEach(function () {
     $this->seed(RolePermissionSeeder::class);
 });
 
-test('siembra exactamente 51 permisos con los códigos exactos del catálogo', function () {
-    expect(Permission::query()->count())->toBe(51);
+test('siembra exactamente 61 permisos con los códigos exactos del catálogo', function () {
+    expect(Permission::query()->count())->toBe(61);
 
     $expectedCodes = [
         'users.create', 'users.read', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.reset-password',
@@ -73,6 +78,8 @@ test('siembra exactamente 51 permisos con los códigos exactos del catálogo', f
         'contacts.read', 'contacts.create', 'contacts.update',
         'branches.read', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate',
         'vehicles.read', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate',
+        'treatments.read', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate',
+        'branch_treatments.read', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate',
     ];
 
     expect(Permission::query()->pluck('code')->sort()->values()->all())
@@ -103,7 +110,7 @@ test('siembra ADMINISTRADOR y LOGÍSTICA (los otros 7 roles del catálogo canón
         ->and($logistica->tenant_organization_id)->toBeNull();
 });
 
-test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, Auditoría, Corrientes de Residuos, Códigos UN, Catálogos Maestros (geografía/tipos de sede/áreas organizacionales/características de peligrosidad/categorías de residuo/estados físicos/tipos de embalaje/estados del embalaje/tipos de vehículo), Sedes + Contactos y Vehículos', function () {
+test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, Auditoría, Corrientes de Residuos, Códigos UN, Catálogos Maestros (geografía/tipos de sede/áreas organizacionales/características de peligrosidad/categorías de residuo/estados físicos/tipos de embalaje/estados del embalaje/tipos de vehículo), Sedes + Contactos, Vehículos y Tratamiento (tratamientos + tratamientos por sede)', function () {
     $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
 
     $codes = $administrador->permissions()->pluck('code')->sort()->values()->all();
@@ -127,6 +134,8 @@ test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, A
         'contacts.read', 'contacts.create', 'contacts.update',
         'branches.read', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate',
         'vehicles.read', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate',
+        'treatments.read', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate',
+        'branch_treatments.read', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate',
     ])->sort()->values()->all();
 
     expect($codes)->toBe($expected);
@@ -161,7 +170,7 @@ test('marca is_critical=true solo en los 5 permisos confirmados por el usuario (
     expect(Permission::query()->where('is_critical', true)->pluck('code')->sort()->values()->all())
         ->toBe(collect($expectedCritical)->sort()->values()->all());
 
-    expect(Permission::query()->where('is_critical', false)->count())->toBe(51 - count($expectedCritical));
+    expect(Permission::query()->where('is_critical', false)->count())->toBe(61 - count($expectedCritical));
 });
 
 test('los seeders son idempotentes (correr dos veces no duplica filas)', function () {
@@ -169,8 +178,8 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
     $this->seed(RoleSeeder::class);
     $this->seed(RolePermissionSeeder::class);
 
-    expect(Permission::query()->count())->toBe(51)
+    expect(Permission::query()->count())->toBe(61)
         ->and(Role::query()->count())->toBe(2)
-        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(51)
+        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(61)
         ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(1);
 });

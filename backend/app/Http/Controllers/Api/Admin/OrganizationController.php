@@ -518,7 +518,7 @@ class OrganizationController extends Controller
             // residual de carrera (dos requests concurrentes) -- mismo
             // patrón ya establecido en OrganizationController::store().
             throw ValidationException::withMessages([
-                'existing_contact_id' => ['Ya existe un vínculo activo para esta persona, organización y sede.'],
+                'existing_contact_id' => ['Ya existe un vínculo activo para esta persona, organización y sucursal.'],
             ]);
         }
 
@@ -655,7 +655,7 @@ class OrganizationController extends Controller
 
         if (! $belongsToOrganization) {
             throw ValidationException::withMessages([
-                'branch_id' => ['La sede indicada no pertenece a esta organización.'],
+                'branch_id' => ['La sucursal indicada no pertenece a esta organización.'],
             ]);
         }
     }
@@ -763,6 +763,10 @@ class OrganizationController extends Controller
             'q' => ['nullable', 'string'],
             'exclude_id' => ['nullable', 'integer', 'exists:organizations,id'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
+            // Filtra por capacidad de negocio (ej. 'can_treat_waste' para el
+            // selector de organizaciones Gestor en Tratamiento de Sucursal) --
+            // mismo mecanismo que Organization::hasCapability(), vía scope.
+            'capability' => ['nullable', 'string', 'in:can_generate_waste,can_transport_waste,can_treat_waste,can_approve_treatments,can_issue_manifests,can_issue_disposal_certificates,requires_environmental_license,requires_transport_authorization'],
         ]);
 
         $organizations = Organization::query()
@@ -774,6 +778,7 @@ class OrganizationController extends Controller
                 });
             })
             ->when($data['exclude_id'] ?? null, fn ($query) => $query->where('id', '!=', $data['exclude_id']))
+            ->when($data['capability'] ?? null, fn ($query, $flag) => $query->withCapability($flag))
             ->orderBy('legal_name')
             ->paginate($data['per_page'] ?? 10);
 

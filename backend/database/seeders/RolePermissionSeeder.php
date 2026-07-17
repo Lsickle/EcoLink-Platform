@@ -40,6 +40,8 @@ class RolePermissionSeeder extends Seeder
         'contacts.read', 'contacts.create', 'contacts.update',
         'branches.read', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate',
         'vehicles.read', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate',
+        'treatments.read', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate',
+        'branch_treatments.read', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate',
     ];
 
     /**

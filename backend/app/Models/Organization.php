@@ -185,6 +185,24 @@ class Organization extends Model
      * garantizar que el actor tiene visibilidad legítima sobre `$this` antes
      * de invocarlo.
      */
+    /**
+     * Scope de consulta equivalente a hasCapability(), para filtrar un
+     * listado (ej. selector de organizaciones Gestor en el formulario de
+     * Tratamiento de Sucursal) en vez de evaluar una instancia ya cargada.
+     */
+    public function scopeWithCapability(Builder $query, string $flag): Builder
+    {
+        if (! in_array($flag, self::CAPABILITY_FLAGS, true)) {
+            throw new InvalidArgumentException("Flag de capacidad desconocido: {$flag}");
+        }
+
+        return $query->whereHas('businessRoles', function ($query) use ($flag) {
+            $query->where('organization_business_roles.is_active', true)
+                ->where('business_roles.is_active', true)
+                ->where($flag, true);
+        });
+    }
+
     public function hasCapability(string $flag): bool
     {
         if (! in_array($flag, self::CAPABILITY_FLAGS, true)) {

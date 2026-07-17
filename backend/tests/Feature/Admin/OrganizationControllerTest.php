@@ -528,3 +528,26 @@ test('search excluye exclude_id y devuelve solo {id, legal_name, tax_id}', funct
     $row = collect($response->json('data'))->first();
     expect(array_keys($row))->toBe(['id', 'legal_name', 'tax_id']);
 });
+
+test('search filtra por capability (organizaciones con business_role activo con el flag)', function () {
+    $actor = organizationTestActor();
+
+    $gestorRole = BusinessRole::factory()->create(['can_treat_waste' => true]);
+    $gestor = Organization::factory()->create(['legal_name' => 'Gestor Capacidad S.A.S.']);
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $gestor->id, 'business_role_id' => $gestorRole->id, 'is_active' => true, 'assigned_at' => now(),
+    ]);
+
+    $transporterRole = BusinessRole::factory()->create(['can_treat_waste' => false]);
+    $transporter = Organization::factory()->create(['legal_name' => 'Transportador Capacidad S.A.S.']);
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $transporter->id, 'business_role_id' => $transporterRole->id, 'is_active' => true, 'assigned_at' => now(),
+    ]);
+
+    $response = $this->actingAs($actor)
+        ->getJson('/api/admin/organizations/search?capability=can_treat_waste')
+        ->assertOk();
+
+    $ids = collect($response->json('data'))->pluck('id');
+    expect($ids)->toContain($gestor->id)->not->toContain($transporter->id);
+});

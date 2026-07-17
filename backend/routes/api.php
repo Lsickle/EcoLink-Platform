@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\BranchController;
+use App\Http\Controllers\Api\Admin\BranchTreatmentController;
 use App\Http\Controllers\Api\Admin\BranchTypeController;
 use App\Http\Controllers\Api\Admin\BusinessRoleController;
 use App\Http\Controllers\Api\Admin\ContactController;
@@ -17,6 +18,7 @@ use App\Http\Controllers\Api\Admin\PackagingTypeController;
 use App\Http\Controllers\Api\Admin\PermissionController;
 use App\Http\Controllers\Api\Admin\PhysicalStateController;
 use App\Http\Controllers\Api\Admin\RoleController;
+use App\Http\Controllers\Api\Admin\TreatmentController;
 use App\Http\Controllers\Api\Admin\UnCodeController;
 use App\Http\Controllers\Api\Admin\UserManagementController;
 use App\Http\Controllers\Api\Admin\VehicleController;
@@ -296,5 +298,30 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('vehicles/{vehicle}/activate', [VehicleController::class, 'activate'])->name('vehicles.activate');
         Route::post('vehicles/{vehicle}/deactivate', [VehicleController::class, 'deactivate'])->name('vehicles.deactivate');
         Route::get('vehicles/{vehicle}/activity', [VehicleController::class, 'activity'])->name('vehicles.activity');
+
+        // Módulo Tratamiento: catálogo GLOBAL "Tratamientos" -- gestionado
+        // EXCLUSIVAMENTE por platform staff (TreatmentPolicy), lectura
+        // disponible para cualquier actor con `treatments.read`.
+        Route::get('treatments', [TreatmentController::class, 'index'])->name('treatments.index');
+        Route::post('treatments', [TreatmentController::class, 'store'])->name('treatments.store');
+        Route::get('treatments/{treatment}', [TreatmentController::class, 'show'])->name('treatments.show');
+        Route::put('treatments/{treatment}', [TreatmentController::class, 'update'])->name('treatments.update');
+        Route::post('treatments/{treatment}/activate', [TreatmentController::class, 'activate'])->name('treatments.activate');
+        Route::post('treatments/{treatment}/deactivate', [TreatmentController::class, 'deactivate'])->name('treatments.deactivate');
+
+        // Habilitación de Tratamientos por Sede -- acceso DUAL, mismo patrón
+        // que Sedes/Vehículos (ver BranchTreatmentPolicy/
+        // BranchTreatment::isAccessibleBy()). Restricción de negocio:
+        // SOLO organizaciones GESTOR (can_treat_waste=true) pueden tener
+        // branch_treatments, validado en BranchTreatmentController::store().
+        Route::get('branch-treatments', [BranchTreatmentController::class, 'index'])->name('branch-treatments.index');
+        Route::post('branch-treatments', [BranchTreatmentController::class, 'store'])->name('branch-treatments.store');
+        Route::get('branch-treatments/{branchTreatment}', [BranchTreatmentController::class, 'show'])->name('branch-treatments.show');
+        Route::put('branch-treatments/{branchTreatment}', [BranchTreatmentController::class, 'update'])->name('branch-treatments.update');
+        Route::post('branch-treatments/{branchTreatment}/activate', [BranchTreatmentController::class, 'activate'])->name('branch-treatments.activate');
+        Route::post('branch-treatments/{branchTreatment}/deactivate', [BranchTreatmentController::class, 'deactivate'])->name('branch-treatments.deactivate');
+        Route::get('branch-treatments/{branchTreatment}/activity', [BranchTreatmentController::class, 'activity'])->name('branch-treatments.activity');
+        Route::put('branch-treatments/{branchTreatment}/allowed-waste-streams', [BranchTreatmentController::class, 'syncAllowedWasteStreams'])->name('branch-treatments.allowed-waste-streams.sync');
+        Route::put('branch-treatments/{branchTreatment}/allowed-un-codes', [BranchTreatmentController::class, 'syncAllowedUnCodes'])->name('branch-treatments.allowed-un-codes.sync');
     });
 });

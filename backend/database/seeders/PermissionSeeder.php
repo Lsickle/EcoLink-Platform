@@ -72,6 +72,16 @@ use Illuminate\Database\Seeder;
  * nomenclatura YA CONOCIDO del proyecto (ver `Catálogo de Permisos.md`), no
  * se repite aquí. Mismo criterio granular que `branches.*`: `.activate`/
  * `.deactivate` separados de `.update`. Ninguno es `is_critical`.
+ *
+ * `treatments.*`/`branch_treatments.*` (Módulo Tratamiento, RN-063/D-R02,
+ * 2026-07-17): mismo GAP de "sin fuente confirmada en Catálogo de
+ * Permisos.md" ya señalado arriba para otros módulos -- se sigue el mismo
+ * patrón granular que `branches.*`/`vehicles.*` (`.activate`/`.deactivate`
+ * separados de `.update`). Ninguno es `is_critical`. `treatments.read` se
+ * asigna hoy SOLO a ADMINISTRADOR (mismo criterio que el resto del
+ * catálogo) -- pendiente señalado: los Gestores (sin rol RBAC propio
+ * sembrado todavía, ver RoleSeeder) necesitarán este permiso de lectura
+ * cuando exista un rol de negocio para ellos.
  */
 class PermissionSeeder extends Seeder
 {
@@ -85,8 +95,8 @@ class PermissionSeeder extends Seeder
 
     /** @var array<int, list<string>> */
     private const PRIORITY_LEVELS = [
-        1 => ['users.read', 'roles.read', 'permissions.read', 'audit.read', 'waste_streams.read', 'un_codes.read', 'geography.read', 'branch_types.read', 'organizational_areas.read', 'hazard_characteristics.read', 'waste_categories.read', 'physical_states.read', 'packaging_types.read', 'packaging_conditions.read', 'vehicle_types.read', 'contacts.read', 'branches.read', 'vehicles.read'],
-        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate'],
+        1 => ['users.read', 'roles.read', 'permissions.read', 'audit.read', 'waste_streams.read', 'un_codes.read', 'geography.read', 'branch_types.read', 'organizational_areas.read', 'hazard_characteristics.read', 'waste_categories.read', 'physical_states.read', 'packaging_types.read', 'packaging_conditions.read', 'vehicle_types.read', 'contacts.read', 'branches.read', 'vehicles.read', 'treatments.read', 'branch_treatments.read'],
+        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate'],
         3 => ['users.reset-password', 'roles.assign', 'permissions.assign'],
         4 => ['users.delete', 'roles.delete'],
     ];
@@ -127,8 +137,8 @@ class PermissionSeeder extends Seeder
             // docblock de esta clase.
             ['code' => 'geography.read', 'name' => 'Consultar geografía (países/departamentos/municipios/localidades)', 'module' => 'geography', 'action' => 'read'],
             ['code' => 'geography.manage', 'name' => 'Activar/inactivar valores del catálogo geográfico', 'module' => 'geography', 'action' => 'manage'],
-            ['code' => 'branch_types.read', 'name' => 'Consultar tipos de sede', 'module' => 'branch_types', 'action' => 'read'],
-            ['code' => 'branch_types.manage', 'name' => 'Gestionar tipos de sede', 'module' => 'branch_types', 'action' => 'manage'],
+            ['code' => 'branch_types.read', 'name' => 'Consultar tipos de sucursal', 'module' => 'branch_types', 'action' => 'read'],
+            ['code' => 'branch_types.manage', 'name' => 'Gestionar tipos de sucursal', 'module' => 'branch_types', 'action' => 'manage'],
             ['code' => 'organizational_areas.read', 'name' => 'Consultar áreas organizacionales', 'module' => 'organizational_areas', 'action' => 'read'],
             ['code' => 'organizational_areas.manage', 'name' => 'Gestionar áreas organizacionales', 'module' => 'organizational_areas', 'action' => 'manage'],
 
@@ -158,11 +168,11 @@ class PermissionSeeder extends Seeder
             ['code' => 'contacts.create', 'name' => 'Vincular contactos a organización', 'module' => 'contacts', 'action' => 'create'],
             ['code' => 'contacts.update', 'name' => 'Modificar vínculos de contacto', 'module' => 'contacts', 'action' => 'update'],
 
-            ['code' => 'branches.read', 'name' => 'Consultar sedes', 'module' => 'branches', 'action' => 'read'],
-            ['code' => 'branches.create', 'name' => 'Crear sedes', 'module' => 'branches', 'action' => 'create'],
-            ['code' => 'branches.update', 'name' => 'Modificar sedes', 'module' => 'branches', 'action' => 'update'],
-            ['code' => 'branches.activate', 'name' => 'Activar sedes', 'module' => 'branches', 'action' => 'activate'],
-            ['code' => 'branches.deactivate', 'name' => 'Inactivar sedes', 'module' => 'branches', 'action' => 'deactivate'],
+            ['code' => 'branches.read', 'name' => 'Consultar sucursales', 'module' => 'branches', 'action' => 'read'],
+            ['code' => 'branches.create', 'name' => 'Crear sucursales', 'module' => 'branches', 'action' => 'create'],
+            ['code' => 'branches.update', 'name' => 'Modificar sucursales', 'module' => 'branches', 'action' => 'update'],
+            ['code' => 'branches.activate', 'name' => 'Activar sucursales', 'module' => 'branches', 'action' => 'activate'],
+            ['code' => 'branches.deactivate', 'name' => 'Inactivar sucursales', 'module' => 'branches', 'action' => 'deactivate'],
 
             // CRUD de Vehículos vs. CU-051 -- ver aviso de nomenclatura en
             // el docblock de esta clase.
@@ -171,6 +181,22 @@ class PermissionSeeder extends Seeder
             ['code' => 'vehicles.update', 'name' => 'Modificar vehículos', 'module' => 'vehicles', 'action' => 'update'],
             ['code' => 'vehicles.activate', 'name' => 'Activar vehículos', 'module' => 'vehicles', 'action' => 'activate'],
             ['code' => 'vehicles.deactivate', 'name' => 'Inactivar vehículos', 'module' => 'vehicles', 'action' => 'deactivate'],
+
+            // Módulo Tratamiento (RN-063/D-R02) -- ver aviso de GAP en el
+            // docblock de esta clase. `treatments` es el catálogo GLOBAL
+            // (solo platform staff escribe, ver TreatmentPolicy);
+            // `branch_treatments` es la habilitación por sede (acceso dual).
+            ['code' => 'treatments.read', 'name' => 'Consultar tratamientos', 'module' => 'treatments', 'action' => 'read'],
+            ['code' => 'treatments.create', 'name' => 'Crear tratamientos', 'module' => 'treatments', 'action' => 'create'],
+            ['code' => 'treatments.update', 'name' => 'Modificar tratamientos', 'module' => 'treatments', 'action' => 'update'],
+            ['code' => 'treatments.activate', 'name' => 'Activar tratamientos', 'module' => 'treatments', 'action' => 'activate'],
+            ['code' => 'treatments.deactivate', 'name' => 'Inactivar tratamientos', 'module' => 'treatments', 'action' => 'deactivate'],
+
+            ['code' => 'branch_treatments.read', 'name' => 'Consultar tratamientos por sede', 'module' => 'branch_treatments', 'action' => 'read'],
+            ['code' => 'branch_treatments.create', 'name' => 'Habilitar tratamientos por sede', 'module' => 'branch_treatments', 'action' => 'create'],
+            ['code' => 'branch_treatments.update', 'name' => 'Modificar tratamientos por sede', 'module' => 'branch_treatments', 'action' => 'update'],
+            ['code' => 'branch_treatments.activate', 'name' => 'Activar tratamientos por sede', 'module' => 'branch_treatments', 'action' => 'activate'],
+            ['code' => 'branch_treatments.deactivate', 'name' => 'Inactivar tratamientos por sede', 'module' => 'branch_treatments', 'action' => 'deactivate'],
         ];
 
         foreach ($permissions as $permission) {
