@@ -121,6 +121,24 @@ export type AuthPerson = {
 // (`AuthController::me()` hace `$user->toArray() + [...]`, que incluye
 // todas las columnas del modelo) -- esto solo cierra el gap de tipado, no
 // requiere cambio de backend.
+// Roles del usuario (backend/app/Models/Role.php): `name` es el nombre
+// legible en español ya seedeado (ej. "Administrador", ver RoleSeeder/
+// BusinessRoleSeeder), distinto de `code` (mayúsculas, ej. "ADMINISTRADOR")
+// que no se expone aquí por no hacer falta todavía. `pivot.is_active` viene
+// de la tabla pivote `user_roles` (BelongsToMany::withPivot(['is_active',
+// ...]), ver Role::users()) -- asignación activa/inactiva del rol a ESE
+// usuario, distinto de `roles.is_active` (el rol en sí, no la asignación).
+// Solo llega poblado por GET /api/user (AuthController::me() hace
+// `$user->load('person','organization','roles')`), igual que `person`.
+export type AuthRole = {
+  id: number
+  name: string
+  priority_level: number
+  pivot?: {
+    is_active: boolean
+  }
+}
+
 export type AuthUser = {
   id: number
   uuid: string
@@ -130,6 +148,7 @@ export type AuthUser = {
   permissions?: string[]
   is_platform_staff?: boolean
   person?: AuthPerson
+  roles?: AuthRole[]
 }
 
 // CU-006.1 modificado (mecanismo de invitación, reemplaza el register()

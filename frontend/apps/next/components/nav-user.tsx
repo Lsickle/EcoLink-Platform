@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useAuth } from "app/provider/auth"
+import type { AuthRole, AuthUser } from "app/features/auth/api"
 import {
   Avatar,
   AvatarFallback,
@@ -32,6 +33,20 @@ function getInitials(name: string): string {
   return `${parts[0]![0]}${parts[1]![0]}`.toUpperCase()
 }
 
+// Rol principal = rol ACTIVO (pivot.is_active === true, asignación vigente
+// en user_roles) con el priority_level MÁS BAJO (1=Dirección .. 5=Operación,
+// ver priorityLevelOptions en packages/app/features/admin/schemas.ts -- más
+// bajo = más alto en jerarquía). Empate: cualquiera de los empatados sirve
+// (Array.prototype.reduce se queda con el primero que encuentre). Sin
+// ningún rol activo, no hay rol principal que mostrar.
+function getPrimaryRole(user: Pick<AuthUser, "roles">): AuthRole | null {
+  const activeRoles = (user.roles ?? []).filter((role) => role.pivot?.is_active === true)
+  if (activeRoles.length === 0) return null
+  return activeRoles.reduce((primary, role) =>
+    role.priority_level < primary.priority_level ? role : primary
+  )
+}
+
 export function NavUser() {
   const { isMobile } = useSidebar()
   const { user, logout } = useAuth()
@@ -43,6 +58,7 @@ export function NavUser() {
 
   const displayName = user.person?.full_name ?? user.username
   const initials = getInitials(displayName)
+  const primaryRole = getPrimaryRole(user)
 
   async function handleLogout() {
     await logout()
@@ -66,6 +82,9 @@ export function NavUser() {
               <span className="truncate text-xs text-foreground/70">
                 {user.email}
               </span>
+              {primaryRole && (
+                <span className="truncate text-xs text-muted-foreground">{primaryRole.name}</span>
+              )}
             </div>
             <EllipsisVerticalIcon className="ml-auto size-4" />
           </DropdownMenuTrigger>
@@ -86,6 +105,9 @@ export function NavUser() {
                     <span className="truncate text-xs text-muted-foreground">
                       {user.email}
                     </span>
+                    {primaryRole && (
+                      <span className="truncate text-xs text-muted-foreground">{primaryRole.name}</span>
+                    )}
                   </div>
                 </div>
               </DropdownMenuLabel>

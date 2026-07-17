@@ -22,7 +22,20 @@ beforeAll(() => {
 
 const logoutMock = vi.fn()
 const pushMock = vi.fn()
-let mockUser: { username: string; email: string; person?: { full_name: string } } | null = null
+type MockAuthRole = {
+  id: number
+  name: string
+  priority_level: number
+  pivot?: { is_active: boolean }
+}
+let mockUser:
+  | {
+      username: string
+      email: string
+      person?: { full_name: string }
+      roles?: MockAuthRole[]
+    }
+  | null = null
 
 vi.mock('app/provider/auth', () => ({
   useAuth: () => ({ user: mockUser, logout: logoutMock }),
@@ -96,5 +109,41 @@ describe('NavUser', () => {
     })
 
     expect(pushMock).toHaveBeenCalledWith('/change-password')
+  })
+
+  // Rol principal = rol ACTIVO (pivot.is_active === true) con el
+  // priority_level MÁS BAJO (más alto en jerarquía, 1=Dirección .. 5=Operación).
+  test('shows the primary role (active, lowest priority_level) in the trigger and the dropdown label', async () => {
+    mockUser = {
+      username: 'ana.gomez',
+      email: 'ana@example.com',
+      person: { full_name: 'Ana Gómez' },
+      roles: [
+        { id: 1, name: 'Logística', priority_level: 3, pivot: { is_active: true } },
+        { id: 2, name: 'Administrador', priority_level: 1, pivot: { is_active: true } },
+        { id: 3, name: 'Operación', priority_level: 5, pivot: { is_active: false } },
+      ],
+    }
+    renderNavUser()
+
+    expect(screen.getAllByText('Administrador')).toHaveLength(1)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /ana gómez/i }))
+    })
+
+    expect(await screen.findAllByText('Administrador')).toHaveLength(2)
+  })
+
+  test('shows nothing extra when the user has no active role', () => {
+    mockUser = {
+      username: 'ana.gomez',
+      email: 'ana@example.com',
+      person: { full_name: 'Ana Gómez' },
+      roles: [{ id: 1, name: 'Logística', priority_level: 3, pivot: { is_active: false } }],
+    }
+    renderNavUser()
+
+    expect(screen.queryByText('Logística')).not.toBeInTheDocument()
   })
 })
