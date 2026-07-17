@@ -69,6 +69,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Platform Admin Password
+    |--------------------------------------------------------------------------
+    |
+    | Password de la cuenta ADMINISTRADOR real del proyecto
+    | (luisdelahoz0@gmail.com), usada por
+    | {@see \Database\Seeders\PlatformAdminSeeder} para poder recrearla tras
+    | un reset de la BD de desarrollo. Deliberadamente NO tiene un valor por
+    | defecto: un password real nunca debe vivir en código versionado (ver
+    | incidente 2026-07-16), así que el seeder debe fallar de forma explícita
+    | si esta variable no está seteada en el .env, en vez de generar/usar
+    | una password impredecible o vacía.
+    |
+    */
+
+    'platform_admin_password' => env('PLATFORM_ADMIN_PASSWORD'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

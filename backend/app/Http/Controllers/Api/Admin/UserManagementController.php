@@ -462,9 +462,10 @@ class UserManagementController extends Controller
      * `RoleController::activity()` sí necesitó, ver `isPlatformStaff()`):
      * NO aplica aquí. `User` no tiene equivalente de "usuario global" --
      * `User::isSameTenantAs()` ya compara `tenant_organization_id` exacto
-     * INCLUYENDO NULL=NULL como "mismo grupo" (el único caso con
-     * `tenant_organization_id IS NULL` es el usuario sembrado `test.user`,
-     * ver `DatabaseSeeder`), por lo que un actor con tenant real (id no
+     * INCLUYENDO NULL=NULL como "mismo grupo" (caso posible vía factory sin
+     * override explícito de `tenant_organization_id`; `DatabaseSeeder` ya no
+     * siembra ningún usuario con ese valor NULL desde 2026-07-16 -- ver
+     * `PlatformAdminSeeder`), por lo que un actor con tenant real (id no
      * nulo) NUNCA hace match contra un usuario NULL ni viceversa. El mismo
      * chequeo manual de `show()`/`update()`/`activate()`/`deactivate()`
      * (`Gate::authorize('view', $user)` -> `UserPolicy::view()` ->

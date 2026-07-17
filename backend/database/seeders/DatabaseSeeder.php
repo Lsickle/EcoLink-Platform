@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
@@ -22,6 +21,13 @@ class DatabaseSeeder extends Seeder
         // estado ACT) y antes de cualquier consumidor del gate de plataforma
         // (p. ej. user:create-admin) -- ver PlatformOrganizationSeeder.
         $this->call(PlatformOrganizationSeeder::class);
+        // Incidente 2026-07-16: la cuenta admin real del proyecto
+        // (luisdelahoz0@gmail.com) solo se creaba a mano vía
+        // `user:create-admin` y nunca quedaba sembrada -- cada reset de la
+        // BD de desarrollo la borraba. Debe correr justo después de
+        // PlatformOrganizationSeeder (misma dependencia que el comando que
+        // reutiliza), ver docblock de PlatformAdminSeeder.
+        $this->call(PlatformAdminSeeder::class);
         // Batch 1/3 de Catálogos Maestros (2026-07-15): orden en cascada
         // países -> departamentos -> municipios -> localidades (cada
         // seeder reconstruye el mapeo padre->hijo consultando la fuente
@@ -80,10 +86,5 @@ class DatabaseSeeder extends Seeder
         // LOGÍSTICA) -- debe correr DESPUÉS de DemoOrganizationsSeeder y de
         // RoleSeeder (rol LOGÍSTICA, ya sembrado arriba).
         $this->call(DemoUsersSeeder::class);
-
-        User::factory()->create([
-            'username' => 'test.user',
-            'email' => 'test@example.com',
-        ]);
     }
 }
