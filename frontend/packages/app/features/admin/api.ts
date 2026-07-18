@@ -24,6 +24,8 @@ import type {
   AdminPermission,
   AdminPermissionDetail,
   AdminPhysicalState,
+  AdminPreapprovedWaste,
+  AdminPreapprovedWasteDetail,
   AdminRole,
   AdminRoleDetail,
   AdminTreatment,
@@ -65,6 +67,7 @@ import type {
   CreatePackagingConditionPayload,
   CreatePackagingTypePayload,
   CreatePhysicalStatePayload,
+  CreatePreapprovedWastePayload,
   CreateRolePayload,
   CreateTreatmentApprovalRequestPayload,
   CreateTreatmentPayload,
@@ -102,6 +105,7 @@ import type {
   UpdatePackagingConditionPayload,
   UpdatePackagingTypePayload,
   UpdatePhysicalStatePayload,
+  UpdatePreapprovedWastePayload,
   UpdateRolePayload,
   UpdateTreatmentApprovalPayload,
   UpdateTreatmentPayload,
@@ -1924,6 +1928,75 @@ export async function fetchWasteFiles(
 ): Promise<{ files: WasteFilesByCategory }> {
   const query = buildQuery({ file_category: params.fileCategory })
   return apiFetch(`/api/admin/wastes/${wasteId}/files${query}`)
+}
+
+// ---- "Residuos Preaprobados" (/api/admin/preapproved-wastes) --------------
+// Catálogo de referencia auto-declarado/auto-aprobado por una organización
+// Gestor (RN-191, ver docblock completo de `PreapprovedWasteController` y de
+// los tipos en types.ts). `organizationId` como filtro SOLO tiene efecto para
+// platform staff, mismo criterio EXACTO que `fetchOrganizationalAreas()`/
+// `fetchWastes()`. SIN kpis en la respuesta (a diferencia de
+// `fetchWastes()`/`fetchBranchTreatments()`) -- `index()` no los calcula.
+export async function fetchPreapprovedWastes(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    organizationId?: number | string
+  } = {}
+): Promise<Paginated<AdminPreapprovedWaste>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    organization_id: params.organizationId,
+  })
+  return apiFetch(`/api/admin/preapproved-wastes${query}`)
+}
+
+export async function fetchPreapprovedWaste(
+  id: number | string
+): Promise<{ waste: AdminPreapprovedWasteDetail }> {
+  return apiFetch(`/api/admin/preapproved-wastes/${id}`)
+}
+
+// `waste->fresh([...])` en el backend NO incluye
+// `treatmentApprovals.branchTreatment.branch` (solo `.treatment`) -- GAP de
+// contrato documentado (no se corrige aquí, ver docblock del controller):
+// tras crear/editar, las pantallas deben navegar/refrescar contra
+// `fetchPreapprovedWaste()` (show(), SIEMPRE completo) en vez de confiar en
+// esta respuesta para pintar el detalle completo.
+export async function createPreapprovedWaste(
+  payload: CreatePreapprovedWastePayload
+): Promise<{ waste: AdminPreapprovedWaste }> {
+  return apiFetch('/api/admin/preapproved-wastes', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// `organization_id`/`waste_type_id` NUNCA viajan aquí -- inmutables tras
+// crear (ver `UpdatePreapprovedWastePayload` en types.ts). Mismo GAP de
+// `branchTreatment.branch` que `createPreapprovedWaste()` -- ver comentario
+// arriba.
+export async function updatePreapprovedWaste(
+  id: number | string,
+  payload: UpdatePreapprovedWastePayload
+): Promise<{ waste: AdminPreapprovedWaste }> {
+  return apiFetch(`/api/admin/preapproved-wastes/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+// Cascada: activa/desactiva TAMBIÉN la `WasteTreatmentApproval` asociada (ver
+// docblock de `activate()`/`deactivate()` en el backend). Devuelve
+// `waste->fresh()` SIN relaciones -- ver `AdminPreapprovedWaste.organization?`
+// etc. arriba.
+export async function activatePreapprovedWaste(
+  id: number | string
+): Promise<{ waste: AdminPreapprovedWaste }> {
+  return apiFetch(`/api/admin/preapproved-wastes/${id}/activate`, { method: 'POST' })
+}
+
+export async function deactivatePreapprovedWaste(
+  id: number | string
+): Promise<{ waste: AdminPreapprovedWaste }> {
+  return apiFetch(`/api/admin/preapproved-wastes/${id}/deactivate`, { method: 'POST' })
 }
 
 // ---- Archivos transversales (/api/admin/files) ----------------------------

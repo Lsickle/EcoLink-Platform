@@ -2086,3 +2086,148 @@ export type RejectTreatmentApprovalTechnicalPayload = {
 export type RejectTreatmentApprovalCommercialPayload = {
   commercial_notes?: string
 }
+
+// ---- "Residuos Preaprobados" (/api/admin/preapproved-wastes) --------------
+// `wastes.waste_type_id` = catálogo `PREAPPROVED` -- residuos de referencia
+// que una organización Gestor declara y AUTO-APRUEBA de una vez (RN-191, ver
+// docblock completo de `PreapprovedWasteController`), sin pasar por el ciclo
+// normal `waste_treatment_approvals` (solicitud/evaluación técnica/
+// comercial). Acceso DUAL, mismo mecanismo EXACTO que AdminOrganizationalArea/
+// AdminBranchTreatment: platform staff gestiona los de TODAS las
+// organizaciones Gestor (filtro `organization_id` OPCIONAL); un admin de
+// tenant solo ve/gestiona los de la SUYA -- si su organización no tiene la
+// capacidad `can_treat_waste`, el listado vuelve VACÍO (200), NO un 403 (ver
+// docblock de `index()` en el backend, criterio anti-oráculo deliberado).
+
+// Fila de la `WasteTreatmentApproval` auto-aprobada asociada -- SIEMPRE
+// exactamente una por residuo preaprobado (creada en la misma transacción de
+// `store()`), nace con AMBOS ejes `APPROVED`. `technical_approved_by`/
+// `commercial_approved_by` SOLO vienen en `show()` (no en `index()`).
+export type PreapprovedWasteApproval = {
+  id: number
+  branch_treatment_id: number
+  unit_price: string | null
+  currency: string
+  billing_unit: string
+  minimum_quantity: string | null
+  maximum_quantity: string | null
+  requires_lab_analysis: boolean
+  requires_sds: boolean
+  restrictions: string | null
+  valid_from: string | null
+  valid_until: string | null
+  technical_status: TreatmentApprovalTechnicalStatus
+  commercial_status: TreatmentApprovalCommercialStatus
+  is_active: boolean
+  branch_treatment: TreatmentApprovalBranchTreatmentRef
+  technical_approved_by?: AdminActorRef | null
+  commercial_approved_by?: AdminActorRef | null
+}
+
+// GET /api/admin/preapproved-wastes -- fila tal como la expone `index()`:
+// SIEMPRE con `wasteStreamAssignments.wasteStream`/`wasteUnCodes.unCode`/
+// `treatmentApprovals.branchTreatment.{treatment,branch}` eager-cargados.
+// `organization` SOLO viaja cuando la respuesta mezcla organizaciones
+// (platform staff sin filtro de `organization_id`) -- mismo criterio que
+// `AdminWaste`/`AdminOrganizationalArea`. Los 3 campos de relación son
+// OPCIONALES (`?`) porque `activate()`/`deactivate()` devuelven
+// `waste->fresh()` SIN relaciones -- ver `activatePreapprovedWaste()`/
+// `deactivatePreapprovedWaste()` en api.ts.
+export type AdminPreapprovedWaste = {
+  id: number
+  uuid: string
+  tenant_organization_id: number | null
+  organization_id: number
+  branch_id: number | null
+  waste_category_id: number | null
+  code: string | null
+  name: string
+  description: string | null
+  physical_state_id: number | null
+  measurement_unit_id: number
+  average_weight: number | string | null
+  generation_frequency_id: number | null
+  requires_special_transport: boolean
+  requires_special_ppe: boolean
+  requires_characterization: boolean
+  requires_sds: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  organization?: { id: number; legal_name: string; tax_id?: string }
+  waste_stream_assignments?: AdminWasteStreamAssignment[]
+  waste_un_codes?: AdminWasteUnCodeAssignment[]
+  treatment_approvals?: PreapprovedWasteApproval[]
+}
+
+// GET /api/admin/preapproved-wastes/{waste} -- ver
+// `PreapprovedWasteController::show()`. TODAS las relaciones vienen SIEMPRE
+// eager-cargadas (a diferencia de `AdminPreapprovedWaste`, aquí no son
+// opcionales), incluida la clasificación completa y `technical_approved_by`/
+// `commercial_approved_by` de la aprobación.
+export type AdminPreapprovedWasteDetail = Omit<
+  AdminPreapprovedWaste,
+  'organization' | 'waste_stream_assignments' | 'waste_un_codes' | 'treatment_approvals'
+> & {
+  organization: { id: number; legal_name: string; tax_id?: string }
+  waste_category: AdminWasteCategory | null
+  physical_state: AdminPhysicalState | null
+  measurement_unit: AdminMeasurementUnit
+  generation_frequency: AdminGenerationFrequency | null
+  waste_stream_assignments: AdminWasteStreamAssignment[]
+  waste_un_codes: AdminWasteUnCodeAssignment[]
+  treatment_approvals: PreapprovedWasteApproval[]
+}
+
+// POST /api/admin/preapproved-wastes -- ver
+// `PreapprovedWasteController::store()`/`wasteValidationRules()`/
+// `approvalValidationRules()`. `organization_id` SOLO viaja si el actor es
+// `is_platform_staff` (REQUERIDO en ese caso), mismo criterio que
+// `CreateWastePayload`/`CreateBranchTreatmentPayload`. `approval.*` va
+// ANIDADO (no aplanado) a propósito -- ver docblock de
+// `approvalValidationRules()` en el backend (evita que `requires_sds` del
+// residuo colisione con `requires_sds` de la aprobación, cada uno con
+// significado distinto). El backend exige al menos una corriente Y/A o un
+// código UN (422 en `waste_stream_ids` si ambos arrays vienen vacíos).
+export type CreatePreapprovedWasteApprovalPayload = {
+  branch_treatment_id: number
+  unit_price?: number
+  currency?: string
+  billing_unit?: string
+  minimum_quantity?: number
+  maximum_quantity?: number
+  requires_lab_analysis?: boolean
+  requires_sds?: boolean
+  restrictions?: string
+  valid_from?: string
+  valid_until?: string
+}
+
+export type CreatePreapprovedWastePayload = {
+  organization_id?: number
+  branch_id?: number
+  waste_category_id?: number
+  code?: string
+  name: string
+  description?: string
+  physical_state_id?: number
+  measurement_unit_id?: number
+  average_weight?: number
+  generation_frequency_id?: number
+  requires_special_transport?: boolean
+  requires_special_ppe?: boolean
+  requires_characterization?: boolean
+  requires_sds?: boolean
+  waste_stream_ids?: number[]
+  un_code_ids?: number[]
+  approval: CreatePreapprovedWasteApprovalPayload
+}
+
+// PUT /api/admin/preapproved-wastes/{waste} -- mismos campos MENOS
+// `organization_id`/`waste_type_id` (inmutables tras crear); TODOS
+// `sometimes` en el backend, incluido `approval.branch_treatment_id`.
+export type UpdatePreapprovedWastePayload = Partial<
+  Omit<CreatePreapprovedWastePayload, 'organization_id' | 'approval'>
+> & {
+  approval?: Partial<CreatePreapprovedWasteApprovalPayload>
+}

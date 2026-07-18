@@ -21,6 +21,7 @@ const fetchMeasurementUnitsMock = vi.fn()
 const fetchGenerationFrequenciesMock = vi.fn()
 const fetchWastePreapprovedMatchesMock = vi.fn()
 const usePreapprovedTreatmentMatchMock = vi.fn()
+const searchOrganizationsMock = vi.fn()
 const pushMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
@@ -46,6 +47,7 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     fetchGenerationFrequencies: (...args: unknown[]) => fetchGenerationFrequenciesMock(...args),
     fetchWastePreapprovedMatches: (...args: unknown[]) => fetchWastePreapprovedMatchesMock(...args),
     usePreapprovedTreatmentMatch: (...args: unknown[]) => usePreapprovedTreatmentMatchMock(...args),
+    searchOrganizations: (...args: unknown[]) => searchOrganizationsMock(...args),
   }
 })
 
@@ -120,6 +122,16 @@ describe('WasteWizard', () => {
     syncWasteHazardCharacteristicsMock.mockResolvedValue({ waste: { waste_danger: null } })
     updateWasteMock.mockResolvedValue({ waste: { id: 50 } })
     fetchWastePreapprovedMatchesMock.mockResolvedValue({ matches: [] })
+    searchOrganizationsMock.mockResolvedValue({
+      data: [
+        { id: 1, legal_name: 'EcoRecicla S.A.S.', tax_id: '900123456-1' },
+        { id: 2, legal_name: 'Hospital San José', tax_id: '800987654-2' },
+      ],
+      current_page: 1,
+      last_page: 1,
+      total: 2,
+      per_page: 50,
+    })
   })
 
   afterEach(() => {
@@ -339,5 +351,35 @@ describe('WasteWizard', () => {
     await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
 
     expect(screen.queryByLabelText('Organización')).not.toBeInTheDocument()
+  })
+
+  // OrganizationQuickSelect (RN: catálogo de organizaciones acotado, ver su
+  // docblock) reemplaza a OrganizationSearchSelect en este paso -- carga el
+  // catálogo completo UNA vez (sin `q`) y filtra en memoria, sin disparar
+  // una petición nueva por cada tecla.
+  test('"Organización" (platform staff): loads the catalog once and filters in memory without extra network calls', async () => {
+    currentUser = { id: 1, is_platform_staff: true, permissions: ['wastes.create', 'wastes.update'] }
+    render(<WasteWizard />)
+    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+
+    await vi.waitFor(() => expect(searchOrganizationsMock).toHaveBeenCalledTimes(1))
+    expect(searchOrganizationsMock).toHaveBeenCalledWith(expect.objectContaining({ perPage: 50 }))
+    expect(searchOrganizationsMock.mock.calls[0][0]).not.toHaveProperty('q')
+
+    const input = screen.getByLabelText('Organización')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'hospital' } })
+
+    expect(await screen.findByText(/Hospital San José/)).toBeInTheDocument()
+    expect(screen.queryByText(/EcoRecicla/)).not.toBeInTheDocument()
+    // Ninguna tecla adicional debe volver a llamar al backend.
+    expect(searchOrganizationsMock).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByText(/Hospital San José/))
+    expect(screen.getByText('Hospital San José')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Quitar' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar' }))
+    expect(screen.getByLabelText('Organización')).toHaveValue('')
   })
 })

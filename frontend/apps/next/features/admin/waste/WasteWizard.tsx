@@ -47,7 +47,7 @@ import {
 import { HAZARD_RISK_LEVEL_CLASSES, HAZARD_RISK_LEVEL_LABELS, hazardRiskLevel } from 'app/features/admin/hazardRiskLevel'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { MultiChipPicker } from './MultiChipPicker'
-import { OrganizationSearchSelect } from '../OrganizationSearchSelect'
+import { OrganizationQuickSelect } from '../OrganizationQuickSelect'
 
 const TOTAL_STEPS = 5
 const MAX_PHOTOS = 5
@@ -639,7 +639,13 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
               <div className="flex flex-col gap-3 border-t border-border pt-3">
                 <span className="text-xs font-semibold text-muted-foreground">INFORMACIÓN BÁSICA</span>
                 {isPlatformStaff && (
-                  <OrganizationSearchSelect
+                  // Catálogo de organizaciones acotado (mercado colombiano
+                  // regulado) -- se reemplaza el selector con debounce+red
+                  // (`OrganizationSearchSelect`) por uno que carga el
+                  // catálogo completo una vez y filtra en memoria (ver
+                  // docblock de `OrganizationQuickSelect`), este selector
+                  // solo lo usa platform staff.
+                  <OrganizationQuickSelect
                     label="Organización"
                     htmlId="wasteOrganizationId"
                     selectedId={state.organizationId}

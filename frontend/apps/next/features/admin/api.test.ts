@@ -6,12 +6,14 @@ import {
   activateDepartment,
   activateLocality,
   activateMunicipality,
+  activatePreapprovedWaste,
   activateRole,
   activateUser,
   approveInvitationRequest,
   assignPermissionToRole,
   assignRoleToUser,
   createBranchType,
+  createPreapprovedWaste,
   createRole,
   createUser,
   deactivateBranchType,
@@ -19,6 +21,7 @@ import {
   deactivateDepartment,
   deactivateLocality,
   deactivateMunicipality,
+  deactivatePreapprovedWaste,
   deactivateRole,
   deactivateUser,
   deleteRole,
@@ -35,6 +38,8 @@ import {
   fetchPermissionRoles,
   fetchPermissionUsers,
   fetchPermissions,
+  fetchPreapprovedWaste,
+  fetchPreapprovedWastes,
   fetchRole,
   fetchRoleActivity,
   fetchRoleUsers,
@@ -48,6 +53,7 @@ import {
   revokePermissionFromRole,
   revokeRoleFromUser,
   updateBranchType,
+  updatePreapprovedWaste,
   updateRole,
   updateUser,
 } from 'app/features/admin/api'
@@ -812,5 +818,90 @@ describe('admin api client', () => {
       .mockResolvedValueOnce(jsonResponse({ branch_type: { id: 1, is_active: false } }))
     await deactivateBranchType(1)
     expect(fetchMock.mock.calls[3]![0]).toBe('http://localhost/api/admin/branch-types/1/deactivate')
+  })
+
+  // "Residuos Preaprobados" (RN-191, ver PreapprovedWasteController) --
+  // `organization_id` como filtro de `index()` SOLO tiene efecto real para
+  // platform staff en el backend, pero el cliente lo manda igual si se lo
+  // pasan explícitamente (la decisión de omitirlo vive en las pantallas, no
+  // en el cliente -- mismo criterio que fetchOrganizationalAreas()).
+  test('fetchPreapprovedWastes requests the paginated collection with organization_id/search', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ data: [], current_page: 1, last_page: 1, total: 0, per_page: 15 }))
+
+    await fetchPreapprovedWastes({ organizationId: 9, search: 'aceite', perPage: 15 })
+
+    const [url] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/preapproved-wastes?per_page=15&search=aceite&organization_id=9')
+  })
+
+  test('fetchPreapprovedWaste GETs the single resource', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ waste: { id: 30 } }))
+
+    await fetchPreapprovedWaste(30)
+
+    expect(fetchMock.mock.calls[1]![0]).toBe('http://localhost/api/admin/preapproved-wastes/30')
+  })
+
+  // Confirma la forma EXACTA del payload contra el backend real (ver
+  // `PreapprovedWasteController::approvalValidationRules()`): `approval.*`
+  // ANIDADO, nunca aplanado junto a los campos del residuo.
+  test('createPreapprovedWaste POSTs the payload with the nested approval object', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ waste: { id: 55 } }, 201))
+
+    const payload = {
+      organization_id: 9,
+      name: 'Aceite Usado Preaprobado',
+      waste_stream_ids: [119],
+      un_code_ids: [],
+      approval: {
+        branch_treatment_id: 10,
+        unit_price: 50000,
+        currency: 'COP',
+        billing_unit: 'KG',
+      },
+    }
+
+    await createPreapprovedWaste(payload)
+
+    const [url, options] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/preapproved-wastes')
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body as string)).toEqual(payload)
+  })
+
+  test('updatePreapprovedWaste PUTs the partial payload (organization_id never travels)', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ waste: { id: 30, name: 'Aceite Actualizado' } }))
+
+    await updatePreapprovedWaste(30, { name: 'Aceite Actualizado', approval: { branch_treatment_id: 11 } })
+
+    const [url, options] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/preapproved-wastes/30')
+    expect(options.method).toBe('PUT')
+    expect(JSON.parse(options.body as string)).toEqual({
+      name: 'Aceite Actualizado',
+      approval: { branch_treatment_id: 11 },
+    })
+  })
+
+  test('activatePreapprovedWaste/deactivatePreapprovedWaste POST to their respective endpoints', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ waste: { id: 30, is_active: true } }))
+    await activatePreapprovedWaste(30)
+    expect(fetchMock.mock.calls[1]![0]).toBe('http://localhost/api/admin/preapproved-wastes/30/activate')
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ waste: { id: 30, is_active: false } }))
+    await deactivatePreapprovedWaste(30)
+    expect(fetchMock.mock.calls[3]![0]).toBe('http://localhost/api/admin/preapproved-wastes/30/deactivate')
   })
 })

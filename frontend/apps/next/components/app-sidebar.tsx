@@ -156,6 +156,22 @@ const data = {
       icon: <ClipboardListIcon />,
       permission: "wastes.read",
     },
+    // "Residuos Preaprobados" (`wastes.waste_type_id=PREAPPROVED`, RN-191,
+    // ver docblock completo de `PreapprovedWasteController`) -- gateado
+    // SOLO por `preapproved_wastes.read`, MISMO criterio EXACTO que
+    // "Tratamientos de Sucursal" arriba (Gestor-only en la práctica, pero
+    // sin chequeo de `business_role` en el frontend -- se confía en que el
+    // permiso solo se asigna a quien corresponde). `ClipboardCheckIcon` ya
+    // usado por "Evaluaciones de Tratamiento" (navAdmin, grupo distinto) --
+    // se reutiliza aquí a propósito: ambas pantallas giran sobre el mismo
+    // concepto de "aprobación de tratamiento", solo que esta es
+    // auto-aprobada.
+    {
+      title: "Residuos Preaprobados",
+      url: "/admin/preapproved-wastes",
+      icon: <ClipboardCheckIcon />,
+      permission: "preapproved_wastes.read",
+    },
     {
       title: "Corrientes Y/A",
       url: "/admin/waste-streams",
