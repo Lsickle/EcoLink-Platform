@@ -171,7 +171,7 @@ describe('WasteWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
     await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
 
-    fireEvent.click(screen.getByRole('button', { name: '+ Agregar Y' }))
+    fireEvent.click(screen.getByRole('combobox', { name: '+ Agregar Y' }))
     const option = await screen.findByRole('option', { name: /Y8/ })
     fireEvent.click(option)
 
@@ -181,6 +181,33 @@ describe('WasteWizard', () => {
       expect(syncWasteWasteStreamsMock).toHaveBeenCalledWith(50, [1])
     })
     await screen.findByRole('heading', { name: 'Paso 3 de 5 — Información de Generación' })
+  })
+
+  // Cambio 2 (declaración de residuos): en el Paso 3 solo se pide cantidad
+  // estimada + unidad + frecuencia de generación -- "Fecha de Generación" y
+  // "Peso Promedio" no tienen sentido en el acto de DECLARAR el residuo (no
+  // se ha generado todavía), y ambas columnas son nullable en el backend.
+  test('Step 3: no longer asks for "Fecha de Generación" or "Peso Promedio"', async () => {
+    createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
+    render(<WasteWizard />)
+
+    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
+    await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
+    await screen.findByRole('heading', { name: 'Paso 3 de 5 — Información de Generación' })
+
+    expect(screen.queryByLabelText(/Fecha de Generación/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Peso Promedio/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Referencia Interna/)).toBeInTheDocument()
+
+    await vi.waitFor(() => {
+      expect(createWasteMock).toHaveBeenCalled()
+    })
+    const [payload] = createWasteMock.mock.calls[0]
+    expect(payload).not.toHaveProperty('generation_date')
+    expect(payload).not.toHaveProperty('average_weight')
   })
 
   function preapprovedMatch(overrides: Partial<Record<string, unknown>> = {}) {
@@ -220,7 +247,7 @@ describe('WasteWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
     await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
 
-    fireEvent.click(screen.getByRole('button', { name: '+ Agregar Y' }))
+    fireEvent.click(screen.getByRole('combobox', { name: '+ Agregar Y' }))
     const option = await screen.findByRole('option', { name: /Y8/ })
     fireEvent.click(option)
 
@@ -239,7 +266,7 @@ describe('WasteWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
     await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
 
-    fireEvent.click(screen.getByRole('button', { name: '+ Agregar Y' }))
+    fireEvent.click(screen.getByRole('combobox', { name: '+ Agregar Y' }))
     const option = await screen.findByRole('option', { name: /Y8/ })
     fireEvent.click(option)
 
@@ -260,7 +287,7 @@ describe('WasteWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
     await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
 
-    fireEvent.click(screen.getByRole('button', { name: '+ Agregar Y' }))
+    fireEvent.click(screen.getByRole('combobox', { name: '+ Agregar Y' }))
     const option = await screen.findByRole('option', { name: /Y8/ })
     fireEvent.click(option)
 

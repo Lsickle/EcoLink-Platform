@@ -152,7 +152,7 @@ describe('CreatePreapprovedWasteForm', () => {
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Aceite Preaprobado' } })
 
     // Selección del código UN vía MultiChipPicker.
-    fireEvent.click(screen.getByRole('button', { name: '+ Agregar UN' }))
+    fireEvent.click(screen.getByRole('combobox', { name: '+ Agregar UN' }))
     const unOption = await screen.findByRole('option', { name: /UN1993/ })
     fireEvent.click(unOption)
 

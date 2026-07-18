@@ -103,8 +103,6 @@ type WizardState = {
   quantity: string
   measurementUnitId: number | null
   generationFrequencyId: number | null
-  generationDate: string
-  averageWeight: string
   internalReference: string
   operationalNotes: string
 }
@@ -128,8 +126,6 @@ const initialState: WizardState = {
   quantity: '',
   measurementUnitId: null,
   generationFrequencyId: null,
-  generationDate: '',
-  averageWeight: '',
   internalReference: '',
   operationalNotes: '',
 }
@@ -280,8 +276,6 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
           quantity: waste.quantity != null ? String(waste.quantity) : '',
           measurementUnitId: waste.measurement_unit_id,
           generationFrequencyId: waste.generation_frequency_id,
-          generationDate: waste.generation_date ?? '',
-          averageWeight: waste.average_weight != null ? String(waste.average_weight) : '',
           internalReference: waste.internal_reference ?? '',
           operationalNotes: waste.operational_notes ?? '',
         })
@@ -317,8 +311,6 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
       quantity: state.quantity ? Number(state.quantity) : undefined,
       measurement_unit_id: state.measurementUnitId ?? undefined,
       generation_frequency_id: state.generationFrequencyId ?? undefined,
-      generation_date: state.generationDate || undefined,
-      average_weight: state.averageWeight ? Number(state.averageWeight) : undefined,
       internal_reference: state.internalReference || undefined,
       operational_notes: state.operationalNotes || undefined,
     }
@@ -520,7 +512,7 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
       { label: 'Corrientes regulatorias asignadas (Y/A/UN)', complete: hasClassification },
       { label: 'Cantidad y unidad declaradas', complete: state.quantity.trim().length > 0 && state.measurementUnitId != null },
       { label: 'Sede generadora confirmada', complete: state.branchId != null },
-      { label: 'Fecha y frecuencia registradas', complete: state.generationDate.trim().length > 0 && state.generationFrequencyId != null },
+      { label: 'Frecuencia de generación registrada', complete: state.generationFrequencyId != null },
       { label: 'Fotografías adjuntas', complete: photos.length > 0 },
       { label: 'Ficha de seguridad SDS cargada', complete: !state.requiresSds || sdsFile != null },
     ],
@@ -550,7 +542,6 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
         { label: 'Sede generadora', complete: state.branchId != null },
         { label: 'Cantidad y unidad', complete: state.quantity.trim().length > 0 && state.measurementUnitId != null },
         { label: 'Frecuencia de generación', complete: state.generationFrequencyId != null },
-        { label: 'Fecha de generación', complete: state.generationDate.trim().length > 0 },
       ]
     }
     if (step === 4) {
@@ -950,30 +941,6 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
                   </Select>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="generationDate">Fecha de Generación *</Label>
-                  <Input
-                    id="generationDate"
-                    type="date"
-                    value={state.generationDate}
-                    onChange={(event) => setState({ generationDate: event.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 border-b border-border pb-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="averageWeight">
-                    Peso Promedio <span className="text-muted-foreground">(opcional)</span>
-                  </Label>
-                  <Input
-                    id="averageWeight"
-                    type="number"
-                    min={0}
-                    value={state.averageWeight}
-                    onChange={(event) => setState({ averageWeight: event.target.value })}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
                   <Label htmlFor="internalReference">
                     Referencia Interna <span className="text-muted-foreground">(opcional)</span>
                   </Label>
@@ -1125,10 +1092,6 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
                   <span className="font-medium">
                     {generationFrequencies.find((f) => f.id === state.generationFrequencyId)?.name ?? '—'}
                   </span>
-                </p>
-                <p>
-                  <span className="text-muted-foreground">Fecha Gen.: </span>
-                  <span className="font-medium">{state.generationDate || '—'}</span>
                 </p>
               </div>
 
