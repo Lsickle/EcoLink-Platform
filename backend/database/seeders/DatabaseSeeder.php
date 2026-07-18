@@ -87,6 +87,26 @@ class DatabaseSeeder extends Seeder
         // (todos ya corrieron arriba).
         $this->call(DemoBranchTreatmentsSeeder::class);
 
+        // Núcleo del Módulo Residuos: 5 residuos de demo cada una para
+        // Immetal (Generador) y LogVerde (Subgestor) -- NO para EcoTrata
+        // (Gestor), clasificados con corrientes Y/A que calzan con los
+        // `branch_treatments` ya sembrados de EcoTrata, sin ninguna
+        // `WasteTreatmentApproval` creada -- debe correr DESPUÉS de
+        // DemoOrganizationsSeeder, DemoBranchTreatmentsSeeder (dependencia
+        // lógica) y los catálogos del núcleo de Residuos (todos ya
+        // sembrados arriba).
+        $this->call(DemoWastesSeeder::class);
+
+        // "Residuos Preaprobados": 3 residuos de referencia de EcoTrata
+        // (única organización demo con branch_treatments), cada uno con una
+        // WasteTreatmentApproval ya aprobada (ambos ejes) -- alimenta con
+        // datos reales el mecanismo de matching dinámico ya existente
+        // (WasteTreatmentApprovalController::preapprovedMatches()) contra
+        // los residuos de Immetal/LogVerde recién sembrados arriba. Debe
+        // correr DESPUÉS de DemoBranchTreatmentsSeeder y DemoWastesSeeder
+        // (dependencia lógica, sin FK directa).
+        $this->call(DemoPreapprovedWastesSeeder::class);
+
         // 12 usuarios de demo (4 por organización, mezcla ADMINISTRADOR/
         // LOGÍSTICA) -- debe correr DESPUÉS de DemoOrganizationsSeeder y de
         // RoleSeeder (rol LOGÍSTICA, ya sembrado arriba).

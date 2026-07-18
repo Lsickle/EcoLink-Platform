@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\Admin\PackagingConditionController;
 use App\Http\Controllers\Api\Admin\PackagingTypeController;
 use App\Http\Controllers\Api\Admin\PermissionController;
 use App\Http\Controllers\Api\Admin\PhysicalStateController;
+use App\Http\Controllers\Api\Admin\PreapprovedWasteController;
 use App\Http\Controllers\Api\Admin\RoleController;
 use App\Http\Controllers\Api\Admin\TreatmentController;
 use App\Http\Controllers\Api\Admin\UnCodeController;
@@ -409,6 +410,21 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('treatment-approvals/{treatmentApproval}/quote', [WasteTreatmentApprovalController::class, 'quote'])->name('treatment-approvals.quote');
         Route::post('treatment-approvals/{treatmentApproval}/negotiate', [WasteTreatmentApprovalController::class, 'negotiate'])->name('treatment-approvals.negotiate');
         Route::post('treatment-approvals/{treatmentApproval}/cancel', [WasteTreatmentApprovalController::class, 'cancel'])->name('treatment-approvals.cancel');
+
+        // "Residuos Preaprobados" -- residuos de referencia
+        // (waste_type_id=PREAPPROVED) de una organización Gestor, con una
+        // WasteTreatmentApproval auto-aprobada desde su creación. Alimenta
+        // el mecanismo de "Tratamiento Preaprobado Detectado" ya existente
+        // arriba (preapprovedMatches()/usePreapprovedMatch()). Mismo
+        // parámetro {waste} que las rutas `wastes/*` -- sin colisión real
+        // (cada definición de ruta resuelve su propio binding), ambas
+        // referencian el mismo modelo Waste.
+        Route::get('preapproved-wastes', [PreapprovedWasteController::class, 'index'])->name('preapproved-wastes.index');
+        Route::post('preapproved-wastes', [PreapprovedWasteController::class, 'store'])->name('preapproved-wastes.store');
+        Route::get('preapproved-wastes/{waste}', [PreapprovedWasteController::class, 'show'])->name('preapproved-wastes.show');
+        Route::put('preapproved-wastes/{waste}', [PreapprovedWasteController::class, 'update'])->name('preapproved-wastes.update');
+        Route::post('preapproved-wastes/{waste}/activate', [PreapprovedWasteController::class, 'activate'])->name('preapproved-wastes.activate');
+        Route::post('preapproved-wastes/{waste}/deactivate', [PreapprovedWasteController::class, 'deactivate'])->name('preapproved-wastes.deactivate');
 
         // Subsistema TRANSVERSAL de archivos (esquema-bd: `files`). La
         // autorización real vive SIEMPRE en la entidad dueña (Policy

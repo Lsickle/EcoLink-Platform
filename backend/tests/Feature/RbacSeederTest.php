@@ -56,8 +56,9 @@ use Database\Seeders\RoleSeeder;
 // `.reject` (CRUD + workflow de declaración). "Evaluación del Gestor"
 // (`waste_treatment_approvals`, 2026-07-19, mismo GAP -- ver docblock de
 // `PermissionSeeder`): crece a 82 permisos con `treatment_approvals.read`/
-// `.create`/`.update`/`.evaluate`. ADMINISTRADOR queda con los 82 permisos
-// del catálogo completo.
+// `.create`/`.update`/`.evaluate`. "Residuos Preaprobados" (2026-07-19,
+// mismo GAP): crece a 84 permisos con `preapproved_wastes.read`/`.manage`.
+// ADMINISTRADOR queda con los 84 permisos del catálogo completo.
 
 beforeEach(function () {
     $this->seed(PermissionSeeder::class);
@@ -65,8 +66,8 @@ beforeEach(function () {
     $this->seed(RolePermissionSeeder::class);
 });
 
-test('siembra exactamente 82 permisos con los códigos exactos del catálogo', function () {
-    expect(Permission::query()->count())->toBe(82);
+test('siembra exactamente 84 permisos con los códigos exactos del catálogo', function () {
+    expect(Permission::query()->count())->toBe(84);
 
     $expectedCodes = [
         'users.create', 'users.read', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.reset-password',
@@ -96,6 +97,7 @@ test('siembra exactamente 82 permisos con los códigos exactos del catálogo', f
         'wastes.read', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate',
         'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject',
         'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate',
+        'preapproved_wastes.read', 'preapproved_wastes.manage',
     ];
 
     expect(Permission::query()->pluck('code')->sort()->values()->all())
@@ -159,6 +161,7 @@ test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, A
         'wastes.read', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate',
         'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject',
         'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate',
+        'preapproved_wastes.read', 'preapproved_wastes.manage',
     ])->sort()->values()->all();
 
     expect($codes)->toBe($expected);
@@ -193,7 +196,7 @@ test('marca is_critical=true solo en los 5 permisos confirmados por el usuario (
     expect(Permission::query()->where('is_critical', true)->pluck('code')->sort()->values()->all())
         ->toBe(collect($expectedCritical)->sort()->values()->all());
 
-    expect(Permission::query()->where('is_critical', false)->count())->toBe(82 - count($expectedCritical));
+    expect(Permission::query()->where('is_critical', false)->count())->toBe(84 - count($expectedCritical));
 });
 
 test('los seeders son idempotentes (correr dos veces no duplica filas)', function () {
@@ -201,8 +204,8 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
     $this->seed(RoleSeeder::class);
     $this->seed(RolePermissionSeeder::class);
 
-    expect(Permission::query()->count())->toBe(82)
+    expect(Permission::query()->count())->toBe(84)
         ->and(Role::query()->count())->toBe(2)
-        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(82)
+        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(84)
         ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(1);
 });
