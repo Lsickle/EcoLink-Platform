@@ -896,32 +896,6 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
 
               <div className="grid grid-cols-1 gap-4 border-b border-border pb-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="quantity">Cantidad *</Label>
-                  <Input id="quantity" type="number" min={0} value={state.quantity} onChange={(event) => setState({ quantity: event.target.value })} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="measurementUnitId">Unidad *</Label>
-                  <Select
-                    items={measurementUnits.map((u) => ({ value: String(u.id), label: u.name }))}
-                    value={state.measurementUnitId !== null ? String(state.measurementUnitId) : null}
-                    onValueChange={(value) => setState({ measurementUnitId: value !== null ? Number(value) : null })}
-                  >
-                    <SelectTrigger id="measurementUnitId">
-                      <SelectValue placeholder="Selecciona una unidad" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {measurementUnits.map((unit) => (
-                        <SelectItem key={unit.id} value={String(unit.id)}>
-                          {unit.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 border-b border-border pb-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-1.5">
                   <Label htmlFor="generationFrequencyId">Frecuencia de Generación *</Label>
                   <Select
                     items={generationFrequencies.map((f) => ({ value: String(f.id), label: f.name }))}
@@ -949,6 +923,32 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
                     value={state.internalReference}
                     onChange={(event) => setState({ internalReference: event.target.value })}
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 border-b border-border pb-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="quantity">Cantidad estimada *</Label>
+                  <Input id="quantity" type="number" min={0} value={state.quantity} onChange={(event) => setState({ quantity: event.target.value })} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="measurementUnitId">Unidad *</Label>
+                  <Select
+                    items={measurementUnits.map((u) => ({ value: String(u.id), label: u.name }))}
+                    value={state.measurementUnitId !== null ? String(state.measurementUnitId) : null}
+                    onValueChange={(value) => setState({ measurementUnitId: value !== null ? Number(value) : null })}
+                  >
+                    <SelectTrigger id="measurementUnitId">
+                      <SelectValue placeholder="Selecciona una unidad" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {measurementUnits.map((unit) => (
+                        <SelectItem key={unit.id} value={String(unit.id)}>
+                          {unit.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
