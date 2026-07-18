@@ -8,6 +8,7 @@ const fetchOrganizationalAreasMock = vi.fn()
 const updateOrganizationalAreaMock = vi.fn()
 const activateOrganizationalAreaMock = vi.fn()
 const deactivateOrganizationalAreaMock = vi.fn()
+const searchContactsMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('app/features/admin/api')>()
@@ -18,6 +19,7 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     updateOrganizationalArea: (...args: unknown[]) => updateOrganizationalAreaMock(...args),
     activateOrganizationalArea: (...args: unknown[]) => activateOrganizationalAreaMock(...args),
     deactivateOrganizationalArea: (...args: unknown[]) => deactivateOrganizationalAreaMock(...args),
+    searchContacts: (...args: unknown[]) => searchContactsMock(...args),
   }
 })
 
@@ -77,6 +79,7 @@ describe('OrganizationalAreaDetailScreen', () => {
     updateOrganizationalAreaMock.mockReset()
     activateOrganizationalAreaMock.mockReset()
     deactivateOrganizationalAreaMock.mockReset()
+    searchContactsMock.mockReset()
     useRequireAuthMock.mockReset()
     pushMock.mockReset()
   })
@@ -134,5 +137,56 @@ describe('OrganizationalAreaDetailScreen', () => {
     })
 
     expect(await screen.findByText('Ya existe ese nombre.')).toBeInTheDocument()
+  })
+
+  test('shows a fallback "ID: N" label when the area already has a responsible person', async () => {
+    fetchOrganizationalAreaMock.mockResolvedValueOnce({ organizational_area: makeArea({ responsible_person_id: 42 }) })
+    render(<OrganizationalAreaDetailScreen organizationalAreaId={4} />)
+    await screen.findByText('Gerencia Comercial')
+
+    expect(screen.getByText('ID: 42')).toBeInTheDocument()
+  })
+
+  test('replaces the responsible person via ContactSearchSelect and saves the new id', async () => {
+    searchContactsMock.mockResolvedValueOnce({
+      data: [{ id: 9, first_name: 'Ana', last_name: 'Pérez', document_number: 'CC123', email: null }],
+      current_page: 1,
+      last_page: 1,
+      total: 1,
+      per_page: 10,
+    })
+    updateOrganizationalAreaMock.mockResolvedValueOnce({
+      organizational_area: { ...makeArea(), responsible_person_id: 9 },
+    })
+    render(<OrganizationalAreaDetailScreen organizationalAreaId={4} />)
+    await screen.findByText('Gerencia Comercial')
+
+    fireEvent.change(screen.getByLabelText('Responsable'), { target: { value: 'Ana' } })
+    const option = await screen.findByText(/Ana Pérez/)
+    await act(async () => {
+      fireEvent.click(option)
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
+    })
+
+    expect(updateOrganizationalAreaMock).toHaveBeenCalledWith(4, expect.objectContaining({ responsible_person_id: 9 }))
+  })
+
+  test('clears the responsible person selection', async () => {
+    fetchOrganizationalAreaMock.mockResolvedValueOnce({ organizational_area: makeArea({ responsible_person_id: 42 }) })
+    updateOrganizationalAreaMock.mockResolvedValueOnce({
+      organizational_area: { ...makeArea(), responsible_person_id: null },
+    })
+    render(<OrganizationalAreaDetailScreen organizationalAreaId={4} />)
+    await screen.findByText('Gerencia Comercial')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
+    })
+
+    expect(updateOrganizationalAreaMock).toHaveBeenCalledWith(4, expect.objectContaining({ responsible_person_id: null }))
   })
 })

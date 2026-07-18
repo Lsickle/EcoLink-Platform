@@ -5,6 +5,7 @@ import { OrganizationalAreasListScreen } from './OrganizationalAreasListScreen'
 const fetchOrganizationalAreasMock = vi.fn()
 const activateOrganizationalAreaMock = vi.fn()
 const deactivateOrganizationalAreaMock = vi.fn()
+const searchOrganizationsMock = vi.fn()
 const pushMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
@@ -14,6 +15,7 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     fetchOrganizationalAreas: (...args: unknown[]) => fetchOrganizationalAreasMock(...args),
     activateOrganizationalArea: (...args: unknown[]) => activateOrganizationalAreaMock(...args),
     deactivateOrganizationalArea: (...args: unknown[]) => deactivateOrganizationalAreaMock(...args),
+    searchOrganizations: (...args: unknown[]) => searchOrganizationsMock(...args),
   }
 })
 
@@ -30,6 +32,8 @@ const useRequireAuthMock = vi.fn<
 vi.mock('app/provider/auth', () => ({
   useRequireAuth: (permission?: string) => useRequireAuthMock(permission),
 }))
+
+const emptyPage = { data: [], current_page: 1, last_page: 1, total: 0, per_page: 10 }
 
 function makeArea(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -61,12 +65,14 @@ describe('OrganizationalAreasListScreen', () => {
       total: 2,
       per_page: 15,
     })
+    searchOrganizationsMock.mockResolvedValue(emptyPage)
   })
 
   afterEach(() => {
     fetchOrganizationalAreasMock.mockReset()
     activateOrganizationalAreaMock.mockReset()
     deactivateOrganizationalAreaMock.mockReset()
+    searchOrganizationsMock.mockReset()
     pushMock.mockReset()
     useRequireAuthMock.mockReset()
   })
@@ -85,21 +91,40 @@ describe('OrganizationalAreasListScreen', () => {
     expect(fetchOrganizationalAreasMock).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: undefined })
     )
-    expect(screen.queryByLabelText(/id de organización/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Organización')).not.toBeInTheDocument()
   })
 
-  test('for a platform-staff actor, shows the organization id input and does not fetch until one is provided', async () => {
+  test('for a platform-staff actor, shows an optional organization filter and fetches all areas without organization_id by default', async () => {
     useRequireAuthMock.mockReturnValue({ user: { id: 1, is_platform_staff: true }, isLoading: false, isAuthorized: true })
     render(<OrganizationalAreasListScreen />)
-
-    expect(screen.getByLabelText(/id de organización/i)).toBeInTheDocument()
-    expect(fetchOrganizationalAreasMock).not.toHaveBeenCalled()
-
-    fireEvent.change(screen.getByLabelText(/id de organización/i), { target: { value: '7' } })
-    fireEvent.click(screen.getByRole('button', { name: /cargar/i }))
-
     await screen.findByText('Dirección General')
-    expect(fetchOrganizationalAreasMock).toHaveBeenCalledWith(expect.objectContaining({ organizationId: 7 }))
+
+    expect(screen.getByLabelText('Organización')).toBeInTheDocument()
+    expect(fetchOrganizationalAreasMock).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: undefined })
+    )
+  })
+
+  test('for a platform-staff actor, selecting an organization from the search narrows the fetch to organization_id', async () => {
+    useRequireAuthMock.mockReturnValue({ user: { id: 1, is_platform_staff: true }, isLoading: false, isAuthorized: true })
+    searchOrganizationsMock.mockResolvedValue({
+      data: [{ id: 7, legal_name: 'ACME S.A.S.', tax_id: '900123456-7' }],
+      current_page: 1,
+      last_page: 1,
+      total: 1,
+      per_page: 10,
+    })
+    render(<OrganizationalAreasListScreen />)
+    await screen.findByText('Dirección General')
+    fetchOrganizationalAreasMock.mockClear()
+
+    fireEvent.change(screen.getByLabelText('Organización'), { target: { value: 'ACME' } })
+    const option = await screen.findByText(/ACME S\.A\.S\./)
+    fireEvent.click(option)
+
+    await vi.waitFor(() => {
+      expect(fetchOrganizationalAreasMock).toHaveBeenCalledWith(expect.objectContaining({ organizationId: 7 }))
+    })
   })
 
   test('renders the level for each row', async () => {
@@ -108,6 +133,35 @@ describe('OrganizationalAreasListScreen', () => {
 
     const row = screen.getByText('Gerencia Comercial').closest('tr')
     expect(within(row as HTMLElement).getByText('Gerencia')).toBeInTheDocument()
+  })
+
+  test('hides the Organización column for a non-platform-staff actor', async () => {
+    render(<OrganizationalAreasListScreen />)
+    await screen.findByText('Dirección General')
+
+    expect(screen.queryByRole('columnheader', { name: 'Organización' })).not.toBeInTheDocument()
+  })
+
+  test('shows an Organización column for platform staff, falling back to "—" when not eager-loaded', async () => {
+    useRequireAuthMock.mockReturnValue({ user: { id: 1, is_platform_staff: true }, isLoading: false, isAuthorized: true })
+    fetchOrganizationalAreasMock.mockResolvedValue({
+      data: [
+        makeArea({ organization: { id: 5, legal_name: 'ACME S.A.S.', tax_id: '900123456-7' } }),
+        makeArea({ id: 2, uuid: 'oa-2', code: 'DIR-GEN', name: 'Dirección General', level: 'Dirección', is_active: false }),
+      ],
+      current_page: 1,
+      last_page: 1,
+      total: 2,
+      per_page: 15,
+    })
+    render(<OrganizationalAreasListScreen />)
+    await screen.findByText('Dirección General')
+
+    expect(screen.getByRole('columnheader', { name: 'Organización' })).toBeInTheDocument()
+    const row1 = screen.getByText('Gerencia Comercial').closest('tr') as HTMLElement
+    expect(within(row1).getByText('ACME S.A.S.')).toBeInTheDocument()
+    const row2 = screen.getByText('Dirección General').closest('tr') as HTMLElement
+    expect(within(row2).getByText('—')).toBeInTheDocument()
   })
 
   test('navigates to /admin/catalogs/organizational-areas/new when clicking "+ Crear Área"', async () => {

@@ -16,7 +16,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
@@ -27,6 +26,7 @@ import {
   type AdminOrganizationalArea,
 } from 'app/features/admin/api'
 import { useRequireAuth } from 'app/provider/auth'
+import { OrganizationSearchSelect } from '../OrganizationSearchSelect'
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 
@@ -57,27 +57,31 @@ function errorMessage(error: unknown, key: string): string {
  * `is_platform_staff` (mismo campo de `AuthUser` ya usado por
  * InvitationRequestsListScreen/useRequireAuth `requirePlatformStaff`,
  * criterio reutilizado tal cual, no uno nuevo) puede elegir cualquier
- * organización -- el backend EXIGE `organization_id` en el query para ese
- * actor. Cualquier otro actor queda SIEMPRE forzado a su propio tenant: el
- * selector ni se muestra (mandarlo igual no cambiaría nada, el backend lo
- * ignora).
+ * organización -- el backend YA NO exige `organization_id` en el query para
+ * ese actor (cierre de brecha de UX 2026-07-18): si se omite, la lista
+ * devuelve áreas de TODAS las organizaciones, cada fila con `organization`
+ * eager-cargada. Cualquier otro actor queda SIEMPRE forzado a su propio
+ * tenant: el selector ni se muestra (mandarlo igual no cambiaría nada, el
+ * backend lo ignora).
  *
- * AVISO -- gap de backend, señalado explícitamente al hilo principal (no
- * inventado aquí): no existe un endpoint `/api/admin/organizations` para
- * listar organizaciones por nombre, así que el selector para un actor
- * `is_platform_staff` NO puede ser un `<Select>` con `items` reales (a
- * diferencia del patrón país->departamento de DepartmentsListScreen.tsx) --
- * queda como un input numérico de `organization_id` con un botón "Cargar"
- * explícito. Mismo fallback ya autorizado por el hilo principal para
- * `responsible_person_id` (tampoco hay endpoint de personas).
+ * Selector "Organización" -- combo de búsqueda con debounce
+ * (`OrganizationSearchSelect`, mismo componente EXACTO que
+ * BranchesListScreen.tsx), OPCIONAL: sin selección, se pide la lista
+ * completa (todas las organizaciones); al elegir una, se acota igual que
+ * antes. Cuando la respuesta mezcla organizaciones (actor platform staff sin
+ * filtro), se agrega la columna "Organización" con
+ * `area.organization?.legal_name ?? '—'` -- mismo patrón de fallback que la
+ * columna Organización/Ciudad de BranchesListScreen.tsx. La columna se
+ * muestra siempre para un actor platform staff (con o sin filtro
+ * seleccionado) para evitar que aparezca/desaparezca al cambiar el filtro.
  */
 export function OrganizationalAreasListScreen() {
   const router = useRouter()
   const { isAuthorized, user } = useRequireAuth('organizational_areas.read')
   const isPlatformStaff = Boolean(user?.is_platform_staff)
 
-  const [organizationIdInput, setOrganizationIdInput] = useState('')
   const [organizationId, setOrganizationId] = useState<number | null>(null)
+  const [organizationLabel, setOrganizationLabel] = useState<string | null>(null)
 
   const [areas, setAreas] = useState<AdminOrganizationalArea[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -97,25 +101,20 @@ export function OrganizationalAreasListScreen() {
 
   const [allAreas, setAllAreas] = useState<AdminOrganizationalArea[]>([])
 
-  // Para un actor is_platform_staff, sin organización elegida todavía no hay
-  // nada que pedirle al backend (organization_id es obligatorio ahí) -- para
-  // cualquier otro actor el backend siempre resuelve el tenant propio, así
-  // que "puede cargar" es inmediato.
-  const canLoad = isAuthorized && (!isPlatformStaff || organizationId !== null)
-
   const loadStats = useCallback(() => {
-    if (!canLoad) return
+    if (!isAuthorized) return
     let cancelled = false
-    fetchOrganizationalAreas({ organizationId: isPlatformStaff ? organizationId! : undefined, perPage: 100 }).then(
-      (result) => {
-        if (cancelled) return
-        setAllAreas(result.data)
-      }
-    )
+    fetchOrganizationalAreas({
+      organizationId: isPlatformStaff && organizationId ? organizationId : undefined,
+      perPage: 100,
+    }).then((result) => {
+      if (cancelled) return
+      setAllAreas(result.data)
+    })
     return () => {
       cancelled = true
     }
-  }, [canLoad, isPlatformStaff, organizationId])
+  }, [isAuthorized, isPlatformStaff, organizationId])
 
   useEffect(() => loadStats(), [loadStats])
 
@@ -128,14 +127,14 @@ export function OrganizationalAreasListScreen() {
   }, [searchInput])
 
   const load = useCallback(() => {
-    if (!canLoad) {
+    if (!isAuthorized) {
       setIsLoading(false)
       return
     }
     let cancelled = false
     setIsLoading(true)
     fetchOrganizationalAreas({
-      organizationId: isPlatformStaff ? organizationId! : undefined,
+      organizationId: isPlatformStaff && organizationId ? organizationId : undefined,
       page,
       perPage,
       search: search || undefined,
@@ -158,7 +157,7 @@ export function OrganizationalAreasListScreen() {
     return () => {
       cancelled = true
     }
-  }, [canLoad, isPlatformStaff, organizationId, page, perPage, search, statusFilter])
+  }, [isAuthorized, isPlatformStaff, organizationId, page, perPage, search, statusFilter])
 
   useEffect(() => load(), [load])
 
@@ -170,13 +169,6 @@ export function OrganizationalAreasListScreen() {
   function handlePerPageChange(value: string | null) {
     if (!value) return
     setPerPage(Number(value))
-    setPage(1)
-  }
-
-  function handleLoadOrganization() {
-    const parsed = Number(organizationIdInput)
-    if (!Number.isInteger(parsed) || parsed <= 0) return
-    setOrganizationId(parsed)
     setPage(1)
   }
 
@@ -226,32 +218,27 @@ export function OrganizationalAreasListScreen() {
       />
 
       {isPlatformStaff && (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="organizationId">ID de Organización</Label>
-            <Input
-              id="organizationId"
-              type="number"
-              min={1}
-              value={organizationIdInput}
-              onChange={(event) => setOrganizationIdInput(event.target.value)}
-              className="w-full sm:w-48"
-              placeholder="Ej. 7"
-            />
-          </div>
-          <Button variant="outline" onClick={handleLoadOrganization}>
-            Cargar
-          </Button>
+        <div className="sm:w-72">
+          <OrganizationSearchSelect
+            label="Organización"
+            htmlId="organizationalAreasOrganizationFilter"
+            selectedId={organizationId}
+            selectedLabel={organizationLabel}
+            onSelect={(result) => {
+              setOrganizationId(result.id)
+              setOrganizationLabel(result.legal_name)
+              setPage(1)
+            }}
+            onClear={() => {
+              setOrganizationId(null)
+              setOrganizationLabel(null)
+              setPage(1)
+            }}
+          />
         </div>
       )}
 
-      {!canLoad ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          Ingresa el ID de la organización para ver sus áreas.
-        </p>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <CatalogStatCard value={totalCount} label="Total" colorVariant="blue" icon={<Building2 className="size-5" />} />
             <CatalogStatCard value={activeCount} label="Activos" colorVariant="green" />
             <CatalogStatCard value={inactiveCount} label="Inactivos" colorVariant="red" />
@@ -302,6 +289,7 @@ export function OrganizationalAreasListScreen() {
                       <TableRow>
                         <TableHead>Código</TableHead>
                         <TableHead>Nombre</TableHead>
+                        {isPlatformStaff && <TableHead>Organización</TableHead>}
                         <TableHead>Nivel</TableHead>
                         <TableHead>Estado</TableHead>
                         <TableHead className="text-right">Acciones</TableHead>
@@ -310,7 +298,7 @@ export function OrganizationalAreasListScreen() {
                     <TableBody>
                       {areas.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={5} className="text-center text-muted-foreground">
+                          <TableCell colSpan={isPlatformStaff ? 6 : 5} className="text-center text-muted-foreground">
                             No hay áreas organizacionales que coincidan con los filtros.
                           </TableCell>
                         </TableRow>
@@ -327,6 +315,11 @@ export function OrganizationalAreasListScreen() {
                               {area.name}
                             </button>
                           </TableCell>
+                          {isPlatformStaff && (
+                            <TableCell className="text-muted-foreground">
+                              {area.organization?.legal_name ?? '—'}
+                            </TableCell>
+                          )}
                           <TableCell className="text-muted-foreground">{area.level}</TableCell>
                           <TableCell>
                             <Badge variant={area.is_active ? 'default' : 'secondary'}>
@@ -427,8 +420,6 @@ export function OrganizationalAreasListScreen() {
               </CatalogSidebarSection>
             </div>
           </div>
-        </>
-      )}
     </div>
   )
 }

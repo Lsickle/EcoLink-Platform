@@ -540,6 +540,16 @@ export type AdminOrganizationalArea = {
   is_active: boolean
   created_at: string
   updated_at: string
+  /**
+   * Cierre de brecha de UX (2026-07-18): eager-cargada por
+   * `OrganizationalAreaController::index()` SOLO cuando el actor es
+   * `isPlatformStaff()` y consulta SIN `organization_id` (la respuesta
+   * mezcla filas de varias organizaciones) -- ausente/`undefined` en
+   * cualquier otro caso (organization_id ya conocido por el propio filtro,
+   * o actor de tenant normal). Ver columna "Organización" de
+   * OrganizationalAreasListScreen.tsx.
+   */
+  organization?: { id: number; legal_name: string; tax_id: string }
 }
 
 // POST /api/admin/organizational-areas -- ver

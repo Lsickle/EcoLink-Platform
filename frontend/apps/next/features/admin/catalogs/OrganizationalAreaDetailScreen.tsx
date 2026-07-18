@@ -23,6 +23,7 @@ import {
 import { formatDate } from 'app/features/admin/formatDate'
 import { ORGANIZATIONAL_AREA_LEVELS, type OrganizationalAreaLevel } from 'app/features/admin/types'
 import { useRequireAuth } from 'app/provider/auth'
+import { ContactSearchSelect } from '../ContactSearchSelect'
 
 const levelOptions = ORGANIZATIONAL_AREA_LEVELS.map((level) => ({ value: level, label: level }))
 const noParentValue = 'none'
@@ -57,6 +58,22 @@ function errorMessage(error: unknown, key: string): string {
  * -- el padre (`find` por `parent_area_id`) y las hijas (`filter` por
  * `parent_area_id === area.id`) -- sin pedir un endpoint de árbol dedicado
  * que no existe.
+ *
+ * Cierre de brecha de UX (2026-07-18): `responsible_person_id` ahora usa
+ * `ContactSearchSelect`, mismo componente EXACTO que
+ * CreateOrganizationalAreaForm.tsx, en vez del input numérico crudo.
+ * DECISIÓN documentada -- `OrganizationalAreaController::show()` devuelve el
+ * modelo `OrganizationalArea` tal cual (ver backend), SIN resolver el
+ * nombre de la persona responsable, y no existe un endpoint
+ * `GET /api/admin/people/{id}` para resolverlo por id suelto
+ * (`searchContacts()` solo busca por texto `q`, no por id). Pedir un
+ * endpoint nuevo solo para este label es desproporcionado para esta
+ * brecha de UX puntual. Mientras el usuario no cambie la selección, se
+ * muestra un fallback `ID: <n>` (igual de informativo que el input
+ * numérico que reemplaza, pero ya no editable a mano) -- en cuanto el
+ * usuario busca y selecciona un contacto nuevo, el label se resuelve al
+ * nombre real devuelto por `searchContacts()`, igual que en el formulario
+ * de creación.
  */
 export function OrganizationalAreaDetailScreen({ organizationalAreaId }: { organizationalAreaId: number | string }) {
   const router = useRouter()
@@ -72,7 +89,8 @@ export function OrganizationalAreaDetailScreen({ organizationalAreaId }: { organ
   const [editName, setEditName] = useState('')
   const [editLevel, setEditLevel] = useState<OrganizationalAreaLevel>('Coordinación')
   const [editParentAreaId, setEditParentAreaId] = useState<string>(noParentValue)
-  const [editResponsiblePersonIdInput, setEditResponsiblePersonIdInput] = useState('')
+  const [editResponsiblePersonId, setEditResponsiblePersonId] = useState<number | null>(null)
+  const [editResponsiblePersonLabel, setEditResponsiblePersonLabel] = useState<string | null>(null)
 
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
@@ -93,7 +111,11 @@ export function OrganizationalAreaDetailScreen({ organizationalAreaId }: { organ
         setEditName(loaded.name)
         setEditLevel(loaded.level)
         setEditParentAreaId(loaded.parent_area_id ? String(loaded.parent_area_id) : noParentValue)
-        setEditResponsiblePersonIdInput(loaded.responsible_person_id ? String(loaded.responsible_person_id) : '')
+        setEditResponsiblePersonId(loaded.responsible_person_id)
+        // El backend no resuelve el nombre en `show()` -- ver DECISIÓN en el
+        // docblock de este componente. Fallback informativo hasta que el
+        // usuario busque y elija un contacto nuevo.
+        setEditResponsiblePersonLabel(loaded.responsible_person_id ? `ID: ${loaded.responsible_person_id}` : null)
         return fetchOrganizationalAreas({
           organizationId: isPlatformStaff ? loaded.organization_id : undefined,
           status: 'active',
@@ -136,7 +158,7 @@ export function OrganizationalAreaDetailScreen({ organizationalAreaId }: { organ
         name: editName,
         level: editLevel,
         parent_area_id: editParentAreaId === noParentValue ? null : Number(editParentAreaId),
-        responsible_person_id: editResponsiblePersonIdInput ? Number(editResponsiblePersonIdInput) : null,
+        responsible_person_id: editResponsiblePersonId,
       })
       setArea((current) => (current ? { ...current, ...updated } : current))
       setSaveMessage('Cambios guardados.')
@@ -267,16 +289,20 @@ export function OrganizationalAreaDetailScreen({ organizationalAreaId }: { organ
                 </Select>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="editResponsiblePersonId">
-                  ID de Persona Responsable <span className="text-muted-foreground">(opcional)</span>
-                </Label>
-                <Input
-                  id="editResponsiblePersonId"
-                  type="number"
-                  min={1}
-                  value={editResponsiblePersonIdInput}
-                  onChange={(event) => setEditResponsiblePersonIdInput(event.target.value)}
+              <div className="sm:col-span-2">
+                <ContactSearchSelect
+                  label="Responsable"
+                  htmlId="editResponsiblePersonId"
+                  selectedId={editResponsiblePersonId}
+                  selectedLabel={editResponsiblePersonLabel}
+                  onSelect={(result) => {
+                    setEditResponsiblePersonId(result.id)
+                    setEditResponsiblePersonLabel(`${result.first_name} ${result.last_name} (${result.document_number})`)
+                  }}
+                  onClear={() => {
+                    setEditResponsiblePersonId(null)
+                    setEditResponsiblePersonLabel(null)
+                  }}
                 />
               </div>
 
