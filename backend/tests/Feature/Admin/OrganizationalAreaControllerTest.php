@@ -73,10 +73,41 @@ test('index aisla cross-tenant: un actor normal SOLO ve las áreas de su propia 
     expect($codes)->toContain($ownArea->code)->not->toContain($otherArea->code);
 });
 
-test('index exige organization_id para isPlatformStaff()', function () {
+// Bug reportado por el usuario (2026-07-18): antes `organization_id` era
+// OBLIGATORIO para isPlatformStaff() -- el admin de EcoLink no podía ver
+// TODAS las áreas sin elegir una organización primero. Corregido:
+// `organization_id` es un filtro OPCIONAL, sin él ve áreas de TODAS las
+// organizaciones.
+test('index NO exige organization_id para isPlatformStaff(): sin filtro ve áreas de TODAS las organizaciones', function () {
+    $orgA = Organization::factory()->create();
+    $orgB = Organization::factory()->create();
+
+    $areaA = OrganizationalArea::factory()->create(['organization_id' => $orgA->id]);
+    $areaB = OrganizationalArea::factory()->create(['organization_id' => $orgB->id]);
+
     $actor = platformOrgActorForOrganizationalArea(['organizational_areas.read']);
 
-    $this->actingAs($actor)->getJson('/api/admin/organizational-areas')->assertUnprocessable();
+    $response = $this->actingAs($actor)->getJson('/api/admin/organizational-areas')->assertOk();
+
+    $ids = collect($response->json('data'))->pluck('id');
+    expect($ids)->toContain($areaA->id)->toContain($areaB->id);
+});
+
+test('index: sin filtro de organización, cada área trae su organización eager-cargada', function () {
+    $orgA = Organization::factory()->create(['legal_name' => 'Organización A S.A.S.']);
+    OrganizationalArea::factory()->create(['organization_id' => $orgA->id]);
+
+    $actor = platformOrgActorForOrganizationalArea(['organizational_areas.read']);
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/organizational-areas')->assertOk();
+
+    $data = collect($response->json('data'));
+    expect($data)->not->toBeEmpty();
+
+    foreach ($data as $row) {
+        expect($row['organization'])->not->toBeNull();
+        expect($row['organization'])->toHaveKey('legal_name');
+    }
 });
 
 test('index permite a isPlatformStaff() ver áreas de CUALQUIER organización vía organization_id', function () {

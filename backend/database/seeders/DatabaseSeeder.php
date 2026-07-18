@@ -71,6 +71,11 @@ class DatabaseSeeder extends Seeder
         // docblock de DemoOrganizationsSeeder.
         $this->call(DemoOrganizationsSeeder::class);
 
+        // Catálogo Maestro "Áreas Organizacionales": jerarquía de demo (1
+        // raíz + 3 hijas) por cada una de las 3 organizaciones demo -- debe
+        // correr DESPUÉS de DemoOrganizationsSeeder (ya corrió arriba).
+        $this->call(OrganizationalAreaSeeder::class);
+
         // CRUD de Vehículos (CU-051): 15 vehículos de demo (5 por
         // organización) -- debe correr DESPUÉS de DemoOrganizationsSeeder y
         // VehicleTypeSeeder (ambos ya corrieron arriba).

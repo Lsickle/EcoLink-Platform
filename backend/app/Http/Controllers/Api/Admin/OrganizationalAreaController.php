@@ -26,35 +26,40 @@ use Illuminate\Validation\ValidationException;
  * exime del scoping por organización (staff de la organización PLATAFORMA
  * ve cualquier organización); cualquier otro actor queda SIEMPRE forzado a
  * `tenant_organization_id` propio, tanto en `index` (parámetro
- * `organization_id` obligatorio SOLO para `isPlatformStaff()`, ignorado
- * para el resto) como en `store` (nunca se confía en el `organization_id`
- * del body salvo que el actor sea `isPlatformStaff()`) y en `show`/
- * `update`/`activate`/`deactivate` (vía `OrganizationalArea::
- * isAccessibleBy()`, Gate). Elegido deliberadamente el criterio MÁS
- * conservador posible: nunca se expone un área de una organización a la
- * que el actor no tiene acceso.
+ * `organization_id` OPCIONAL solo para `isPlatformStaff()` -- sin él ve
+ * TODAS las organizaciones, confirmado explícitamente por el usuario
+ * 2026-07-18, corrige el bug donde era obligatorio; ignorado para el
+ * resto) como en `store` (nunca se confía en el `organization_id` del body
+ * salvo que el actor sea `isPlatformStaff()`) y en `show`/`update`/
+ * `activate`/`deactivate` (vía `OrganizationalArea::isAccessibleBy()`,
+ * Gate). Elegido deliberadamente el criterio MÁS conservador posible:
+ * nunca se expone un área de una organización a la que el actor no tiene
+ * acceso.
  */
 class OrganizationalAreaController extends Controller
 {
     private const LEVELS = ['Dirección', 'Gerencia', 'Coordinación'];
 
     /**
-     * `organization_id`: obligatorio para `isPlatformStaff()` (sin
-     * "organización propia" para acotar el listado); ignorado/forzado al
-     * tenant del actor para cualquier otro caso -- mismo criterio que
-     * `PermissionController::users()`.
+     * `organization_id`: filtro OPCIONAL para `isPlatformStaff()` -- sin
+     * filtro, ve las áreas de TODAS las organizaciones (bug reportado por el
+     * usuario 2026-07-18: antes exigía elegir una organización primero, sin
+     * poder ver todas por defecto). Ignorado/forzado al tenant del actor
+     * para cualquier otro caso -- eso NO cambia.
      */
     public function index(Request $request)
     {
         Gate::authorize('viewAny', OrganizationalArea::class);
 
         $actor = $request->user();
+        $isMultiOrganization = false;
 
         if ($actor->isPlatformStaff()) {
             $data = $request->validate([
-                'organization_id' => ['required', 'integer', 'exists:organizations,id'],
+                'organization_id' => ['nullable', 'integer', 'exists:organizations,id'],
             ]);
-            $organizationId = $data['organization_id'];
+            $organizationId = $data['organization_id'] ?? null;
+            $isMultiOrganization = $organizationId === null;
         } else {
             $organizationId = $actor->tenant_organization_id;
         }
@@ -68,7 +73,13 @@ class OrganizationalAreaController extends Controller
         $direction = strtolower((string) $request->input('direction')) === 'desc' ? 'desc' : 'asc';
 
         $areas = OrganizationalArea::query()
-            ->where('organization_id', $organizationId)
+            ->when($organizationId !== null, fn ($query) => $query->where('organization_id', $organizationId))
+            // La respuesta puede mezclar áreas de varias organizaciones solo
+            // cuando isPlatformStaff() no filtró por ninguna -- eager-carga
+            // la organización de cada fila (mismo patrón que
+            // BranchController::index()) para que el frontend no tenga que
+            // resolverla aparte.
+            ->when($isMultiOrganization, fn ($query) => $query->with('organization:id,legal_name,tax_id'))
             ->when($search, function ($query) use ($search) {
                 $query->where(function ($query) use ($search) {
                     $query->where('code', 'ILIKE', "%{$search}%")
