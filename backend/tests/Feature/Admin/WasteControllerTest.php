@@ -17,6 +17,9 @@ use App\Models\WasteCategory;
 use App\Models\WasteStream;
 use App\Models\WasteTreatmentApproval;
 use App\Models\WasteType;
+use Database\Seeders\OrganizationStatusSeeder;
+use Database\Seeders\PlatformOrganizationSeeder;
+use Database\Seeders\RespelStatusSeeder;
 
 // Núcleo del Módulo Residuos (declaración + clasificación). Acceso DUAL,
 // mismo patrón exacto que Sedes/Vehículos/Tratamientos por Sede -- ver
@@ -59,10 +62,17 @@ const WASTE_WORKFLOW_PERMISSIONS = ['wastes.submit', 'wastes.review', 'wastes.cl
 // Defaults de aplicación de WasteController::store() (OPERATIONAL/KG/ACTIVE)
 // -- necesarios en CUALQUIER test que llame a store() sin enviar
 // waste_type_id/measurement_unit_id/operational_status_id explícitos.
+// item 17/D-WF-02: RespelStatusSeeder (+ dependencias) necesario en CUALQUIER
+// test que cree una WasteTreatmentApproval -- `technical_status`/
+// `commercial_status` ya no son VARCHAR libres, resuelven su FK real
+// (`technical_status_id`/`commercial_status_id`) contra este catálogo.
 beforeEach(function () {
     \App\Models\WasteType::query()->firstOrCreate(['code' => 'OPERATIONAL'], ['name' => 'Operacional', 'is_system' => true, 'is_active' => true]);
     \App\Models\MeasurementUnit::query()->firstOrCreate(['code' => 'KG'], ['name' => 'Kilogramo', 'is_system' => true, 'is_active' => true]);
     \App\Models\WasteOperationalStatus::query()->firstOrCreate(['code' => 'ACTIVE'], ['name' => 'Activo', 'is_system' => true, 'is_active' => true]);
+    $this->seed(OrganizationStatusSeeder::class);
+    $this->seed(PlatformOrganizationSeeder::class);
+    $this->seed(RespelStatusSeeder::class);
 });
 
 // ---- Aislamiento tenant vs. platform staff ----

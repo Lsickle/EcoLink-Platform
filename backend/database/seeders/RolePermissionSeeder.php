@@ -50,6 +50,7 @@ class RolePermissionSeeder extends Seeder
         'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject',
         'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate',
         'preapproved_wastes.read', 'preapproved_wastes.manage',
+        'workflows.manage',
     ];
 
     /**

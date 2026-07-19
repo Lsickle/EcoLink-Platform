@@ -19,6 +19,8 @@ use Database\Seeders\MeasurementUnitSeeder;
 use Database\Seeders\MunicipalitySeeder;
 use Database\Seeders\OrganizationStatusSeeder;
 use Database\Seeders\PhysicalStateSeeder;
+use Database\Seeders\PlatformOrganizationSeeder;
+use Database\Seeders\RespelStatusSeeder;
 use Database\Seeders\TreatmentSeeder;
 use Database\Seeders\UnCodeSeeder;
 use Database\Seeders\WasteCategorySeeder;
@@ -33,6 +35,8 @@ use Database\Seeders\WasteTypeSeeder;
 
 beforeEach(function () {
     $this->seed(OrganizationStatusSeeder::class);
+    $this->seed(PlatformOrganizationSeeder::class);
+    $this->seed(RespelStatusSeeder::class);
     $this->seed(BusinessRoleSeeder::class);
     $this->seed(CountrySeeder::class);
     $this->seed(DepartmentSeeder::class);

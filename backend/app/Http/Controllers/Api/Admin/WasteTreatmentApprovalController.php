@@ -6,11 +6,16 @@ use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
 use App\Models\BranchTreatment;
 use App\Models\Organization;
+use App\Models\User;
 use App\Models\Waste;
 use App\Models\WasteTreatmentApproval;
 use App\Models\WasteType;
+use App\Models\Workflow;
+use App\Models\WorkflowLog;
+use App\Models\WorkflowTransition;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -31,6 +36,21 @@ use Illuminate\Validation\ValidationException;
  * (`WasteTreatmentApproval::isAccessibleBy()`), pero solo el Gestor puede
  * EDITARLA/EVALUARLA (`isEditableBy()`) -- ver
  * `WasteTreatmentApprovalPolicy`.
+ *
+ * Motor de Workflow genérico (item 17/D-WF-01, D-WF-02): cada transición de
+ * `technical_status`/`commercial_status` (approveTechnical/rejectTechnical/
+ * approveCommercial/rejectCommercial/quote/negotiate/cancel) resuelve el
+ * workflow vigente para `organization_id` (el Gestor evaluador) vía
+ * `Workflow::resolveFor('TREATMENT', ...)` y exige que exista una
+ * `workflow_transition` real desde el código actual hacia el destino --
+ * las validaciones de estado YA existentes en cada método (`!== 'PENDING'`,
+ * `assertCommercialNotFinal()`, etc.) se CONSERVAN tal cual (no se migran a
+ * `workflow_transition_rules` en este lote, decisión explícita: para las 17
+ * transiciones del workflow BASE no hay reglas más allá de las que ya vive
+ * el controller -- ver docblock de `WorkflowSeeder`) y siguen siendo la
+ * PRIMERA barrera; el motor de Workflow es una segunda capa que además
+ * permite que un Gestor con workflow personalizado (`workflow_service_bindings`)
+ * quite/agregue transiciones sin tocar código.
  */
 class WasteTreatmentApprovalController extends Controller
 {
@@ -61,8 +81,8 @@ class WasteTreatmentApprovalController extends Controller
                     $query->where('name', 'ILIKE', "%{$search}%")->orWhere('code', 'ILIKE', "%{$search}%");
                 });
             })
-            ->when($technicalStatus, fn ($query) => $query->where('technical_status', $technicalStatus))
-            ->when($commercialStatus, fn ($query) => $query->where('commercial_status', $commercialStatus))
+            ->when($technicalStatus, fn ($query) => $query->technicalStatusCode($technicalStatus))
+            ->when($commercialStatus, fn ($query) => $query->commercialStatusCode($commercialStatus))
             ->when($wasteId, fn ($query) => $query->where('waste_id', $wasteId))
             ->with([
                 'organization:id,legal_name',
@@ -149,13 +169,22 @@ class WasteTreatmentApprovalController extends Controller
         }
 
         $hasRestrictions = filled($data['restrictions'] ?? null);
+        $toStatus = $hasRestrictions ? 'RESTRICTED' : 'APPROVED';
+
+        $transition = $this->resolveWorkflowTransition($treatmentApproval, 'TECH_PENDING', "TECH_{$toStatus}");
+        $this->assertActorAuthorizedForTransition($request->user(), $transition);
 
         $treatmentApproval->forceFill([
-            'technical_status' => $hasRestrictions ? 'RESTRICTED' : 'APPROVED',
+            'technical_status' => $toStatus,
             'restrictions' => $data['restrictions'] ?? $treatmentApproval->restrictions,
             'technical_approved_at' => now(),
             'technical_approved_by' => $request->user()->id,
         ])->save();
+
+        $this->logWorkflowTransition(
+            $request, $treatmentApproval, 'TECH_PENDING', "TECH_{$toStatus}",
+            "WASTE_TREATMENT_APPROVAL_TECHNICAL_{$toStatus}", "Evaluación técnica resuelta como {$toStatus}",
+        );
 
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_TECHNICAL_APPROVED', 'SUCCESS',
@@ -184,10 +213,18 @@ class WasteTreatmentApprovalController extends Controller
             ]);
         }
 
+        $transition = $this->resolveWorkflowTransition($treatmentApproval, 'TECH_PENDING', 'TECH_REJECTED');
+        $this->assertActorAuthorizedForTransition($request->user(), $transition);
+
         $treatmentApproval->forceFill([
             'technical_status' => 'REJECTED',
             'technical_notes' => $data['technical_notes'],
         ])->save();
+
+        $this->logWorkflowTransition(
+            $request, $treatmentApproval, 'TECH_PENDING', 'TECH_REJECTED',
+            'WASTE_TREATMENT_APPROVAL_TECHNICAL_REJECTED', 'Evaluación técnica rechazada',
+        );
 
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_TECHNICAL_REJECTED', 'SUCCESS',
@@ -215,11 +252,20 @@ class WasteTreatmentApprovalController extends Controller
             ]);
         }
 
+        $fromStatus = $treatmentApproval->commercial_status;
+        $transition = $this->resolveWorkflowTransition($treatmentApproval, "COM_{$fromStatus}", 'COM_APPROVED');
+        $this->assertActorAuthorizedForTransition($request->user(), $transition);
+
         $treatmentApproval->forceFill([
             'commercial_status' => 'APPROVED',
             'commercial_approved_at' => now(),
             'commercial_approved_by' => $request->user()->id,
         ])->save();
+
+        $this->logWorkflowTransition(
+            $request, $treatmentApproval, "COM_{$fromStatus}", 'COM_APPROVED',
+            'WASTE_TREATMENT_APPROVAL_COMMERCIAL_APPROVED', 'Evaluación comercial aprobada',
+        );
 
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_COMMERCIAL_APPROVED', 'SUCCESS',
@@ -243,10 +289,19 @@ class WasteTreatmentApprovalController extends Controller
 
         $this->assertCommercialNotFinal($treatmentApproval);
 
+        $fromStatus = $treatmentApproval->commercial_status;
+        $transition = $this->resolveWorkflowTransition($treatmentApproval, "COM_{$fromStatus}", 'COM_REJECTED');
+        $this->assertActorAuthorizedForTransition($request->user(), $transition);
+
         $treatmentApproval->forceFill([
             'commercial_status' => 'REJECTED',
             'commercial_notes' => $data['commercial_notes'] ?? $treatmentApproval->commercial_notes,
         ])->save();
+
+        $this->logWorkflowTransition(
+            $request, $treatmentApproval, "COM_{$fromStatus}", 'COM_REJECTED',
+            'WASTE_TREATMENT_APPROVAL_COMMERCIAL_REJECTED', 'Evaluación comercial rechazada',
+        );
 
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_COMMERCIAL_REJECTED', 'SUCCESS',
@@ -270,7 +325,15 @@ class WasteTreatmentApprovalController extends Controller
             ]);
         }
 
+        $transition = $this->resolveWorkflowTransition($treatmentApproval, 'COM_DRAFT', 'COM_QUOTED');
+        $this->assertActorAuthorizedForTransition($request->user(), $transition);
+
         $treatmentApproval->forceFill(['commercial_status' => 'QUOTED'])->save();
+
+        $this->logWorkflowTransition(
+            $request, $treatmentApproval, 'COM_DRAFT', 'COM_QUOTED',
+            'WASTE_TREATMENT_APPROVAL_QUOTED', 'Evaluación comercial cotizada',
+        );
 
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_QUOTED', 'SUCCESS',
@@ -290,7 +353,16 @@ class WasteTreatmentApprovalController extends Controller
 
         $this->assertCommercialNotFinal($treatmentApproval);
 
+        $fromStatus = $treatmentApproval->commercial_status;
+        $transition = $this->resolveWorkflowTransition($treatmentApproval, "COM_{$fromStatus}", 'COM_NEGOTIATING');
+        $this->assertActorAuthorizedForTransition($request->user(), $transition);
+
         $treatmentApproval->forceFill(['commercial_status' => 'NEGOTIATING'])->save();
+
+        $this->logWorkflowTransition(
+            $request, $treatmentApproval, "COM_{$fromStatus}", 'COM_NEGOTIATING',
+            'WASTE_TREATMENT_APPROVAL_NEGOTIATING', 'Evaluación comercial en negociación',
+        );
 
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_NEGOTIATING', 'SUCCESS',
@@ -314,7 +386,16 @@ class WasteTreatmentApprovalController extends Controller
             ]);
         }
 
+        $fromStatus = $treatmentApproval->commercial_status;
+        $transition = $this->resolveWorkflowTransition($treatmentApproval, "COM_{$fromStatus}", 'COM_CANCELLED');
+        $this->assertActorAuthorizedForTransition($request->user(), $transition);
+
         $treatmentApproval->forceFill(['commercial_status' => 'CANCELLED'])->save();
+
+        $this->logWorkflowTransition(
+            $request, $treatmentApproval, "COM_{$fromStatus}", 'COM_CANCELLED',
+            'WASTE_TREATMENT_APPROVAL_CANCELLED', 'Evaluación comercial cancelada',
+        );
 
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_CANCELLED', 'SUCCESS',
@@ -437,8 +518,8 @@ class WasteTreatmentApprovalController extends Controller
 
         $matches = WasteTreatmentApproval::query()
             ->whereIn('waste_id', $candidateWasteIds)
-            ->where('technical_status', 'APPROVED')
-            ->where('commercial_status', 'APPROVED')
+            ->technicalStatusCode('APPROVED')
+            ->commercialStatusCode('APPROVED')
             ->where('is_active', true)
             ->with(['organization:id,legal_name', 'branchTreatment.treatment', 'branchTreatment.branch:id,name'])
             ->get();
@@ -545,6 +626,121 @@ class WasteTreatmentApprovalController extends Controller
                 'commercial_status' => ['La evaluación comercial ya se encuentra en un estado final.'],
             ]);
         }
+    }
+
+    /**
+     * Motor de Workflow genérico (item 17/D-WF-01): resuelve el workflow
+     * vigente para el Gestor evaluador (`organization_id` de la fila, NUNCA
+     * el del residuo) y busca, en su versión PUBLICADA, la
+     * `workflow_transition` exacta `from_status_code` -> `to_status_code`
+     * (códigos PREFIJADOS de `respel_statuses`, ver
+     * `WasteTreatmentApproval::respelStatusIdForCode()`). Si no existe --
+     * porque el Gestor personalizó su workflow y la quitó, o porque el
+     * estado de origen no es válido para esta acción -- 422 legible: el
+     * Gestor debe ver "esta acción no está configurada", no un error
+     * genérico de servidor.
+     */
+    private function resolveWorkflowTransition(WasteTreatmentApproval $treatmentApproval, string $fromCode, string $toCode): WorkflowTransition
+    {
+        $workflow = Workflow::resolveFor('TREATMENT', $treatmentApproval->organization_id);
+
+        $transition = $workflow?->currentVersion
+            ?->transitions()
+            ->where('from_status_code', $fromCode)
+            ->where('to_status_code', $toCode)
+            ->with(['roles.role', 'roles.businessRole'])
+            ->first();
+
+        if ($transition === null) {
+            throw ValidationException::withMessages([
+                'workflow' => ['Esta transición no está permitida por el workflow configurado.'],
+            ]);
+        }
+
+        return $transition;
+    }
+
+    /**
+     * `workflow_transition_roles` de la transición resuelta contra el actor.
+     * `isPlatformStaff()` siempre pasa (mismo override ya usado en el resto
+     * del proyecto). Si la transición no tiene ninguna fila de
+     * `workflow_transition_roles` configurada, no hay restricción adicional
+     * (el workflow no la definió). Para el workflow BASE sembrado en este
+     * lote, las 17 transiciones están autorizadas para el rol `ADMINISTRADOR`
+     * -- proxy ROL del único permiso (`treatment_approvals.evaluate`) que
+     * `Gate::authorize('evaluate', ...)` ya exige más arriba en cada método
+     * (ver `WorkflowSeederTest`, que confirma esa equivalencia); un Gestor
+     * con workflow personalizado puede apuntar sus transiciones a un rol o
+     * `business_role` propio en vez de `ADMINISTRADOR`.
+     */
+    private function assertActorAuthorizedForTransition(User $actor, WorkflowTransition $transition): void
+    {
+        if ($actor->isPlatformStaff()) {
+            return;
+        }
+
+        $transitionRoles = $transition->roles;
+
+        if ($transitionRoles->isEmpty()) {
+            return;
+        }
+
+        foreach ($transitionRoles as $transitionRole) {
+            if ($transitionRole->role_id !== null && $transitionRole->role !== null && $actor->hasRole($transitionRole->role->code)) {
+                return;
+            }
+
+            if ($transitionRole->business_role_id !== null
+                && $actor->tenantOrganization?->businessRoles()
+                    ->where('business_roles.id', $transitionRole->business_role_id)
+                    ->wherePivot('is_active', true)
+                    ->exists()) {
+                return;
+            }
+        }
+
+        abort(403, 'El actor no tiene el rol requerido por el workflow configurado para esta transición.');
+    }
+
+    /**
+     * `workflow_logs` de la transición aplicada -- `process_type=TREATMENT`/
+     * `process_id=$treatmentApproval->id` (entidad principal), códigos
+     * PREFIJADOS en `previous_status`/`new_status` (mismo vocabulario que
+     * `workflow_transitions.from_status_code`/`to_status_code`, no el código
+     * corto expuesto en la API).
+     *
+     * Fix de seguridad (revisión `especialista-seguridad` sobre
+     * `WorkflowController`, requisito 5): `tenant_organization_id` debe ser
+     * el de la ORGANIZACIÓN DUEÑA de la evaluación
+     * (`$treatmentApproval->organization_id`, el Gestor evaluador), NUNCA el
+     * tenant del actor (`$request->user()->tenant_organization_id`) -- de lo
+     * contrario, cuando actúa platform staff (tenant distinto del Gestor)
+     * sobre la evaluación de un Gestor, el log quedaba atribuido al tenant
+     * PLATAFORMA en vez de al Gestor real dueño del proceso, rompiendo la
+     * trazabilidad multi-tenant del log.
+     */
+    private function logWorkflowTransition(
+        Request $request,
+        WasteTreatmentApproval $treatmentApproval,
+        string $fromCode,
+        string $toCode,
+        string $eventCode,
+        string $eventName,
+    ): void {
+        WorkflowLog::query()->create([
+            'traceability_uuid' => (string) Str::uuid(),
+            'tenant_organization_id' => $treatmentApproval->organization_id,
+            'user_id' => $request->user()->id,
+            'process_type' => 'TREATMENT',
+            'process_id' => $treatmentApproval->id,
+            'event_code' => $eventCode,
+            'event_name' => $eventName,
+            'description' => "Transición {$fromCode} -> {$toCode} de la evaluación de tratamiento '{$treatmentApproval->id}'.",
+            'previous_status' => $fromCode,
+            'new_status' => $toCode,
+            'severity' => 'INFO',
+            'source' => 'api',
+        ]);
     }
 
     /**

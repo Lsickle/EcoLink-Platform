@@ -318,6 +318,40 @@ test('index solo lista roles GLOBALES + roles del propio tenant, nunca roles de 
         ->and($ids)->not->toContain($roleOrgB->id);
 });
 
+// ---- Gap real (agente frontend, CU-021): index() con filtro organization_id, SOLO para platform staff ----
+
+test('index: organization_id permite a platform staff ver los roles de una organización AJENA (necesario para el selector de roles del workflow personalizado de esa organización)', function () {
+    $targetOrganization = Organization::factory()->create();
+    $roleOfTarget = Role::factory()->create(['tenant_organization_id' => $targetOrganization->id]);
+
+    $unrelatedOrganization = Organization::factory()->create();
+    $roleOfUnrelated = Role::factory()->create(['tenant_organization_id' => $unrelatedOrganization->id]);
+
+    $platformStaff = platformOrgActor(['roles.read']);
+
+    $response = $this->actingAs($platformStaff)->getJson("/api/admin/roles?organization_id={$targetOrganization->id}")->assertOk();
+
+    $ids = collect($response->json('data'))->pluck('id');
+    expect($ids)->toContain($roleOfTarget->id)
+        ->and($ids)->not->toContain($roleOfUnrelated->id);
+});
+
+test('index: organization_id se IGNORA en silencio para un actor que NO es platform staff (anti-role-smuggling)', function () {
+    $orgA = Organization::factory()->create();
+    $orgB = Organization::factory()->create();
+
+    $roleOrgA = Role::factory()->create(['tenant_organization_id' => $orgA->id]);
+    $roleOrgB = Role::factory()->create(['tenant_organization_id' => $orgB->id]);
+
+    $actor = actorWithRolePermission(['roles.read'], $orgA->id);
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/roles?organization_id={$orgB->id}")->assertOk();
+
+    $ids = collect($response->json('data'))->pluck('id');
+    expect($ids)->toContain($roleOrgA->id)
+        ->and($ids)->not->toContain($roleOrgB->id);
+});
+
 test('view/update/delete DENIEGAN (403) sobre un rol de OTRO tenant', function () {
     $orgA = Organization::factory()->create();
     $orgB = Organization::factory()->create();

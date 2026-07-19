@@ -17,6 +17,17 @@ use App\Models\WasteStream;
 use App\Models\WasteStreamAssignment;
 use App\Models\WasteTreatmentApproval;
 use App\Models\WasteType;
+use App\Models\Workflow;
+use App\Models\WorkflowLog;
+use App\Models\WorkflowServiceBinding;
+use App\Models\WorkflowTransition;
+use App\Models\WorkflowTransitionRole;
+use App\Models\WorkflowVersion;
+use Database\Seeders\OrganizationStatusSeeder;
+use Database\Seeders\PlatformOrganizationSeeder;
+use Database\Seeders\RespelStatusSeeder;
+use Database\Seeders\RoleSeeder;
+use Database\Seeders\WorkflowSeeder;
 
 // "Evaluación del Gestor" (waste_treatment_approvals). Mecanismo de
 // invitación simple: el Generador (dueño del residuo) elige un
@@ -25,6 +36,26 @@ use App\Models\WasteType;
 // la fila es SIEMPRE el Gestor evaluador, waste_id puede pertenecer a
 // CUALQUIER otra organización (el Generador) -- ver
 // WasteTreatmentApproval::isAccessibleBy()/isEditableBy().
+//
+// item 17/D-WF-02: cada transición (approveTechnical/rejectTechnical/
+// approveCommercial/rejectCommercial/quote/negotiate/cancel) ahora resuelve
+// el workflow BASE "RESPEL" (WorkflowSeeder) y valida
+// `workflow_transition_roles` contra el actor -- de ahí la seeding chain
+// (RoleSeeder/RespelStatusSeeder/WorkflowSeeder) y que
+// `treatmentApprovalActor()` otorgue TAMBIÉN el rol literal `ADMINISTRADOR`
+// cuando se pide el permiso `treatment_approvals.evaluate`: en producción
+// ese permiso SOLO lo tiene ese rol (RolePermissionSeeder), y las 17
+// transiciones del workflow BASE están autorizadas exactamente para ese rol
+// (WorkflowSeeder/WorkflowSeederTest) -- se replica esa misma equivalencia
+// aquí en vez de inventar un mecanismo de autorización nuevo para los
+// tests.
+beforeEach(function () {
+    $this->seed(OrganizationStatusSeeder::class);
+    $this->seed(PlatformOrganizationSeeder::class);
+    $this->seed(RoleSeeder::class);
+    $this->seed(RespelStatusSeeder::class);
+    $this->seed(WorkflowSeeder::class);
+});
 
 function treatmentApprovalActor(array $codes = [], ?int $tenantOrganizationId = null): User
 {
@@ -42,6 +73,19 @@ function treatmentApprovalActor(array $codes = [], ?int $tenantOrganizationId = 
         }
 
         UserRole::query()->create(['user_id' => $actor->id, 'role_id' => $role->id, 'is_active' => true]);
+
+        // Ver docblock de arriba: el motor de Workflow autoriza por ROL
+        // (workflow_transition_roles.role_id), no por permiso -- se otorga
+        // el rol ADMINISTRADOR real además del permiso ad hoc de siempre,
+        // replicando la equivalencia rol<->permiso ya documentada/probada
+        // en WorkflowSeeder/WorkflowSeederTest.
+        if (in_array('treatment_approvals.evaluate', $codes, true)) {
+            $administrador = Role::query()->where('code', 'ADMINISTRADOR')->first();
+
+            if ($administrador !== null) {
+                UserRole::query()->create(['user_id' => $actor->id, 'role_id' => $administrador->id, 'is_active' => true]);
+            }
+        }
     }
 
     return $actor;
@@ -642,4 +686,180 @@ test('available() filtra por waste_stream_ids[]', function () {
 
     $ids = collect($response->json('branch_treatments'))->pluck('id');
     expect($ids)->toContain($matchingBranchTreatment->id)->not->toContain($nonMatchingBranchTreatment->id);
+});
+
+// ---- Motor de Workflow: personalización por organización (item 17/D-WF-01/D-WF-02) ----
+
+/**
+ * Clona el workflow BASE "RESPEL" (las 17 transiciones ya sembradas por
+ * WorkflowSeeder, todas autorizadas para ADMINISTRADOR) hacia un workflow
+ * PROPIO de `$organization`, y le agrega 2 transiciones EXTRA que el base no
+ * tiene: `TECH_PENDING -> TECH_UNDER_REVIEW` y `TECH_UNDER_REVIEW ->
+ * TECH_APPROVED` (usa el código `TECH_UNDER_REVIEW` ya sembrado por
+ * RespelStatusSeeder pero sin ninguna transición viva hasta ahora). Enlaza
+ * el workflow nuevo a `$organization` vía `workflow_service_bindings`
+ * (`scope_type=organization`).
+ *
+ * Deliberado: se CLONAN las 17 transiciones del base (no se quita la
+ * directa TECH_PENDING->TECH_APPROVED) -- el enunciado de la tarea pide una
+ * transición "EXTRA", no un reemplazo, así que un WasteTreatmentApproval de
+ * esta organización sigue aprobándose técnicamente IGUAL que antes vía
+ * approveTechnical() (no regresiona); la personalización real que se prueba
+ * es que el camino adicional YA EXISTE y es resoluble en el motor -- no hay
+ * todavía un endpoint que lo RECORRA (eso depende del futuro
+ * WorkflowController de administración, explícitamente fuera de alcance de
+ * esta tarea).
+ */
+function cloneRespelWorkflowWithUnderReviewStep(Organization $organization): Workflow
+{
+    $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
+    $baseVersion = Workflow::query()->where('code', 'RESPEL')->whereNull('tenant_organization_id')->firstOrFail()->currentVersion;
+
+    $customWorkflow = Workflow::factory()->create([
+        'tenant_organization_id' => $organization->id,
+        'entity_type' => 'TREATMENT',
+        'is_system' => false,
+        'is_active' => true,
+    ]);
+
+    $customVersion = WorkflowVersion::factory()->published()->create(['workflow_id' => $customWorkflow->id]);
+    $customWorkflow->forceFill(['current_version_id' => $customVersion->id])->save();
+
+    $extraTransitions = [['TECH_PENDING', 'TECH_UNDER_REVIEW'], ['TECH_UNDER_REVIEW', 'TECH_APPROVED']];
+
+    foreach ([...$baseVersion->transitions, ...collect($extraTransitions)->map(fn ($pair) => (object) ['from_status_code' => $pair[0], 'to_status_code' => $pair[1], 'is_automatic' => false, 'requires_approval' => false])] as $sourceTransition) {
+        $transition = WorkflowTransition::query()->create([
+            'workflow_version_id' => $customVersion->id,
+            'from_status_code' => $sourceTransition->from_status_code,
+            'to_status_code' => $sourceTransition->to_status_code,
+            'is_automatic' => $sourceTransition->is_automatic,
+            'requires_approval' => $sourceTransition->requires_approval,
+        ]);
+
+        WorkflowTransitionRole::query()->create(['workflow_transition_id' => $transition->id, 'role_id' => $administrador->id]);
+    }
+
+    WorkflowServiceBinding::query()->create([
+        'workflow_id' => $customWorkflow->id,
+        'scope_type' => 'organization',
+        'scope_id' => $organization->id,
+    ]);
+
+    return $customWorkflow;
+}
+
+test('un Gestor con workflow personalizado tiene la transición extra TECH_PENDING->TECH_UNDER_REVIEW->TECH_APPROVED disponible, y otro Gestor SIN personalizar sigue usando el workflow base sin ese paso', function () {
+    $customGestor = gestorOrganization();
+    $customWorkflow = cloneRespelWorkflowWithUnderReviewStep($customGestor);
+
+    // Organización GESTOR SIN ningún workflow_service_binding propio --
+    // representa el caso "EcoTrata" del enunciado: sigue resolviendo al
+    // workflow BASE, tal como antes de esta tarea.
+    $unpersonalizedGestor = gestorOrganization();
+
+    // (a) Resolución: la organización personalizada resuelve a SU workflow,
+    // la organización sin personalizar cae al BASE (mismo Workflow::resolveFor()
+    // ya probado en WorkflowResolverTest, aquí contra los códigos RESPEL reales).
+    $resolvedForCustom = Workflow::resolveFor('TREATMENT', $customGestor->id);
+    $resolvedForUnpersonalized = Workflow::resolveFor('TREATMENT', $unpersonalizedGestor->id);
+    $baseWorkflow = Workflow::query()->where('code', 'RESPEL')->whereNull('tenant_organization_id')->firstOrFail();
+
+    expect($resolvedForCustom->id)->toBe($customWorkflow->id)
+        ->and($resolvedForCustom->id)->not->toBe($baseWorkflow->id)
+        ->and($resolvedForUnpersonalized->id)->toBe($baseWorkflow->id);
+
+    // (b) La transición extra SÍ existe (y es resoluble) en el workflow del
+    // Gestor personalizado...
+    $customVersion = $resolvedForCustom->currentVersion;
+    expect($customVersion->transitions()->where('from_status_code', 'TECH_PENDING')->where('to_status_code', 'TECH_UNDER_REVIEW')->exists())->toBeTrue()
+        ->and($customVersion->transitions()->where('from_status_code', 'TECH_UNDER_REVIEW')->where('to_status_code', 'TECH_APPROVED')->exists())->toBeTrue();
+
+    // ...pero NO existe en el workflow BASE que sigue usando el Gestor sin
+    // personalizar -- "tal como antes" (RN del enunciado de la tarea).
+    $baseVersion = $baseWorkflow->currentVersion;
+    expect($baseVersion->transitions()->where('from_status_code', 'TECH_PENDING')->where('to_status_code', 'TECH_UNDER_REVIEW')->exists())->toBeFalse()
+        ->and($baseVersion->transitions()->where('from_status_code', 'TECH_UNDER_REVIEW')->where('to_status_code', 'TECH_APPROVED')->exists())->toBeFalse();
+
+    // (c) De punta a punta contra el controller REAL: approveTechnical()
+    // sigue funcionando IGUAL para AMBOS Gestores (la transición directa
+    // TECH_PENDING->TECH_APPROVED se preservó en el clon) -- la
+    // personalización agrega un camino nuevo, no rompe el existente.
+    $customApproval = WasteTreatmentApproval::factory()->create(['organization_id' => $customGestor->id]);
+    $unpersonalizedApproval = WasteTreatmentApproval::factory()->create(['organization_id' => $unpersonalizedGestor->id]);
+
+    $actorForCustom = treatmentApprovalActor(['treatment_approvals.evaluate'], $customGestor->id);
+    $actorForUnpersonalized = treatmentApprovalActor(['treatment_approvals.evaluate'], $unpersonalizedGestor->id);
+
+    $this->actingAs($actorForCustom)->postJson("/api/admin/treatment-approvals/{$customApproval->id}/approve-technical")
+        ->assertOk()->assertJsonPath('treatment_approval.technical_status', 'APPROVED');
+
+    $this->actingAs($actorForUnpersonalized)->postJson("/api/admin/treatment-approvals/{$unpersonalizedApproval->id}/approve-technical")
+        ->assertOk()->assertJsonPath('treatment_approval.technical_status', 'APPROVED');
+});
+
+test('approveTechnical escribe un workflow_log con los códigos PREFIJADOS de la transición aplicada', function () {
+    $gestor = gestorOrganization();
+    $approval = WasteTreatmentApproval::factory()->create(['organization_id' => $gestor->id]);
+    $actor = treatmentApprovalActor(['treatment_approvals.evaluate'], $gestor->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/treatment-approvals/{$approval->id}/approve-technical")->assertOk();
+
+    $log = WorkflowLog::query()->where('process_type', 'TREATMENT')->where('process_id', $approval->id)->first();
+
+    expect($log)->not->toBeNull()
+        ->and($log->previous_status)->toBe('TECH_PENDING')
+        ->and($log->new_status)->toBe('TECH_APPROVED')
+        ->and($log->event_code)->toBe('WASTE_TREATMENT_APPROVAL_TECHNICAL_APPROVED')
+        ->and($log->user_id)->toBe($actor->id);
+});
+
+test('approveTechnical rechaza con 422 (workflow) cuando la transición NO existe en el workflow resuelto para esa organización', function () {
+    // Workflow personalizado SIN ninguna transición sembrada (organización
+    // "quitó" toda transición técnica) -- demuestra que el motor, no un
+    // hardcode, es quien decide si la transición es válida.
+    $emptyGestor = gestorOrganization();
+
+    $emptyWorkflow = Workflow::factory()->create([
+        'tenant_organization_id' => $emptyGestor->id,
+        'entity_type' => 'TREATMENT',
+        'is_system' => false,
+        'is_active' => true,
+    ]);
+    $emptyVersion = WorkflowVersion::factory()->published()->create(['workflow_id' => $emptyWorkflow->id]);
+    $emptyWorkflow->forceFill(['current_version_id' => $emptyVersion->id])->save();
+
+    WorkflowServiceBinding::query()->create([
+        'workflow_id' => $emptyWorkflow->id,
+        'scope_type' => 'organization',
+        'scope_id' => $emptyGestor->id,
+    ]);
+
+    $approval = WasteTreatmentApproval::factory()->create(['organization_id' => $emptyGestor->id]);
+    $actor = treatmentApprovalActor(['treatment_approvals.evaluate'], $emptyGestor->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/treatment-approvals/{$approval->id}/approve-technical")
+        ->assertUnprocessable()->assertJsonValidationErrors('workflow');
+
+    expect($approval->fresh()->technical_status)->toBe('PENDING');
+});
+
+// ---- Fix de seguridad (requisito 5, revisión especialista-seguridad sobre WorkflowController): ----
+// workflow_logs.tenant_organization_id debe ser el de la ORGANIZACIÓN DUEÑA
+// de la evaluación (treatmentApproval->organization_id, el Gestor), NUNCA el
+// tenant del actor -- de lo contrario, cuando actúa platform staff (tenant
+// distinto del Gestor) sobre la evaluación de un Gestor, el log queda
+// atribuido al tenant PLATAFORMA en vez de al Gestor real dueño del proceso,
+// rompiendo la trazabilidad multi-tenant del log.
+test('approveTechnical registra workflow_logs.tenant_organization_id de la organización DUEÑA de la evaluación, no del tenant del actor', function () {
+    $gestor = gestorOrganization();
+    $approval = WasteTreatmentApproval::factory()->create(['organization_id' => $gestor->id]);
+
+    $platformActor = treatmentApprovalPlatformStaffActor(['treatment_approvals.evaluate']);
+
+    $this->actingAs($platformActor)->postJson("/api/admin/treatment-approvals/{$approval->id}/approve-technical")->assertOk();
+
+    $log = WorkflowLog::query()->where('process_type', 'TREATMENT')->where('process_id', $approval->id)->firstOrFail();
+
+    expect($log->tenant_organization_id)->toBe($gestor->id)
+        ->and($log->tenant_organization_id)->not->toBe($platformActor->tenant_organization_id);
 });

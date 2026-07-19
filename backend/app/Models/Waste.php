@@ -211,8 +211,8 @@ class Waste extends Model
     public function hasViableTreatment(): bool
     {
         return $this->treatmentApprovals()
-            ->where('technical_status', 'APPROVED')
-            ->where('commercial_status', 'APPROVED')
+            ->technicalStatusCode('APPROVED')
+            ->commercialStatusCode('APPROVED')
             ->where('is_active', true)
             ->exists();
     }
@@ -225,8 +225,8 @@ class Waste extends Model
     public function scopeWithViableTreatment(Builder $query): Builder
     {
         return $query->whereHas('treatmentApprovals', function (Builder $query) {
-            $query->where('technical_status', 'APPROVED')
-                ->where('commercial_status', 'APPROVED')
+            $query->technicalStatusCode('APPROVED')
+                ->commercialStatusCode('APPROVED')
                 ->where('is_active', true);
         });
     }

@@ -46,12 +46,34 @@ class RoleController extends Controller
      * whitelist explícita -- el valor de `sort` NUNCA se interpola en
      * `orderBy()` sin pasar por ella antes (evita SQL injection vía nombre
      * de columna).
+     *
+     * `organization_id` (gap real, agente frontend CU-021): filtro OPCIONAL
+     * aceptado SOLO si el actor `isPlatformStaff()` -- sin él, cuando
+     * platform staff edita el workflow personalizado de una organización
+     * Gestor ajena, el selector de roles para asignar a una transición solo
+     * traía roles GLOBALES + los del tenant del propio actor (la
+     * organización PLATAFORMA), nunca los roles propios de la organización
+     * TARGET. Mismo criterio anti-role-smuggling que
+     * `BranchController::index()`: para un actor que NO es platform staff,
+     * el parámetro se ignora en silencio (no es un error, simplemente no
+     * aporta nada nuevo sobre su propio tenant ya implícito).
      */
     public function index(Request $request)
     {
         Gate::authorize('viewAny', Role::class);
 
-        $actorTenantId = $request->user()->tenant_organization_id;
+        $actor = $request->user();
+        $tenantFilterId = $actor->tenant_organization_id;
+
+        if ($actor->isPlatformStaff()) {
+            $data = $request->validate([
+                'organization_id' => ['nullable', 'integer', 'exists:organizations,id'],
+            ]);
+
+            if (array_key_exists('organization_id', $data) && $data['organization_id'] !== null) {
+                $tenantFilterId = $data['organization_id'];
+            }
+        }
 
         $search = $request->input('search');
         $status = $request->input('status');
@@ -62,11 +84,11 @@ class RoleController extends Controller
         $direction = strtolower((string) $request->input('direction')) === 'desc' ? 'desc' : 'asc';
 
         $roles = Role::query()
-            ->where(function ($query) use ($actorTenantId) {
+            ->where(function ($query) use ($tenantFilterId) {
                 $query->whereNull('tenant_organization_id');
 
-                if ($actorTenantId !== null) {
-                    $query->orWhere('tenant_organization_id', $actorTenantId);
+                if ($tenantFilterId !== null) {
+                    $query->orWhere('tenant_organization_id', $tenantFilterId);
                 }
             })
             ->when($search, function ($query) use ($search) {

@@ -57,6 +57,19 @@ class DatabaseSeeder extends Seeder
         // seeders de este bloque.
         $this->call(TreatmentSeeder::class);
 
+        // Motor de Workflow genérico (D-WF-01/D-WF-02): catálogo BASE
+        // "respel_statuses" (11 filas, bajo la organización PLATAFORMA --
+        // debe correr DESPUÉS de PlatformOrganizationSeeder, ya sembrado
+        // arriba) + workflow BASE "RESPEL" con sus transiciones/roles
+        // (debe correr DESPUÉS de RoleSeeder, ya sembrado arriba, y de
+        // RespelStatusSeeder por dependencia lógica de vocabulario).
+        // `WasteTreatmentApprovalController` ya consume este motor
+        // (`technical_status_id`/`commercial_status_id` FK reales, item
+        // 17/D-WF-02) -- este orden de siembra es requisito, no solo
+        // documentación.
+        $this->call(RespelStatusSeeder::class);
+        $this->call(WorkflowSeeder::class);
+
         // Núcleo del Módulo Residuos (declaración + clasificación): 4
         // catálogos globales nuevos, mismo patrón exacto que los Batches 1-3
         // de Catálogos Maestros -- sin dependencias entre sí ni con los

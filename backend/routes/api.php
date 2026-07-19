@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\Admin\PackagingTypeController;
 use App\Http\Controllers\Api\Admin\PermissionController;
 use App\Http\Controllers\Api\Admin\PhysicalStateController;
 use App\Http\Controllers\Api\Admin\PreapprovedWasteController;
+use App\Http\Controllers\Api\Admin\RespelStatusController;
 use App\Http\Controllers\Api\Admin\RoleController;
 use App\Http\Controllers\Api\Admin\TreatmentController;
 use App\Http\Controllers\Api\Admin\UnCodeController;
@@ -33,6 +34,7 @@ use App\Http\Controllers\Api\Admin\WasteOperationalStatusController;
 use App\Http\Controllers\Api\Admin\WasteStreamController;
 use App\Http\Controllers\Api\Admin\WasteTreatmentApprovalController;
 use App\Http\Controllers\Api\Admin\WasteTypeController;
+use App\Http\Controllers\Api\Admin\WorkflowController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\InvitationRequestController;
@@ -425,6 +427,27 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::put('preapproved-wastes/{waste}', [PreapprovedWasteController::class, 'update'])->name('preapproved-wastes.update');
         Route::post('preapproved-wastes/{waste}/activate', [PreapprovedWasteController::class, 'activate'])->name('preapproved-wastes.activate');
         Route::post('preapproved-wastes/{waste}/deactivate', [PreapprovedWasteController::class, 'deactivate'])->name('preapproved-wastes.deactivate');
+
+        // CU-021 "Configurar Workflow" -- administración del motor de
+        // Workflow genérico (item 17/D-WF-01). `import`/`export` no
+        // aplican aquí (a diferencia de los catálogos maestros) -- ver
+        // docblock de WorkflowController/WorkflowPolicy para el criterio de
+        // autorización (platform staff sobre el BASE de cualquier
+        // entity_type; un admin de organización Gestor solo sobre EL SUYO,
+        // vía clone()).
+        // Catálogo de solo lectura consumido por el formulario de
+        // transiciones de Workflow (from_status_code/to_status_code) --
+        // ver docblock de RespelStatusController.
+        Route::get('respel-statuses', [RespelStatusController::class, 'index'])->name('respel-statuses.index');
+
+        Route::get('workflows', [WorkflowController::class, 'index'])->name('workflows.index');
+        Route::get('workflows/{workflow}', [WorkflowController::class, 'show'])->name('workflows.show');
+        Route::post('workflows/{workflow}/clone', [WorkflowController::class, 'clone'])->name('workflows.clone');
+        Route::post('workflows/{workflow}/versions', [WorkflowController::class, 'storeVersion'])->name('workflows.versions.store');
+        Route::post('workflows/{workflow}/versions/{version}/publish', [WorkflowController::class, 'publishVersion'])->name('workflows.versions.publish');
+        Route::post('workflows/{workflow}/transitions', [WorkflowController::class, 'storeTransition'])->name('workflows.transitions.store');
+        Route::put('workflows/{workflow}/transitions/{transition}', [WorkflowController::class, 'updateTransition'])->name('workflows.transitions.update');
+        Route::delete('workflows/{workflow}/transitions/{transition}', [WorkflowController::class, 'destroyTransition'])->name('workflows.transitions.destroy');
 
         // Subsistema TRANSVERSAL de archivos (esquema-bd: `files`). La
         // autorización real vive SIEMPRE en la entidad dueña (Policy

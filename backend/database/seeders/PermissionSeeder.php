@@ -111,6 +111,14 @@ use Illuminate\Database\Seeder;
  * cubre create/update/activate/deactivate) -- ver docblock de
  * `PreapprovedWasteController`/`PreapprovedWastePolicy` para el
  * razonamiento completo. Ninguno es `is_critical`.
+ *
+ * `workflows.manage` (CU-021 "Configurar Workflow", 2026-07-20): permiso
+ * ÚNICO (no se separa `.read`/`.manage`, decisión explícita del hallazgo de
+ * `especialista-seguridad` que pidió "un permiso dedicado nuevo
+ * `workflows.manage`") -- cubre TODO el ciclo de administración de un
+ * workflow (ver/clonar/editar transiciones/versionar/publicar) vía
+ * `WorkflowPolicy`. No es `is_critical` (criterio consistente con el resto
+ * de catálogos de este lote, ninguno de los `.manage` genéricos lo es).
  */
 class PermissionSeeder extends Seeder
 {
@@ -125,7 +133,7 @@ class PermissionSeeder extends Seeder
     /** @var array<int, list<string>> */
     private const PRIORITY_LEVELS = [
         1 => ['users.read', 'roles.read', 'permissions.read', 'audit.read', 'waste_streams.read', 'un_codes.read', 'geography.read', 'branch_types.read', 'organizational_areas.read', 'hazard_characteristics.read', 'waste_categories.read', 'physical_states.read', 'packaging_types.read', 'packaging_conditions.read', 'vehicle_types.read', 'contacts.read', 'branches.read', 'vehicles.read', 'treatments.read', 'branch_treatments.read', 'waste_types.read', 'measurement_units.read', 'generation_frequencies.read', 'waste_operational_statuses.read', 'wastes.read', 'treatment_approvals.read', 'preapproved_wastes.read'],
-        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate', 'waste_types.manage', 'measurement_units.manage', 'generation_frequencies.manage', 'waste_operational_statuses.manage', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate', 'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'preapproved_wastes.manage'],
+        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate', 'waste_types.manage', 'measurement_units.manage', 'generation_frequencies.manage', 'waste_operational_statuses.manage', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate', 'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'preapproved_wastes.manage', 'workflows.manage'],
         3 => ['users.reset-password', 'roles.assign', 'permissions.assign'],
         4 => ['users.delete', 'roles.delete'],
     ];
@@ -260,6 +268,11 @@ class PermissionSeeder extends Seeder
             // esta clase.
             ['code' => 'preapproved_wastes.read', 'name' => 'Consultar residuos preaprobados', 'module' => 'preapproved_wastes', 'action' => 'read'],
             ['code' => 'preapproved_wastes.manage', 'name' => 'Gestionar residuos preaprobados', 'module' => 'preapproved_wastes', 'action' => 'manage'],
+
+            // CU-021 "Configurar Workflow" -- ver aviso de GAP en el docblock
+            // de esta clase. Permiso ÚNICO (no `.read`/`.manage` separados),
+            // decisión explícita del hallazgo de especialista-seguridad.
+            ['code' => 'workflows.manage', 'name' => 'Configurar workflows (transiciones, versiones, publicación)', 'module' => 'workflows', 'action' => 'manage'],
         ];
 
         foreach ($permissions as $permission) {

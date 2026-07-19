@@ -166,7 +166,19 @@ class DemoPreapprovedWastesSeeder extends Seeder
 
             $waste->wasteStreams()->sync($wasteStreamSyncData);
 
-            WasteTreatmentApproval::query()->updateOrCreate(
+            // `technical_status`/`commercial_status`/los campos de aprobación
+            // NO están en el Fillable del modelo (mismo criterio documentado
+            // en `WasteTreatmentApproval`/`PreapprovedWasteController` --
+            // solo se tocan vía las transiciones dedicadas o, como aquí,
+            // vía `forceFill()` explícito). Bug latente corregido en este
+            // lote (item 17/D-WF-02): antes vivían en el array de
+            // `updateOrCreate()`, que los descarta en silencio por mass
+            // assignment -- solo "funcionaba" en apariencia porque las 3
+            // filas demo ya tenían esos valores de una corrida anterior del
+            // seeder (antes de que el modelo excluyera esos campos del
+            // Fillable); una corrida en un entorno realmente nuevo los habría
+            // dejado en los defaults (`PENDING`/`DRAFT`).
+            $approval = WasteTreatmentApproval::query()->updateOrCreate(
                 ['waste_id' => $waste->id, 'branch_treatment_id' => $branchTreatment->id],
                 [
                     'organization_id' => $organization->id,
@@ -177,13 +189,16 @@ class DemoPreapprovedWastesSeeder extends Seeder
                     'maximum_quantity' => $entry['maximum_quantity'],
                     'requires_lab_analysis' => $entry['requires_lab_analysis'],
                     'requires_sds' => $entry['requires_sds'],
-                    'technical_status' => 'APPROVED',
-                    'commercial_status' => 'APPROVED',
-                    'technical_approved_at' => now(),
-                    'commercial_approved_at' => now(),
                     'is_active' => true,
                 ],
             );
+
+            $approval->forceFill([
+                'technical_status' => 'APPROVED',
+                'commercial_status' => 'APPROVED',
+                'technical_approved_at' => now(),
+                'commercial_approved_at' => now(),
+            ])->save();
         }
     }
 }

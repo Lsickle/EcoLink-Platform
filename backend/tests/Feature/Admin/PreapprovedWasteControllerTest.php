@@ -17,6 +17,9 @@ use App\Models\WasteOperationalStatus;
 use App\Models\WasteStream;
 use App\Models\WasteTreatmentApproval;
 use App\Models\WasteType;
+use Database\Seeders\OrganizationStatusSeeder;
+use Database\Seeders\PlatformOrganizationSeeder;
+use Database\Seeders\RespelStatusSeeder;
 
 // "Residuos Preaprobados" -- residuos de referencia
 // (waste_type_id=PREAPPROVED) propiedad de una organización GESTOR
@@ -104,10 +107,16 @@ function makePreapprovedWaste(Organization $organization, ?WasteTreatmentApprova
 
 const PREAPPROVED_WASTE_ALL_PERMISSIONS = ['preapproved_wastes.read', 'preapproved_wastes.manage'];
 
+// item 17/D-WF-02: RespelStatusSeeder (+ dependencias) necesario para
+// cualquier WasteTreatmentApproval creada en esta suite -- ver mismo
+// comentario en WasteControllerTest.
 beforeEach(function () {
     MeasurementUnit::query()->firstOrCreate(['code' => 'KG'], ['name' => 'Kilogramo', 'is_system' => true, 'is_active' => true]);
     WasteOperationalStatus::query()->firstOrCreate(['code' => 'ACTIVE'], ['name' => 'Activo', 'is_system' => true, 'is_active' => true]);
     preapprovedWasteType();
+    $this->seed(OrganizationStatusSeeder::class);
+    $this->seed(PlatformOrganizationSeeder::class);
+    $this->seed(RespelStatusSeeder::class);
 });
 
 // ---- Aislamiento tenant vs. platform staff ----

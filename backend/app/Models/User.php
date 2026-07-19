@@ -142,6 +142,28 @@ class User extends Authenticatable
     }
 
     /**
+     * Motor de Workflow genérico (D-WF-01): `workflow_transition_roles.role_id`
+     * autoriza por IDENTIDAD de rol (código), no por permiso -- distinto de
+     * `hasPermission()` (RN-028, vía `role_permissions`). Mismos criterios de
+     * estado/vigencia que `hasPermission()` (rol activo, sin soft-delete,
+     * vínculo `user_roles` activo y no vencido), pero sin el join a
+     * `role_permissions`/`permissions`.
+     */
+    public function hasRole(string $code): bool
+    {
+        return DB::table('user_roles')
+            ->join('roles', 'roles.id', '=', 'user_roles.role_id')
+            ->where('user_roles.user_id', $this->id)
+            ->where('user_roles.is_active', true)
+            ->whereNull('user_roles.deleted_at')
+            ->where(fn ($q) => $q->whereNull('user_roles.expires_at')->orWhere('user_roles.expires_at', '>', now()))
+            ->where('roles.code', $code)
+            ->where('roles.is_active', true)
+            ->whereNull('roles.deleted_at')
+            ->exists();
+    }
+
+    /**
      * Hallazgo `especialista-seguridad` sobre el FRONTEND (2026-07-13): GET
      * /api/user solo exponía roles, no la lista de permisos efectivos, y el
      * frontend no podía decidir qué ocultar en el menú de administración.
