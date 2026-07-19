@@ -53,6 +53,8 @@ class RolePermissionSeeder extends Seeder
         'workflows.manage',
         'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate',
         'transport_schedules.read', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel',
+        'transport_personnel.read', 'transport_personnel.create', 'transport_personnel.update',
+        'transport_routes.read', 'transport_routes.create',
     ];
 
     /**
@@ -71,10 +73,23 @@ class RolePermissionSeeder extends Seeder
      * humanas (`submit()`/`confirm()`/`cancel()`) contra el rol `LOGÍSTICA`
      * -- el rol tenía la autorización de WORKFLOW pero no el permiso base
      * de la Policy, un bloqueo funcional real, no solo un hallazgo teórico.
+     *
+     * `transport_personnel.read` (gap real de contrato, 2026-07-19): mismo
+     * criterio EXACTO que `vehicles.read` -- LOGÍSTICA consulta los
+     * conductores de su organización, pero NO los crea/edita (eso queda
+     * SOLO en ADMINISTRADOR, igual que con vehículos). `transport_routes.read`/
+     * `.create` SÍ se asignan completos (a diferencia de `transport_personnel`):
+     * a diferencia de vehículos/conductores (recursos de flota, datos
+     * maestros), las rutas son parte de la coordinación ACTIVA del día a día
+     * de LOGÍSTICA -- mismo criterio que su acceso completo a
+     * `transport_schedules.*`, con el que las rutas se usan en conjunto vía
+     * `assignToRoute()`.
      */
     private const LOGISTICA_PERMISSION_CODES = [
         'vehicles.read',
         'transport_schedules.read', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel',
+        'transport_personnel.read',
+        'transport_routes.read', 'transport_routes.create',
     ];
 
     public function run(): void

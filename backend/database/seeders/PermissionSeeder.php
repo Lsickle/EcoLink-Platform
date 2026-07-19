@@ -139,6 +139,21 @@ use Illuminate\Database\Seeder;
  * acceso de edición de la cabecera (que ni siquiera le pertenece). `.cancel`
  * también se separa de `.update` (mismo criterio que `wastes.activate`/
  * `.deactivate` vs. `.update`). Ninguno es `is_critical`.
+ *
+ * `transport_personnel.*`/`transport_routes.*` (gap real de contrato
+ * detectado por el agente de frontend, Módulo Programación Logística,
+ * 2026-07-19): mismo GAP ya documentado en el resto del catálogo -- sin
+ * fuente confirmada en `Catálogo de Permisos.md`. `transport_personnel`
+ * sigue el criterio granular de `vehicles.*` pero reducido a SOLO 3 códigos
+ * (`.read`/`.create`/`.update`, sin `.activate`/`.deactivate`): a diferencia
+ * de `Vehicle` (que separa `operational_status` de `is_active`),
+ * `transport_personnel` solo tiene `is_active`, así que se gestiona
+ * directamente vía `.update` -- ver docblock de
+ * `TransportPersonnelController`. `transport_routes` es CRUD mínimo (sin
+ * `.update` -- decisión de este lote, `transport_routes` hoy es un
+ * contenedor simple sin workflow propio, ver docblock de
+ * `TransportRouteController`), solo `.read`/`.create`. Ninguno es
+ * `is_critical`.
  */
 class PermissionSeeder extends Seeder
 {
@@ -152,8 +167,8 @@ class PermissionSeeder extends Seeder
 
     /** @var array<int, list<string>> */
     private const PRIORITY_LEVELS = [
-        1 => ['users.read', 'roles.read', 'permissions.read', 'audit.read', 'waste_streams.read', 'un_codes.read', 'geography.read', 'branch_types.read', 'organizational_areas.read', 'hazard_characteristics.read', 'waste_categories.read', 'physical_states.read', 'packaging_types.read', 'packaging_conditions.read', 'vehicle_types.read', 'contacts.read', 'branches.read', 'vehicles.read', 'treatments.read', 'branch_treatments.read', 'waste_types.read', 'measurement_units.read', 'generation_frequencies.read', 'waste_operational_statuses.read', 'wastes.read', 'treatment_approvals.read', 'preapproved_wastes.read', 'service_requests.read', 'transport_schedules.read'],
-        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate', 'waste_types.manage', 'measurement_units.manage', 'generation_frequencies.manage', 'waste_operational_statuses.manage', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate', 'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'preapproved_wastes.manage', 'workflows.manage', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel'],
+        1 => ['users.read', 'roles.read', 'permissions.read', 'audit.read', 'waste_streams.read', 'un_codes.read', 'geography.read', 'branch_types.read', 'organizational_areas.read', 'hazard_characteristics.read', 'waste_categories.read', 'physical_states.read', 'packaging_types.read', 'packaging_conditions.read', 'vehicle_types.read', 'contacts.read', 'branches.read', 'vehicles.read', 'treatments.read', 'branch_treatments.read', 'waste_types.read', 'measurement_units.read', 'generation_frequencies.read', 'waste_operational_statuses.read', 'wastes.read', 'treatment_approvals.read', 'preapproved_wastes.read', 'service_requests.read', 'transport_schedules.read', 'transport_personnel.read', 'transport_routes.read'],
+        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate', 'waste_types.manage', 'measurement_units.manage', 'generation_frequencies.manage', 'waste_operational_statuses.manage', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate', 'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'preapproved_wastes.manage', 'workflows.manage', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel', 'transport_personnel.create', 'transport_personnel.update', 'transport_routes.create'],
         3 => ['users.reset-password', 'roles.assign', 'permissions.assign'],
         4 => ['users.delete', 'roles.delete'],
     ];
@@ -308,6 +323,16 @@ class PermissionSeeder extends Seeder
             ['code' => 'transport_schedules.create', 'name' => 'Crear programaciones de transporte', 'module' => 'transport_schedules', 'action' => 'create'],
             ['code' => 'transport_schedules.update', 'name' => 'Modificar/confirmar programaciones de transporte', 'module' => 'transport_schedules', 'action' => 'update'],
             ['code' => 'transport_schedules.cancel', 'name' => 'Cancelar programaciones de transporte', 'module' => 'transport_schedules', 'action' => 'cancel'],
+
+            // CRUD de Conductores + CRUD mínimo de Rutas -- gap real de
+            // contrato detectado por el agente de frontend (ver aviso de
+            // GAP en el docblock de esta clase).
+            ['code' => 'transport_personnel.read', 'name' => 'Consultar conductores', 'module' => 'transport_personnel', 'action' => 'read'],
+            ['code' => 'transport_personnel.create', 'name' => 'Crear conductores', 'module' => 'transport_personnel', 'action' => 'create'],
+            ['code' => 'transport_personnel.update', 'name' => 'Modificar conductores', 'module' => 'transport_personnel', 'action' => 'update'],
+
+            ['code' => 'transport_routes.read', 'name' => 'Consultar rutas de transporte', 'module' => 'transport_routes', 'action' => 'read'],
+            ['code' => 'transport_routes.create', 'name' => 'Crear rutas de transporte', 'module' => 'transport_routes', 'action' => 'create'],
         ];
 
         foreach ($permissions as $permission) {

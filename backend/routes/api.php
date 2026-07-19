@@ -25,6 +25,8 @@ use App\Http\Controllers\Api\Admin\PreapprovedWasteController;
 use App\Http\Controllers\Api\Admin\RespelStatusController;
 use App\Http\Controllers\Api\Admin\RoleController;
 use App\Http\Controllers\Api\Admin\ServiceRequestController;
+use App\Http\Controllers\Api\Admin\TransportPersonnelController;
+use App\Http\Controllers\Api\Admin\TransportRouteController;
 use App\Http\Controllers\Api\Admin\TransportScheduleController;
 use App\Http\Controllers\Api\Admin\TreatmentController;
 use App\Http\Controllers\Api\Admin\UnCodeController;
@@ -485,6 +487,24 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('transport-schedules/{schedule}/confirm', [TransportScheduleController::class, 'confirm'])->name('transport-schedules.confirm');
         Route::post('transport-schedules/{schedule}/cancel', [TransportScheduleController::class, 'cancel'])->name('transport-schedules.cancel');
         Route::post('transport-schedules/{schedule}/route', [TransportScheduleController::class, 'assignToRoute'])->name('transport-schedules.assign-route');
+
+        // CRUD de Conductores (`transport_personnel`, CU-030/D-PRG-03/D-PRG-04)
+        // -- gap real: `TransportScheduleController` ya exigía
+        // `transport_personnel_id` desde Fase 2a sin ningún endpoint para
+        // darlos de alta. Ver docblock de TransportPersonnelController.
+        Route::get('transport-personnel', [TransportPersonnelController::class, 'index'])->name('transport-personnel.index');
+        Route::post('transport-personnel', [TransportPersonnelController::class, 'store'])->name('transport-personnel.store');
+        Route::get('transport-personnel/{transportPersonnel}', [TransportPersonnelController::class, 'show'])->name('transport-personnel.show');
+        Route::put('transport-personnel/{transportPersonnel}', [TransportPersonnelController::class, 'update'])->name('transport-personnel.update');
+
+        // CRUD MÍNIMO de Rutas (`transport_routes`, CU-059) -- gap real:
+        // `TransportScheduleController::assignToRoute()` ya exigía
+        // `transport_route_id` sin ningún endpoint para crear/listar rutas.
+        // Sin update()/cancel() en este lote -- ver docblock de
+        // TransportRouteController.
+        Route::get('transport-routes', [TransportRouteController::class, 'index'])->name('transport-routes.index');
+        Route::post('transport-routes', [TransportRouteController::class, 'store'])->name('transport-routes.store');
+        Route::get('transport-routes/{route}', [TransportRouteController::class, 'show'])->name('transport-routes.show');
 
         // Subsistema TRANSVERSAL de archivos (esquema-bd: `files`). La
         // autorización real vive SIEMPRE en la entidad dueña (Policy
