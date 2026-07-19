@@ -51,6 +51,7 @@ class RolePermissionSeeder extends Seeder
         'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate',
         'preapproved_wastes.read', 'preapproved_wastes.manage',
         'workflows.manage',
+        'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate',
     ];
 
     /**

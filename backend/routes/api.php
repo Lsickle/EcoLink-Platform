@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\Admin\PhysicalStateController;
 use App\Http\Controllers\Api\Admin\PreapprovedWasteController;
 use App\Http\Controllers\Api\Admin\RespelStatusController;
 use App\Http\Controllers\Api\Admin\RoleController;
+use App\Http\Controllers\Api\Admin\ServiceRequestController;
 use App\Http\Controllers\Api\Admin\TreatmentController;
 use App\Http\Controllers\Api\Admin\UnCodeController;
 use App\Http\Controllers\Api\Admin\UserManagementController;
@@ -448,6 +449,22 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('workflows/{workflow}/transitions', [WorkflowController::class, 'storeTransition'])->name('workflows.transitions.store');
         Route::put('workflows/{workflow}/transitions/{transition}', [WorkflowController::class, 'updateTransition'])->name('workflows.transitions.update');
         Route::delete('workflows/{workflow}/transitions/{transition}', [WorkflowController::class, 'destroyTransition'])->name('workflows.transitions.destroy');
+
+        // Módulo Solicitudes de Servicio, Fase 1b (D-S01/D-S02/D-S04/D-S06/
+        // D-S09/D-S12/D-S25/D-S27) -- CRUD + ciclo de vida temprano
+        // (DRAFT->SUBMITTED->UNDER_REVIEW->APPROVED/REJECTED, CANCELLED) +
+        // aprobación/rechazo por ítem. Las transiciones
+        // APPROVED->SCHEDULED->IN_EXECUTION->COMPLETED pertenecen al futuro
+        // módulo de Programación/Dispatch (Fase 2), sin endpoint todavía --
+        // ver docblock de ServiceRequestController.
+        Route::get('service-requests', [ServiceRequestController::class, 'index'])->name('service-requests.index');
+        Route::post('service-requests', [ServiceRequestController::class, 'store'])->name('service-requests.store');
+        Route::get('service-requests/{serviceRequest}', [ServiceRequestController::class, 'show'])->name('service-requests.show');
+        Route::put('service-requests/{serviceRequest}', [ServiceRequestController::class, 'update'])->name('service-requests.update');
+        Route::post('service-requests/{serviceRequest}/submit', [ServiceRequestController::class, 'submit'])->name('service-requests.submit');
+        Route::post('service-requests/{serviceRequest}/cancel', [ServiceRequestController::class, 'cancel'])->name('service-requests.cancel');
+        Route::post('service-requests/items/{item}/approve', [ServiceRequestController::class, 'approveItem'])->name('service-requests.items.approve');
+        Route::post('service-requests/items/{item}/reject', [ServiceRequestController::class, 'rejectItem'])->name('service-requests.items.reject');
 
         // Subsistema TRANSVERSAL de archivos (esquema-bd: `files`). La
         // autorización real vive SIEMPRE en la entidad dueña (Policy

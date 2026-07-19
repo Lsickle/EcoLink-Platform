@@ -119,6 +119,18 @@ use Illuminate\Database\Seeder;
  * workflow (ver/clonar/editar transiciones/versionar/publicar) vía
  * `WorkflowPolicy`. No es `is_critical` (criterio consistente con el resto
  * de catálogos de este lote, ninguno de los `.manage` genéricos lo es).
+ *
+ * `service_requests.*` (Módulo Solicitudes de Servicio, Fase 1b, 2026-07-19):
+ * mismo GAP ya documentado en el resto del catálogo -- sin fuente confirmada
+ * en `Catálogo de Permisos.md`. Se separa `.evaluate` (las transiciones de
+ * `item_status_id` por ítem, `ServiceRequestApprovalService::approveItem()`/
+ * `rejectItem()`) de `.update` (edición de campos de cabecera en Borrador) --
+ * mismo criterio granular ya usado para `treatment_approvals.update` vs.
+ * `.evaluate`: "aprobar/rechazar" es una acción de mayor impacto que "editar
+ * un campo", y podría asignarse a un cargo distinto del Gestor sin dar
+ * acceso de edición de la cabecera (que ni siquiera le pertenece). `.cancel`
+ * también se separa de `.update` (mismo criterio que `wastes.activate`/
+ * `.deactivate` vs. `.update`). Ninguno es `is_critical`.
  */
 class PermissionSeeder extends Seeder
 {
@@ -132,8 +144,8 @@ class PermissionSeeder extends Seeder
 
     /** @var array<int, list<string>> */
     private const PRIORITY_LEVELS = [
-        1 => ['users.read', 'roles.read', 'permissions.read', 'audit.read', 'waste_streams.read', 'un_codes.read', 'geography.read', 'branch_types.read', 'organizational_areas.read', 'hazard_characteristics.read', 'waste_categories.read', 'physical_states.read', 'packaging_types.read', 'packaging_conditions.read', 'vehicle_types.read', 'contacts.read', 'branches.read', 'vehicles.read', 'treatments.read', 'branch_treatments.read', 'waste_types.read', 'measurement_units.read', 'generation_frequencies.read', 'waste_operational_statuses.read', 'wastes.read', 'treatment_approvals.read', 'preapproved_wastes.read'],
-        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate', 'waste_types.manage', 'measurement_units.manage', 'generation_frequencies.manage', 'waste_operational_statuses.manage', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate', 'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'preapproved_wastes.manage', 'workflows.manage'],
+        1 => ['users.read', 'roles.read', 'permissions.read', 'audit.read', 'waste_streams.read', 'un_codes.read', 'geography.read', 'branch_types.read', 'organizational_areas.read', 'hazard_characteristics.read', 'waste_categories.read', 'physical_states.read', 'packaging_types.read', 'packaging_conditions.read', 'vehicle_types.read', 'contacts.read', 'branches.read', 'vehicles.read', 'treatments.read', 'branch_treatments.read', 'waste_types.read', 'measurement_units.read', 'generation_frequencies.read', 'waste_operational_statuses.read', 'wastes.read', 'treatment_approvals.read', 'preapproved_wastes.read', 'service_requests.read'],
+        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate', 'waste_types.manage', 'measurement_units.manage', 'generation_frequencies.manage', 'waste_operational_statuses.manage', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate', 'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'preapproved_wastes.manage', 'workflows.manage', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate'],
         3 => ['users.reset-password', 'roles.assign', 'permissions.assign'],
         4 => ['users.delete', 'roles.delete'],
     ];
@@ -273,6 +285,14 @@ class PermissionSeeder extends Seeder
             // de esta clase. Permiso ÚNICO (no `.read`/`.manage` separados),
             // decisión explícita del hallazgo de especialista-seguridad.
             ['code' => 'workflows.manage', 'name' => 'Configurar workflows (transiciones, versiones, publicación)', 'module' => 'workflows', 'action' => 'manage'],
+
+            // Módulo Solicitudes de Servicio, Fase 1b -- ver aviso de GAP en
+            // el docblock de esta clase.
+            ['code' => 'service_requests.read', 'name' => 'Consultar solicitudes de servicio', 'module' => 'service_requests', 'action' => 'read'],
+            ['code' => 'service_requests.create', 'name' => 'Crear solicitudes de servicio', 'module' => 'service_requests', 'action' => 'create'],
+            ['code' => 'service_requests.update', 'name' => 'Modificar/enviar solicitudes de servicio', 'module' => 'service_requests', 'action' => 'update'],
+            ['code' => 'service_requests.cancel', 'name' => 'Cancelar solicitudes de servicio', 'module' => 'service_requests', 'action' => 'cancel'],
+            ['code' => 'service_requests.evaluate', 'name' => 'Aprobar/rechazar ítems de solicitud de servicio', 'module' => 'service_requests', 'action' => 'evaluate'],
         ];
 
         foreach ($permissions as $permission) {

@@ -124,5 +124,23 @@ class DatabaseSeeder extends Seeder
         // LOGÍSTICA) -- debe correr DESPUÉS de DemoOrganizationsSeeder y de
         // RoleSeeder (rol LOGÍSTICA, ya sembrado arriba).
         $this->call(DemoUsersSeeder::class);
+
+        // Módulo Solicitudes de Servicio, Fase 1a (D-S02/D-S04/D-S09/D-S10):
+        // 4 catálogos globales nuevos (sin dependencias entre sí) + el
+        // workflow BASE "Solicitud de Servicio" (entity_type=SERVICE) --
+        // debe correr DESPUÉS de WorkflowSeeder/RespelStatusSeeder (mismo
+        // motor de Workflow genérico) y de los seeders de Residuos/
+        // Tratamiento ya sembrados arriba (dependencia real:
+        // waste_treatment_approvals/wastes deben existir antes de que el
+        // siguiente lote -- controller/policies -- pueda crear solicitudes
+        // reales; este lote solo siembra catálogo+workflow, sin datos de
+        // demo de waste_service_requests todavía). ServiceRequestWorkflowSeeder
+        // depende de BusinessRoleSeeder (GENERATOR/GESTOR) y RoleSeeder
+        // (ADMINISTRADOR), ambos ya sembrados arriba.
+        $this->call(ServiceStatusSeeder::class);
+        $this->call(ServiceItemStatusSeeder::class);
+        $this->call(CancellationReasonSeeder::class);
+        $this->call(CarteraStatusSeeder::class);
+        $this->call(ServiceRequestWorkflowSeeder::class);
     }
 }
