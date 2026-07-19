@@ -416,4 +416,41 @@ export const createBranchTreatmentSchema = z
     path: ['validUntil'],
   })
 
+// POST /api/admin/transport-schedules -- ver
+// `TransportScheduleController::store()`/`headerValidationRules()`
+// (Módulo Programación Logística, Fase 2a). `transportPersonnelId` es un
+// campo numérico TEMPORAL (sin selector real) -- GAP DE CONTRATO explícito,
+// ver AVISO en `AdminTransportScheduleDetail` (types.ts): no existe todavía
+// un `TransportPersonnelController`. `items` exige al menos 1 elemento
+// (D-PRG-03, mismo criterio que `waste_service_request_id`/`items` de
+// `CreateServiceRequestPayload` -- sin Borrador de "solo cabecera").
+export const createTransportScheduleSchema = z.object({
+  organizationId: z.number().int().positive().optional(),
+  wasteServiceRequestId: z.number().int().positive('Selecciona una solicitud de servicio.'),
+  vehicleId: z.number().int().positive('Selecciona un vehículo.'),
+  transportPersonnelId: z.number().int().positive('Ingresa el ID del conductor.'),
+  sourceBranchId: z.number().int().positive('La solicitud de origen debe tener una sede.'),
+  destinationBranchId: z.number().int().positive('Selecciona una sede de destino.'),
+  scheduledPickupAt: z.string().trim().min(1, 'Ingresa la fecha y hora de recolección.'),
+  pickupWindowStart: z.string().trim().optional().or(z.literal('')),
+  pickupWindowEnd: z.string().trim().optional().or(z.literal('')),
+  priority: z.string().trim().optional().or(z.literal('')),
+  estimatedWeightKg: z.number().min(0).optional(),
+  estimatedVolumeM3: z.number().min(0).optional(),
+  plannedDistanceKm: z.number().min(0).optional(),
+  plannedDurationMinutes: z.number().int().min(0).optional(),
+  requiresSpecialHandling: z.boolean(),
+  observations: z.string().trim().optional().or(z.literal('')),
+  items: z
+    .array(
+      z.object({
+        wasteServiceRequestItemId: z.number().int().positive(),
+        scheduledQuantity: z.number().min(0, 'La cantidad programada debe ser mayor o igual a 0.'),
+      })
+    )
+    .min(1, 'Selecciona al menos un ítem para programar.'),
+})
+
+export type CreateTransportScheduleFormValues = z.infer<typeof createTransportScheduleSchema>
+
 export type CreateBranchTreatmentFormValues = z.infer<typeof createBranchTreatmentSchema>

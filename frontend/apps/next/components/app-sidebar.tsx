@@ -200,6 +200,33 @@ const data = {
       icon: <SendIcon />,
       permission: "service_requests.read",
     },
+    // Módulo Programación Logística, Fase 2a (D-PRG-01 a D-PRG-14, backend
+    // cerrado -- 1177 tests Pest, revisión de seguridad). Acceso DUAL SIMPLE
+    // (sin acceso cruzado, a diferencia de "Solicitudes de Servicio" -- ver
+    // `TransportSchedulePolicy`), por eso vive en "Residuos" junto a su
+    // dominio hermano y no en "Administración". `TruckIcon` ya usado por
+    // "Códigos UN" (navResiduos) y "Tipos de Vehículo" (navCatalogs) --
+    // ambos en grupos distintos, se reutiliza aquí porque no queda otro
+    // ícono de camión disponible sin repetir semántica con "Vehículos"
+    // (`CarFrontIcon`, navAdmin).
+    {
+      title: "Programación de Recolección",
+      url: "/admin/transport-schedules",
+      icon: <TruckIcon />,
+      permission: "transport_schedules.read",
+    },
+    // "Dispatch board" (CU-059 "Agrupar por Zona/Ruta", cierre del gap de
+    // `TransportRouteController` señalado en el lote anterior) -- gateado
+    // por `transport_routes.read`, un permiso DISTINTO de
+    // `transport_schedules.read` (LOGÍSTICA tiene ambos, pero no son el
+    // mismo permiso -- se refleja aquí como un ítem propio, no anidado bajo
+    // "Programación de Recolección").
+    {
+      title: "Rutas de Transporte",
+      url: "/admin/transport-schedules/dispatch-board",
+      icon: <MapIcon />,
+      permission: "transport_routes.read",
+    },
     {
       title: "Corrientes Y/A",
       url: "/admin/waste-streams",

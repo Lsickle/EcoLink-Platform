@@ -30,6 +30,12 @@ import type {
   AdminRespelStatus,
   AdminRole,
   AdminRoleDetail,
+  AdminTransportPersonnel,
+  AdminTransportPersonnelDetail,
+  AdminTransportRoute,
+  AdminTransportRouteDetail,
+  AdminTransportSchedule,
+  AdminTransportScheduleDetail,
   AdminTreatment,
   AdminTreatmentApproval,
   AdminTreatmentApprovalDetail,
@@ -61,6 +67,7 @@ import type {
   ApproveTreatmentApprovalTechnicalPayload,
   AssignPermissionPayload,
   AssignRolePayload,
+  AssignTransportScheduleToRoutePayload,
   AvailableBranchTreatment,
   ApproveServiceRequestItemPayload,
   BranchKpis,
@@ -80,6 +87,9 @@ import type {
   CreatePhysicalStatePayload,
   CreatePreapprovedWastePayload,
   CreateRolePayload,
+  CreateTransportPersonnelPayload,
+  CreateTransportRoutePayload,
+  CreateTransportSchedulePayload,
   CreateTreatmentApprovalRequestPayload,
   CreateTreatmentPayload,
   CreateUnCodePayload,
@@ -121,6 +131,8 @@ import type {
   UpdatePreapprovedWastePayload,
   UpdateRolePayload,
   UpdateServiceRequestPayload,
+  UpdateTransportPersonnelPayload,
+  UpdateTransportSchedulePayload,
   UpdateTreatmentApprovalPayload,
   UpdateTreatmentPayload,
   UpdateUnCodePayload,
@@ -2442,6 +2454,181 @@ export async function rejectServiceRequestItem(
   payload: RejectServiceRequestItemPayload
 ): Promise<{ item: AdminServiceRequestDetail['items'][number] }> {
   return apiFetch(`/api/admin/service-requests/items/${itemId}/reject`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// ---- Programación de Recolección (/api/admin/transport-schedules) --------
+// Módulo Programación Logística, Fase 2a (backend cerrado -- 1177 tests
+// Pest, revisión de seguridad -- ver docblock completo de
+// `TransportScheduleController`/`TransportSchedulePolicy` en types.ts, junto
+// con el GAP DE CONTRATO explícito de `TransportPersonnelController`/
+// `TransportRouteController`, ninguno de los dos existe todavía).
+
+export async function fetchTransportSchedules(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    organizationId?: number | string
+    status?: string
+  } = {}
+): Promise<Paginated<AdminTransportSchedule>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    organization_id: params.organizationId,
+    status: params.status,
+  })
+  return apiFetch(`/api/admin/transport-schedules${query}`)
+}
+
+export async function fetchTransportSchedule(
+  id: number | string
+): Promise<{ transport_schedule: AdminTransportScheduleDetail }> {
+  return apiFetch(`/api/admin/transport-schedules/${id}`)
+}
+
+// POST /api/admin/transport-schedules -- ver
+// `TransportScheduleController::store()`. La respuesta real del backend es
+// `schedule->fresh(['items', 'transportStatus', 'organization:id,legal_name',
+// 'vehicle', 'transportPersonnel'])` -- NO el shape completo de
+// `AdminTransportScheduleDetail` (sin `waste_service_request`/`source_branch`/
+// `destination_branch`/`transport_personnel.person`/`route_stop` cargados).
+// El caller (`CreateTransportScheduleForm.tsx`) solo necesita `id` para
+// redirigir al detalle (que sí hace un `show()` completo) -- se tipa acorde
+// a lo que la API realmente devuelve, sin inventar campos.
+export async function createTransportSchedule(
+  payload: CreateTransportSchedulePayload
+): Promise<{ transport_schedule: { id: number; schedule_number: string } }> {
+  return apiFetch('/api/admin/transport-schedules', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// PUT /api/admin/transport-schedules/{id} -- ver
+// `TransportScheduleController::update()`. NO hay UI de edición de cabecera
+// en este lote (prioridad puesta en listado/detalle/transiciones, ver
+// resumen del lote) -- se deja el cliente listo para cuando se construya.
+export async function updateTransportSchedule(
+  id: number | string,
+  payload: UpdateTransportSchedulePayload
+): Promise<{ transport_schedule: { id: number } }> {
+  return apiFetch(`/api/admin/transport-schedules/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+// POST .../submit -- BOR -> PEND. Mismo patrón que `submitServiceRequest()`:
+// el caller SIEMPRE recarga el detalle completo después (`fetchTransportSchedule()`),
+// nunca confía en el shape parcial de esta respuesta.
+export async function submitTransportSchedule(
+  id: number | string
+): Promise<{ transport_schedule: { id: number } }> {
+  return apiFetch(`/api/admin/transport-schedules/${id}/submit`, { method: 'POST' })
+}
+
+// POST .../confirm -- PEND/PROG -> CONF (encadena hasta 2 transiciones en una
+// sola llamada, ver docblock de `TransportScheduleController::confirm()`).
+export async function confirmTransportSchedule(
+  id: number | string
+): Promise<{ transport_schedule: { id: number } }> {
+  return apiFetch(`/api/admin/transport-schedules/${id}/confirm`, { method: 'POST' })
+}
+
+// POST .../cancel -- -> CANC, alcanzable desde cualquier estado NO operativo
+// (BOR/PEND/PROG/CONF).
+export async function cancelTransportSchedule(
+  id: number | string
+): Promise<{ transport_schedule: { id: number } }> {
+  return apiFetch(`/api/admin/transport-schedules/${id}/cancel`, { method: 'POST' })
+}
+
+// POST .../route -- ver `TransportScheduleController::assignToRoute()`. NO
+// SE USA en este lote -- GAP DE CONTRATO de `TransportRouteController` (ver
+// AVISO en `AssignTransportScheduleToRoutePayload`, types.ts). Se deja el
+// cliente listo (el endpoint YA existe en el backend) para cuando el CRUD de
+// rutas quede disponible y se construya el "dispatch board" (CU-059).
+export async function assignTransportScheduleToRoute(
+  id: number | string,
+  payload: AssignTransportScheduleToRoutePayload
+): Promise<{ route_stop: { id: number; stop_sequence: number; transport_route: { id: number; route_code: string } } }> {
+  return apiFetch(`/api/admin/transport-schedules/${id}/route`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// ---- Conductores (/api/admin/transport-personnel) --------------------------
+// Cierre del GAP DE CONTRATO señalado en el lote anterior (2026-07-19) -- ver
+// docblock completo de `TransportPersonnelController`/AVISO en
+// `AdminTransportPersonnel` (types.ts). Mismo patrón EXACTO que
+// `fetchVehicles()`/`createVehicle()`/`updateVehicle()`.
+
+export async function fetchTransportPersonnel(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    organizationId?: number | string
+    isActive?: boolean
+  } = {}
+): Promise<Paginated<AdminTransportPersonnel>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    organization_id: params.organizationId,
+    is_active: params.isActive === undefined ? undefined : String(params.isActive),
+  })
+  return apiFetch(`/api/admin/transport-personnel${query}`)
+}
+
+export async function fetchTransportPersonnelById(
+  id: number | string
+): Promise<{ transport_personnel: AdminTransportPersonnelDetail }> {
+  return apiFetch(`/api/admin/transport-personnel/${id}`)
+}
+
+export async function createTransportPersonnel(
+  payload: CreateTransportPersonnelPayload
+): Promise<{ transport_personnel: AdminTransportPersonnel }> {
+  return apiFetch('/api/admin/transport-personnel', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export async function updateTransportPersonnel(
+  id: number | string,
+  payload: UpdateTransportPersonnelPayload
+): Promise<{ transport_personnel: AdminTransportPersonnel }> {
+  return apiFetch(`/api/admin/transport-personnel/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+// ---- Rutas de Transporte (/api/admin/transport-routes) ---------------------
+// Cierre del GAP DE CONTRATO señalado en el lote anterior (CU-059,
+// 2026-07-19) -- ver docblock completo de `TransportRouteController`/AVISO en
+// `AdminTransportRoute` (types.ts). CRUD MÍNIMO a propósito -- sin
+// `updateTransportRoute()`/`cancelTransportRoute()`, el backend no expone
+// esos endpoints en este lote.
+
+export async function fetchTransportRoutes(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    organizationId?: number | string
+    isActive?: boolean
+  } = {}
+): Promise<Paginated<AdminTransportRoute>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    organization_id: params.organizationId,
+    is_active: params.isActive === undefined ? undefined : String(params.isActive),
+  })
+  return apiFetch(`/api/admin/transport-routes${query}`)
+}
+
+export async function fetchTransportRoute(id: number | string): Promise<{ transport_route: AdminTransportRouteDetail }> {
+  return apiFetch(`/api/admin/transport-routes/${id}`)
+}
+
+export async function createTransportRoute(
+  payload: CreateTransportRoutePayload
+): Promise<{ transport_route: AdminTransportRoute }> {
+  return apiFetch('/api/admin/transport-routes', { method: 'POST', body: JSON.stringify(payload) })
 }
 
 export type * from './types'

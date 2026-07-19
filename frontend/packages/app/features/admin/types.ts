@@ -2638,3 +2638,323 @@ export type ApproveServiceRequestItemPayload = {
 export type RejectServiceRequestItemPayload = {
   notes: string
 }
+
+// ---- Programación de Recolección (/api/admin/transport-schedules) --------
+// Módulo Programación Logística, Fase 2a (D-PRG-01 a D-PRG-14, backend
+// cerrado -- 1177 tests Pest, revisión de seguridad -- ver docblock completo
+// de `TransportScheduleController`/`TransportSchedulePolicy`). Acceso DUAL
+// SIMPLE (a diferencia de `AdminServiceRequest`, sin acceso cruzado):
+// `organization_id` es SIEMPRE la organización que PROGRAMA (Gestor/
+// Subgestor, o el Generador con doble rol GENERATOR+TRANSPORTER en
+// autotransporte) -- mismo criterio tenant-vs-platform-staff que
+// `AdminVehicle`/`AdminBranch`.
+//
+// GAP DE CONTRATO explícito (2026-07-19, ver resumen del lote): NO existe
+// todavía un `TransportPersonnelController` (sin rutas `/api/admin/
+// transport-personnel`, sin permiso `transport_personnel.*` sembrado en
+// `PermissionSeeder`) NI un `TransportRouteController` (sin rutas `/api/
+// admin/transport-routes`, `assignToRoute()` exige un `transport_route_id`
+// que hoy no hay forma de listar ni crear desde el frontend). Ambos
+// controllers quedan delegados al backend -- no se inventa un contrato de
+// CRUD para ninguno de los dos. Efecto práctico: `transport_personnel_id`
+// se captura como un campo numérico temporal en
+// `CreateTransportScheduleForm.tsx` (sin selector real), y la agrupación en
+// rutas (CU-059, "dispatch board") NO se construye en este lote.
+export type AdminTransportStatus = {
+  id: number
+  code: string
+  name: string
+  description: string | null
+  sort_order: number
+  is_initial: boolean
+  is_final: boolean
+  requires_schedule: boolean
+  requires_vehicle: boolean
+  requires_load_manifest: boolean
+  requires_unload_manifest: boolean
+  color_hex: string | null
+  icon: string | null
+  is_active: boolean
+}
+
+// Fila de `GET /api/admin/transport-schedules` -- ver
+// `TransportScheduleController::index()`, que eager-carga exactamente estas
+// 5 relaciones (columnas mínimas cada una).
+export type AdminTransportSchedule = {
+  id: number
+  uuid: string
+  tenant_organization_id: number | null
+  organization_id: number
+  waste_service_request_id: number
+  schedule_number: string
+  source_branch_id: number
+  destination_branch_id: number
+  vehicle_id: number
+  transport_personnel_id: number
+  responsible_user_id: number | null
+  scheduled_pickup_at: string
+  pickup_window_start: string | null
+  pickup_window_end: string | null
+  priority: string
+  estimated_weight_kg: number | string | null
+  estimated_volume_m3: number | string | null
+  planned_distance_km: number | string | null
+  planned_duration_minutes: number | null
+  requires_special_handling: boolean
+  observations: string | null
+  version_number: number
+  parent_schedule_id: number | null
+  is_active: boolean
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+  organization?: { id: number; legal_name: string }
+  waste_service_request?: { id: number; request_code: string }
+  transport_status?: AdminTransportStatus
+  vehicle?: { id: number; plate_number: string }
+  source_branch?: { id: number; name: string }
+  destination_branch?: { id: number; name: string }
+}
+
+// Ítem de la programación (`transport_schedule_items`) -- ver migración
+// `create_transport_schedule_items_table` (esquema-bd).
+export type AdminTransportScheduleItem = {
+  id: number
+  uuid: string
+  transport_schedule_id: number
+  waste_service_request_item_id: number
+  waste_id: number
+  scheduled_quantity: number | string
+  measurement_unit_id: number | null
+  estimated_weight_kg: number | string | null
+  estimated_volume_m3: number | string | null
+  container_quantity: number | null
+  packaging_type: string | null
+  length_cm: number | string | null
+  width_cm: number | string | null
+  height_cm: number | string | null
+  requires_special_handling: boolean
+  observations: string | null
+  is_active: boolean
+  metadata: Record<string, unknown> | null
+  waste?: { id: number; name: string; code: string | null }
+  measurement_unit?: AdminMeasurementUnit | null
+}
+
+// GET /api/admin/transport-schedules/{id} -- ver
+// `TransportScheduleController::show()`. A diferencia de la fila de
+// index(), TODAS las relaciones vienen SIEMPRE eager-cargadas.
+// `transport_personnel.person` es la relación 1:1 real (ver docblock de
+// `TransportPersonnel`) -- se tipa con el subconjunto mínimo de columnas de
+// `Person` que la UI necesita, sin asumir un accessor `full_name` (Person no
+// lo expone como atributo propio en esta relación, a diferencia de
+// `AdminPersonInfo`).
+export type AdminTransportScheduleDetail = Omit<
+  AdminTransportSchedule,
+  'organization' | 'waste_service_request' | 'transport_status' | 'vehicle' | 'source_branch' | 'destination_branch'
+> & {
+  organization: { id: number; legal_name: string }
+  waste_service_request: { id: number; request_code: string; organization_id: number }
+  transport_status: AdminTransportStatus
+  source_branch: { id: number; name: string }
+  destination_branch: { id: number; name: string }
+  vehicle: AdminVehicle
+  transport_personnel: {
+    id: number
+    license_number: string
+    license_category: string | null
+    has_hazmat_permit: boolean
+    person: { id: number; first_name: string; last_name: string; document_number?: string }
+  }
+  responsible_user: { id: number; username: string } | null
+  items: AdminTransportScheduleItem[]
+  route_stop: { id: number; stop_sequence: number; transport_route: { id: number; route_code: string } } | null
+}
+
+export type TransportScheduleItemPayload = {
+  waste_service_request_item_id: number
+  scheduled_quantity: number
+  measurement_unit_id?: number
+  estimated_weight_kg?: number
+  estimated_volume_m3?: number
+  container_quantity?: number
+  packaging_type?: string
+  length_cm?: number
+  width_cm?: number
+  height_cm?: number
+  requires_special_handling?: boolean
+  observations?: string
+  metadata?: Record<string, unknown>
+}
+
+// POST /api/admin/transport-schedules -- ver
+// `TransportScheduleController::store()`/`headerValidationRules()`.
+// `vehicle_id`/`transport_personnel_id` son OBLIGATORIOS desde la creación
+// (D-PRG-03) -- a diferencia de `CreateServiceRequestPayload`, aquí NO existe
+// un Borrador de "solo cabecera sin recursos". `organization_id` sigue el
+// mismo criterio que `CreateVehiclePayload`: solo se manda si el actor es
+// platform staff (REQUERIDO en ese caso), cualquier otro actor lo IGNORA
+// server-side.
+export type CreateTransportSchedulePayload = {
+  organization_id?: number
+  waste_service_request_id: number
+  vehicle_id: number
+  transport_personnel_id: number
+  source_branch_id: number
+  destination_branch_id: number
+  scheduled_pickup_at: string
+  pickup_window_start?: string
+  pickup_window_end?: string
+  priority?: string
+  estimated_weight_kg?: number
+  estimated_volume_m3?: number
+  planned_distance_km?: number
+  planned_duration_minutes?: number
+  requires_special_handling?: boolean
+  observations?: string
+  responsible_user_id?: number
+  metadata?: Record<string, unknown>
+  items: TransportScheduleItemPayload[]
+}
+
+// PUT /api/admin/transport-schedules/{id} -- ver
+// `TransportScheduleController::update()`. Editable SOLO mientras
+// `transport_status.code` sea `BOR`/`PEND` (D-PRG-11, el backend responde
+// 422 clave "transport_status" en cualquier otro estado) -- sin `items`
+// (sync de ítems fuera de alcance, mismo AVISO que
+// `UpdateServiceRequestPayload`) ni `waste_service_request_id` (inmutable
+// tras crear).
+export type UpdateTransportSchedulePayload = Partial<
+  Omit<CreateTransportSchedulePayload, 'organization_id' | 'waste_service_request_id' | 'items'>
+>
+
+// POST /api/admin/transport-schedules/{id}/route -- ver
+// `TransportScheduleController::assignToRoute()`. Ver
+// `TransportRouteQuickAssign.tsx`/`TransportDispatchBoardScreen.tsx` para el
+// consumidor real (cierre del gap de `TransportRouteController`, 2026-07-19).
+export type AssignTransportScheduleToRoutePayload = {
+  transport_route_id: number
+  stop_sequence?: number
+}
+
+// ---- Conductores (/api/admin/transport-personnel) -------------------------
+// Cierre del GAP DE CONTRATO señalado en el lote anterior (Módulo
+// Programación Logística, Fase 2a, 2026-07-19) -- ver docblock completo de
+// `TransportPersonnelController`/`TransportPersonnelPolicy`. Acceso DUAL,
+// mismo patrón EXACTO que `AdminVehicle`: platform staff gestiona TODOS los
+// conductores de cualquier organización; un admin de tenant (o LOGÍSTICA,
+// solo lectura vía `transport_personnel.read`) gestiona solo los de su
+// propia organización.
+export type AdminTransportPersonnel = {
+  id: number
+  uuid: string
+  organization_id: number
+  person_id: number
+  license_number: string | null
+  license_category: string | null
+  license_expiration_date: string | null
+  has_hazmat_permit: boolean
+  is_active: boolean
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+  organization?: { id: number; legal_name: string }
+  person?: { id: number; full_name: string; document_number: string }
+}
+
+// GET /api/admin/transport-personnel/{id} -- ver
+// `TransportPersonnelController::show()`. A diferencia de la fila de
+// index(), `person` viene SIEMPRE eager-cargada COMPLETA (sin allowlist de
+// columnas) y se agregan `created_by`/`updated_by` ({id, username}).
+export type AdminTransportPersonnelDetail = Omit<AdminTransportPersonnel, 'organization' | 'person'> & {
+  organization: { id: number; legal_name: string }
+  person: { id: number; first_name: string; last_name: string; full_name: string; document_number: string; email: string | null; phone: string | null }
+  created_by: AdminActorRef | null
+  updated_by: AdminActorRef | null
+}
+
+// POST /api/admin/transport-personnel -- ver
+// `TransportPersonnelController::store()`/`validationRules()`. `person_id`
+// debe pertenecer a la MISMA organización que registra al conductor
+// (`people.organization_id`, columna DIRECTA -- distinta del pivote N:N
+// `organization_contacts` que usa `ContactSearchResult`/`searchContacts()`,
+// ver AVISO en `TransportPersonnelQuickSelect`/formulario de creación).
+// `organization_id` solo se manda si el actor es platform staff (REQUERIDO
+// en ese caso), mismo criterio que `CreateVehiclePayload`. `is_active`
+// NUNCA viaja aquí -- el backend lo fuerza siempre a `true` en creación.
+export type CreateTransportPersonnelPayload = {
+  organization_id?: number
+  person_id: number
+  license_number?: string
+  license_category?: string
+  license_expiration_date?: string
+  has_hazmat_permit?: boolean
+  metadata?: Record<string, unknown>
+}
+
+// PUT /api/admin/transport-personnel/{id} -- mismos campos que
+// `CreateTransportPersonnelPayload` MENOS `organization_id`/`person_id`
+// (inmutables tras crear, el backend los ignora si vienen en el payload).
+// `is_active` SÍ es editable aquí (a diferencia de `Vehicle`, que lo separa
+// en `activate()`/`deactivate()` -- `transport_personnel` no tiene ese par
+// de endpoints, ver docblock del controller).
+export type UpdateTransportPersonnelPayload = Partial<
+  Omit<CreateTransportPersonnelPayload, 'organization_id' | 'person_id'>
+> & {
+  is_active?: boolean
+}
+
+// ---- Rutas de Transporte (/api/admin/transport-routes) --------------------
+// Cierre del GAP DE CONTRATO señalado en el lote anterior (CU-059
+// "Agrupar por Zona/Ruta", 2026-07-19) -- ver docblock completo de
+// `TransportRouteController`/`TransportRoutePolicy`. CRUD MÍNIMO a propósito
+// (decisión de alcance del backend): solo index/show/store, SIN update()/
+// cancel() -- `transport_routes` es hoy un contenedor simple sin workflow
+// propio, editar/archivar una ruta queda diferido a un lote futuro.
+export type AdminTransportRoute = {
+  id: number
+  uuid: string
+  organization_id: number
+  route_code: string
+  name: string
+  route_date: string | null
+  observations: string | null
+  is_active: boolean
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+  stops_count?: number
+  organization?: { id: number; legal_name: string }
+}
+
+export type AdminTransportRouteStop = {
+  id: number
+  uuid: string
+  transport_route_id: number
+  transport_schedule_id: number
+  stop_sequence: number
+  observations: string | null
+  transport_schedule?: { id: number; schedule_number: string; organization_id: number }
+}
+
+// GET /api/admin/transport-routes/{id} -- ver
+// `TransportRouteController::show()`. `stops` viene SIEMPRE eager-cargada
+// con `transportSchedule:id,schedule_number,organization_id` anidado -- es
+// la ÚNICA forma de saber qué `transport_schedules` ya están agrupados en
+// esta ruta (no existe un conteo/lista separada).
+export type AdminTransportRouteDetail = Omit<AdminTransportRoute, 'organization'> & {
+  organization: { id: number; legal_name: string }
+  stops: AdminTransportRouteStop[]
+}
+
+// POST /api/admin/transport-routes -- ver
+// `TransportRouteController::store()`. `route_code` se genera SIEMPRE
+// server-side (`RUTA-{org}-{random8}`), nunca se acepta del cliente --
+// mismo criterio que `schedule_number` de `CreateTransportSchedulePayload`.
+export type CreateTransportRoutePayload = {
+  organization_id?: number
+  name: string
+  route_date?: string
+  observations?: string
+  metadata?: Record<string, unknown>
+}

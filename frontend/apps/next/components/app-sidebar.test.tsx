@@ -171,6 +171,34 @@ describe('AppSidebar -- gating de "Residuos" por permisos', () => {
 
     expect(screen.getByText('Solicitudes de Servicio')).toBeInTheDocument()
   })
+
+  // Programación de Recolección (Módulo Programación Logística, Fase 2a) --
+  // mismo mecanismo de gating individual que "Solicitudes de Servicio".
+  test('shows "Programación de Recolección" only when the user has transport_schedules.read', () => {
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['waste_streams.read'] }
+    renderSidebar()
+
+    expect(screen.queryByText('Programación de Recolección')).not.toBeInTheDocument()
+
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['transport_schedules.read'] }
+    renderSidebar()
+
+    expect(screen.getByText('Programación de Recolección')).toBeInTheDocument()
+  })
+
+  // "Rutas de Transporte" (dispatch board, CU-059) -- permiso DISTINTO
+  // (`transport_routes.read`) de "Programación de Recolección".
+  test('shows "Rutas de Transporte" only when the user has transport_routes.read', () => {
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['transport_schedules.read'] }
+    renderSidebar()
+
+    expect(screen.queryByText('Rutas de Transporte')).not.toBeInTheDocument()
+
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['transport_routes.read'] }
+    renderSidebar()
+
+    expect(screen.getByText('Rutas de Transporte')).toBeInTheDocument()
+  })
 })
 
 // Batch 1/3 de Catálogos Maestros (geografía en cascada + Tipos de Sede) --
