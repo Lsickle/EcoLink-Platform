@@ -603,6 +603,20 @@ class OrganizationController extends Controller
      * actor (si no es platform staff) -- evita que un admin de tenant
      * descubra PII de personas sin ninguna relación con su organización. Sin
      * acotar si es platform staff.
+     *
+     * Incluye `position_title`, el cargo (texto libre) que la persona tiene
+     * en su vínculo `organization_contacts` -- necesario para que
+     * consumidores como el alta de Conductores (Programación/Dispatch)
+     * puedan distinguir el cargo de cada contacto. Una misma `Person` puede
+     * tener varios vínculos (N:N, distintas organizaciones/sedes, cada uno
+     * con su propio `position_title`), así que el valor mostrado es
+     * SIEMPRE el del vínculo específico resuelto así:
+     * - Actor NO platform staff: el vínculo con la organización del actor
+     *   (única organización visible para él, ya acotada arriba).
+     * - Platform staff (sin organización de referencia): el vínculo activo
+     *   más reciente entre todas las organizaciones de la persona
+     *   (`is_active` desc, `is_primary` desc, `created_at` desc) -- criterio
+     *   razonable sin sobre-ingeniería, ya soportado por el modelo.
      */
     public function searchContacts(Request $request)
     {
@@ -614,8 +628,21 @@ class OrganizationController extends Controller
             'per_page' => ['nullable', 'integer', 'min:1', 'max:20'],
         ]);
 
+        $positionTitleSubquery = OrganizationContact::query()
+            ->select('position_title')
+            ->whereColumn('organization_contacts.contact_id', 'people.id')
+            ->when(
+                ! $actor->isPlatformStaff(),
+                fn ($query) => $query->where('organization_id', $actor->tenant_organization_id),
+            )
+            ->orderByDesc('is_active')
+            ->orderByDesc('is_primary')
+            ->orderByDesc('created_at')
+            ->limit(1);
+
         $people = Person::query()
             ->select(['id', 'first_name', 'last_name', 'document_number', 'email'])
+            ->addSelect(['position_title' => $positionTitleSubquery])
             ->when(
                 ! $actor->isPlatformStaff(),
                 fn ($query) => $query->whereHas(

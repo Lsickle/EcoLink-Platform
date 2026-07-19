@@ -358,7 +358,28 @@ test('searchContacts NO acota resultados cuando el actor es platform staff', fun
     expect(collect($response->json('data'))->pluck('id'))->toContain($person->id);
 
     $row = collect($response->json('data'))->firstWhere('id', $person->id);
-    expect(array_keys($row))->toBe(['id', 'first_name', 'last_name', 'document_number', 'email']);
+    expect(array_keys($row))->toBe(['id', 'first_name', 'last_name', 'document_number', 'email', 'position_title']);
+});
+
+test('searchContacts incluye el position_title DEL VÍNCULO con la organización del actor cuando la misma persona tiene cargos distintos en varias organizaciones', function () {
+    $orgA = Organization::factory()->create();
+    $orgB = Organization::factory()->create();
+    $person = Person::factory()->create(['first_name' => 'MultiCargo', 'last_name' => 'Persona']);
+
+    OrganizationContact::factory()->create([
+        'organization_id' => $orgA->id, 'contact_id' => $person->id, 'branch_id' => null, 'position_title' => 'Conductor',
+    ]);
+    OrganizationContact::factory()->create([
+        'organization_id' => $orgB->id, 'contact_id' => $person->id, 'branch_id' => null, 'position_title' => 'Gerente Ambiental',
+    ]);
+
+    $actor = contactActor(['contacts.read'], $orgA->id);
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/organizations/contacts/search?q=MultiCargo')->assertOk();
+
+    $row = collect($response->json('data'))->firstWhere('id', $person->id);
+    expect($row)->not->toBeNull()
+        ->and($row['position_title'])->toBe('Conductor');
 });
 
 // ---- Índice único (Postgres, índices parciales) ----

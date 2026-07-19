@@ -149,7 +149,9 @@ describe('OrganizationalAreaDetailScreen', () => {
 
   test('replaces the responsible person via ContactSearchSelect and saves the new id', async () => {
     searchContactsMock.mockResolvedValueOnce({
-      data: [{ id: 9, first_name: 'Ana', last_name: 'Pérez', document_number: 'CC123', email: null }],
+      data: [
+        { id: 9, first_name: 'Ana', last_name: 'Pérez', document_number: 'CC123', email: null, position_title: 'Conductor' },
+      ],
       current_page: 1,
       last_page: 1,
       total: 1,

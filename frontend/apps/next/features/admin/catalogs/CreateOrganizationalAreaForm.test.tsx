@@ -187,7 +187,16 @@ describe('CreateOrganizationalAreaForm', () => {
 
   test('selecting a Responsable via search includes responsible_person_id in the payload', async () => {
     searchContactsMock.mockResolvedValue({
-      data: [{ id: 42, first_name: 'Juan', last_name: 'Pérez', document_number: '123456', email: 'juan@ecolink.test' }],
+      data: [
+        {
+          id: 42,
+          first_name: 'Juan',
+          last_name: 'Pérez',
+          document_number: '123456',
+          email: 'juan@ecolink.test',
+          position_title: null,
+        },
+      ],
       current_page: 1,
       last_page: 1,
       total: 1,

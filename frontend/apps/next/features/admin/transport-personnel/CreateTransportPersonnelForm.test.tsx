@@ -71,7 +71,16 @@ describe('CreateTransportPersonnelForm', () => {
 
   test('selecting a contact via search and submitting sends person_id and license fields', async () => {
     searchContactsMock.mockResolvedValue({
-      data: [{ id: 42, first_name: 'Juan', last_name: 'Pérez', document_number: '123456', email: 'juan@ecolink.test' }],
+      data: [
+        {
+          id: 42,
+          first_name: 'Juan',
+          last_name: 'Pérez',
+          document_number: '123456',
+          email: 'juan@ecolink.test',
+          position_title: 'Conductor',
+        },
+      ],
       current_page: 1,
       last_page: 1,
       total: 1,
@@ -101,7 +110,9 @@ describe('CreateTransportPersonnelForm', () => {
 
   test('shows the backend validation error when the person is already registered as a driver', async () => {
     searchContactsMock.mockResolvedValue({
-      data: [{ id: 42, first_name: 'Juan', last_name: 'Pérez', document_number: '123456', email: null }],
+      data: [
+        { id: 42, first_name: 'Juan', last_name: 'Pérez', document_number: '123456', email: null, position_title: null },
+      ],
       current_page: 1,
       last_page: 1,
       total: 1,

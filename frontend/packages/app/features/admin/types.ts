@@ -1047,6 +1047,12 @@ export type ContactSearchResult = {
   last_name: string
   document_number: string
   email: string | null
+  // Cargo del contacto (texto libre, puede ser `null`) -- se muestra en el
+  // combo de `ContactSearchSelect` para que el usuario pueda distinguir,
+  // p.ej., quién tiene el cargo "Conductor" al registrar Personal de
+  // Transporte (ver CreateTransportPersonnelForm.tsx). Gap de UX detectado
+  // 2026-07-19, no una feature nueva de alcance abierto.
+  position_title: string | null
 }
 
 // GET /api/admin/organizations/search?q=...&exclude_id=... -- selector

@@ -91,7 +91,10 @@ export function ContactSearchSelect({
                     }}
                   >
                     {result.first_name} {result.last_name}{' '}
-                    <span className="text-muted-foreground">({result.document_number})</span>
+                    <span className="text-muted-foreground">({result.document_number})</span>{' '}
+                    <span className="text-muted-foreground">
+                      — {result.position_title ?? 'Sin cargo registrado'}
+                    </span>
                   </button>
                 </li>
               ))}
