@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\Admin\PreapprovedWasteController;
 use App\Http\Controllers\Api\Admin\RespelStatusController;
 use App\Http\Controllers\Api\Admin\RoleController;
 use App\Http\Controllers\Api\Admin\ServiceRequestController;
+use App\Http\Controllers\Api\Admin\TransportScheduleController;
 use App\Http\Controllers\Api\Admin\TreatmentController;
 use App\Http\Controllers\Api\Admin\UnCodeController;
 use App\Http\Controllers\Api\Admin\UserManagementController;
@@ -470,6 +471,20 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         // Catálogo de solo lectura de motivos de cancelación (D-S09) -- ver
         // docblock de CancellationReasonController.
         Route::get('cancellation-reasons', [CancellationReasonController::class, 'index'])->name('cancellation-reasons.index');
+
+        // Módulo Programación Logística, Fase 2a (D-PRG-01 a D-PRG-14) --
+        // CRUD + ciclo de vida temprano (BOR->PEND->PROG->CONF, CANC) +
+        // agrupación simple en ruta. Las transiciones CONF->EJEC->FIN
+        // pertenecen al futuro módulo de Transporte/Ejecución (CU-035-037),
+        // sin endpoint todavía -- ver docblock de TransportScheduleController.
+        Route::get('transport-schedules', [TransportScheduleController::class, 'index'])->name('transport-schedules.index');
+        Route::post('transport-schedules', [TransportScheduleController::class, 'store'])->name('transport-schedules.store');
+        Route::get('transport-schedules/{schedule}', [TransportScheduleController::class, 'show'])->name('transport-schedules.show');
+        Route::put('transport-schedules/{schedule}', [TransportScheduleController::class, 'update'])->name('transport-schedules.update');
+        Route::post('transport-schedules/{schedule}/submit', [TransportScheduleController::class, 'submit'])->name('transport-schedules.submit');
+        Route::post('transport-schedules/{schedule}/confirm', [TransportScheduleController::class, 'confirm'])->name('transport-schedules.confirm');
+        Route::post('transport-schedules/{schedule}/cancel', [TransportScheduleController::class, 'cancel'])->name('transport-schedules.cancel');
+        Route::post('transport-schedules/{schedule}/route', [TransportScheduleController::class, 'assignToRoute'])->name('transport-schedules.assign-route');
 
         // Subsistema TRANSVERSAL de archivos (esquema-bd: `files`). La
         // autorización real vive SIEMPRE en la entidad dueña (Policy

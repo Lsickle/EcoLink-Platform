@@ -52,6 +52,7 @@ class RolePermissionSeeder extends Seeder
         'preapproved_wastes.read', 'preapproved_wastes.manage',
         'workflows.manage',
         'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate',
+        'transport_schedules.read', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel',
     ];
 
     /**
@@ -59,9 +60,21 @@ class RolePermissionSeeder extends Seeder
      * decisión ya confirmada por el usuario, no un descuido: "los
      * coordinadores de logística también pueden ver los vehículos de su
      * organización" (ver, no crear/editar).
+     *
+     * `transport_schedules.*` (revisión de seguridad Programación/Dispatch,
+     * 2026-07-19, hallazgo Alto CONFIRMADO por el usuario): sin estos 4
+     * permisos, un usuario con SOLO el rol de sistema `LOGÍSTICA` (sin
+     * `ADMINISTRADOR`) quedaba bloqueado en TODO el ciclo de
+     * `TransportScheduleController` -- `TransportSchedulePolicy` exige
+     * `hasPermission('transport_schedules.*')` en cada método, y
+     * `TransportScheduleWorkflowSeeder` YA autoriza las transiciones
+     * humanas (`submit()`/`confirm()`/`cancel()`) contra el rol `LOGÍSTICA`
+     * -- el rol tenía la autorización de WORKFLOW pero no el permiso base
+     * de la Policy, un bloqueo funcional real, no solo un hallazgo teórico.
      */
     private const LOGISTICA_PERMISSION_CODES = [
         'vehicles.read',
+        'transport_schedules.read', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel',
     ];
 
     public function run(): void

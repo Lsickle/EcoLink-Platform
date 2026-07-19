@@ -62,8 +62,10 @@ use Database\Seeders\RoleSeeder;
 // crece a 85 permisos con el permiso ÚNICO `workflows.manage`. Módulo
 // Solicitudes de Servicio, Fase 1b (2026-07-19, mismo GAP): crece a 90
 // permisos con `service_requests.read`/`.create`/`.update`/`.cancel`/
-// `.evaluate`.
-// ADMINISTRADOR queda con los 90 permisos del catálogo completo.
+// `.evaluate`. Módulo Programación Logística, Fase 2a (2026-07-19, mismo
+// GAP): crece a 94 permisos con `transport_schedules.read`/`.create`/
+// `.update`/`.cancel`.
+// ADMINISTRADOR queda con los 94 permisos del catálogo completo.
 
 beforeEach(function () {
     $this->seed(PermissionSeeder::class);
@@ -71,8 +73,8 @@ beforeEach(function () {
     $this->seed(RolePermissionSeeder::class);
 });
 
-test('siembra exactamente 90 permisos con los códigos exactos del catálogo', function () {
-    expect(Permission::query()->count())->toBe(90);
+test('siembra exactamente 94 permisos con los códigos exactos del catálogo', function () {
+    expect(Permission::query()->count())->toBe(94);
 
     $expectedCodes = [
         'users.create', 'users.read', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.reset-password',
@@ -105,6 +107,7 @@ test('siembra exactamente 90 permisos con los códigos exactos del catálogo', f
         'preapproved_wastes.read', 'preapproved_wastes.manage',
         'workflows.manage',
         'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate',
+        'transport_schedules.read', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel',
     ];
 
     expect(Permission::query()->pluck('code')->sort()->values()->all())
@@ -171,17 +174,30 @@ test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, A
         'preapproved_wastes.read', 'preapproved_wastes.manage',
         'workflows.manage',
         'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate',
+        'transport_schedules.read', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel',
     ])->sort()->values()->all();
 
     expect($codes)->toBe($expected);
 });
 
-test('LOGÍSTICA queda SOLO con vehicles.read (solo lectura sobre vehículos)', function () {
+/**
+ * Hallazgo Alto (revisión de seguridad Programación/Dispatch, 2026-07-19,
+ * decisión confirmada por el usuario): `transport_schedules.*` se agrega a
+ * LOGÍSTICA -- sin esto, un usuario con SOLO este rol quedaba bloqueado en
+ * TODO el ciclo de `TransportScheduleController`, pese a que
+ * `TransportScheduleWorkflowSeeder` YA lo autorizaba como actor de workflow
+ * (ver `TransportScheduleControllerTest`, "un actor con SOLO el rol
+ * LOGÍSTICA real...").
+ */
+test('LOGÍSTICA queda con vehicles.read (solo lectura) + transport_schedules.* completo', function () {
     $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
 
     $codes = $logistica->permissions()->pluck('code')->sort()->values()->all();
 
-    expect($codes)->toBe(['vehicles.read']);
+    expect($codes)->toBe(collect([
+        'vehicles.read',
+        'transport_schedules.read', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel',
+    ])->sort()->values()->all());
 });
 
 test('ADMINISTRADOR queda con los permisos de auditoría (audit.read/audit.export) -- confirmado explícitamente por el usuario 2026-07-14', function () {
@@ -205,7 +221,7 @@ test('marca is_critical=true solo en los 5 permisos confirmados por el usuario (
     expect(Permission::query()->where('is_critical', true)->pluck('code')->sort()->values()->all())
         ->toBe(collect($expectedCritical)->sort()->values()->all());
 
-    expect(Permission::query()->where('is_critical', false)->count())->toBe(90 - count($expectedCritical));
+    expect(Permission::query()->where('is_critical', false)->count())->toBe(94 - count($expectedCritical));
 });
 
 test('los seeders son idempotentes (correr dos veces no duplica filas)', function () {
@@ -213,8 +229,8 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
     $this->seed(RoleSeeder::class);
     $this->seed(RolePermissionSeeder::class);
 
-    expect(Permission::query()->count())->toBe(90)
+    expect(Permission::query()->count())->toBe(94)
         ->and(Role::query()->count())->toBe(2)
-        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(90)
-        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(1);
+        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(94)
+        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(5);
 });

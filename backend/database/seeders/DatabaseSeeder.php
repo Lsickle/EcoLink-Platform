@@ -142,5 +142,16 @@ class DatabaseSeeder extends Seeder
         $this->call(CancellationReasonSeeder::class);
         $this->call(CarteraStatusSeeder::class);
         $this->call(ServiceRequestWorkflowSeeder::class);
+
+        // Módulo Programación Logística, Fase 2a (D-PRG-01 a D-PRG-14):
+        // catálogo BASE "transport_statuses" (7 filas, bajo la organización
+        // PLATAFORMA -- debe correr DESPUÉS de PlatformOrganizationSeeder,
+        // ya sembrado arriba) + workflow BASE "Programación de Transporte"
+        // (entity_type=SCHEDULING) -- debe correr DESPUÉS de RoleSeeder
+        // (rol LOGÍSTICA/ADMINISTRADOR, ya sembrados arriba). Sin datos de
+        // demo de transport_schedules todavía -- esta fase es solo esquema +
+        // catálogo + workflow, sin controller/policies (próxima tarea).
+        $this->call(TransportStatusSeeder::class);
+        $this->call(TransportScheduleWorkflowSeeder::class);
     }
 }
