@@ -2390,3 +2390,251 @@ export type UpdateWorkflowTransitionPayload = {
   requires_approval?: boolean
   roles?: CreateWorkflowTransitionRolePayload[]
 }
+
+// ---- Solicitudes de Servicio (/api/admin/service-requests) ---------------
+// Fase 1b (D-S01/D-S02/D-S04/D-S06/D-S09/D-S12/D-S25/D-S27, backend cerrado
+// -- 1111 tests Pest, revisión de seguridad -- ver docblock completo de
+// `ServiceRequestController`/`ServiceRequestPolicy`). Acceso NO simétrico
+// (distinto de todo lo demás en este archivo): el Generador dueño
+// (`organization_id`) ve/edita/cancela su propia solicitud completa; un
+// Gestor con AL MENOS UN ítem asignado (vía
+// `waste_treatment_approval.organization_id`) puede VER la solicitud
+// completa pero solo EVALUAR (aprobar/rechazar) sus propios ítems -- nunca
+// los de otro Gestor en la misma solicitud.
+//
+// `priority`/`request_source` -- AVISO: columnas VARCHAR libres
+// (`priority varchar(20)`, `request_source varchar(30)`), SIN catálogo FK
+// ni whitelist server-side (`ServiceRequestController::headerValidationRules()`
+// solo valida `string|max:N`). Los 4 valores de prioridad (LOW/MEDIUM/HIGH/
+// CRITICAL) y el default de origen (PORTAL) se tomaron LITERALMENTE del
+// Figma "Solicitud de Servicio" (fileKey pX6vqXxnJ66YSIYpE7v9pV, node
+// 635:5846 en adelante) -- no están confirmados como catálogo canónico en
+// Notion/esquema-bd, señalado como flag explícito en el resumen del lote.
+export type ServiceRequestPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+
+export type AdminServiceStatus = {
+  id: number
+  code: string
+  name: string
+  sequence_order: number
+  is_initial_status: boolean
+  is_terminal_status: boolean
+  is_system_status: boolean
+  blocks_editing: boolean
+}
+
+// `service_item_statuses` (D-S10) -- catálogo SEPARADO de `service_statuses`,
+// viabilidad de recolección de UN ítem individual.
+export type AdminServiceItemStatus = {
+  id: number
+  code: string
+  name: string
+}
+
+// GET /api/admin/cancellation-reasons -- ver
+// `CancellationReasonController::index()`. Catálogo de solo lectura (D-S09),
+// gateado por `service_requests.read` (NO `isPlatformStaff()`, ver docblock
+// del controller) -- accesible a CUALQUIER actor ya autorizado a operar
+// sobre Solicitudes de Servicio (p. ej. el Generador dueño que va a cancelar
+// su propia solicitud), no solo platform staff. Cierre del GAP DE CONTRATO
+// señalado en el resumen del lote anterior de wizard/detalle de Solicitudes
+// de Servicio (2026-07-19) -- ver `fetchCancellationReasons()` y el selector
+// ya habilitado en `ServiceRequestDetailScreen.tsx`. `is_other=true` exige
+// `cancellation_details` no vacío (RN-SOL-009, ver
+// `ServiceRequestController::cancel()`) -- la UI lo refleja como campo
+// obligatorio solo cuando el motivo seleccionado tiene esta bandera.
+export type AdminCancellationReason = {
+  id: number
+  code: string
+  name: string
+  is_other: boolean
+  is_system: boolean
+  is_active: boolean
+}
+
+// Ítem COMPLETO -- lo que ve el Generador dueño/platform staff siempre, y
+// lo que ve un Gestor SOLO para sus propios ítems (`isEvaluableBy()`). Los
+// snapshots (`waste_name_snapshot`/`waste_code_snapshot`/`treatment_snapshot`)
+// son la copia congelada al crear el ítem -- las relaciones `waste`/
+// `waste_treatment_approval` reflejan el estado ACTUAL (pueden divergir del
+// snapshot si el residuo o la aprobación cambiaron después).
+export type AdminServiceRequestItem = {
+  id: number
+  uuid: string
+  service_request_id: number
+  item_sequence: number
+  waste_id: number
+  waste_treatment_approval_id: number | null
+  waste_name_snapshot: string
+  waste_code_snapshot: string | null
+  treatment_snapshot: string | null
+  estimated_quantity: number | string | null
+  actual_quantity: number | string | null
+  estimated_weight: number | string | null
+  actual_weight: number | string | null
+  measurement_unit_id: number | null
+  packaging_type: string | null
+  physical_state_id: number | null
+  is_stackable: boolean
+  requires_forklift: boolean
+  requires_isolation: boolean
+  height: number | string | null
+  width: number | string | null
+  length: number | string | null
+  calculated_volume: number | string | null
+  item_status_id: number
+  observations: string | null
+  is_active: boolean
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+  waste?: { id: number; name: string; code: string | null; organization_id: number }
+  waste_treatment_approval?: {
+    id: number
+    organization: { id: number; legal_name: string }
+    branch_treatment: { id: number; treatment: { id: number; name: string } | null } | null
+  } | null
+  item_status?: AdminServiceItemStatus
+  measurement_unit?: AdminMeasurementUnit | null
+  physical_state?: AdminPhysicalState | null
+}
+
+// Hallazgo Media (especialista-seguridad, revisión de
+// `ServiceRequestController::show()`, 2026-07-19): un Gestor ajeno a un
+// ítem lo ve REDUCIDO a esto (existencia sin identidad/cantidad/tratamiento)
+// -- distinguir de `AdminServiceRequestItem` con `'waste_id' in item`
+// (ver `isFullServiceRequestItem()` en ServiceRequestDetailScreen.tsx).
+export type AdminServiceRequestItemReduced = {
+  id: number
+  item_sequence: number
+}
+
+export type AdminServiceRequest = {
+  id: number
+  uuid: string
+  organization_id: number
+  branch_id: number
+  request_code: string
+  service_status_id: number
+  requested_at: string
+  requested_collection_date: string | null
+  estimated_ready_date: string | null
+  scheduled_collection_date: string | null
+  estimated_total_weight: number | string | null
+  estimated_total_volume: number | string | null
+  measurement_unit_id: number | null
+  packaging_type: string | null
+  requires_lift_platform: boolean
+  requires_audit: boolean
+  requires_photo_record: boolean
+  requires_container_return: boolean
+  estimated_height: number | string | null
+  estimated_width: number | string | null
+  estimated_length: number | string | null
+  observations: string | null
+  request_source: string
+  priority: string
+  requested_by: number | null
+  cancellation_reason_id: number | null
+  cancellation_details: string | null
+  cancelled_by: number | null
+  cancelled_at: string | null
+  is_active: boolean
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+  organization?: { id: number; legal_name: string }
+  branch?: { id: number; name: string }
+  service_status?: AdminServiceStatus
+}
+
+// GET /api/admin/service-requests/{id} -- ver docblock de
+// `ServiceRequestController::show()`. `items` es POLIMÓRFICO según quién
+// pregunta (ver `AdminServiceRequestItem`/`AdminServiceRequestItemReduced`
+// arriba) -- `other_items_count` SOLO viene presente cuando la respuesta
+// está reducida (un Gestor con ítems ajenos en la misma solicitud), nunca
+// para el Generador dueño ni platform staff.
+export type AdminServiceRequestDetail = Omit<AdminServiceRequest, 'organization' | 'branch' | 'service_status'> & {
+  organization: { id: number; legal_name: string }
+  branch: { id: number; name: string }
+  service_status: AdminServiceStatus
+  cancellation_reason: AdminCancellationReason | null
+  measurement_unit: AdminMeasurementUnit | null
+  requested_by_user?: { id: number; username: string } | null
+  items: Array<AdminServiceRequestItem | AdminServiceRequestItemReduced>
+  other_items_count?: number
+}
+
+export type ServiceRequestItemPayload = {
+  waste_id: number
+  waste_treatment_approval_id?: number
+  estimated_quantity?: number
+  measurement_unit_id?: number
+  packaging_type?: string
+  physical_state_id?: number
+  is_stackable?: boolean
+  requires_forklift?: boolean
+  requires_isolation?: boolean
+  height?: number
+  width?: number
+  length?: number
+  calculated_volume?: number
+  observations?: string
+  metadata?: Record<string, unknown>
+}
+
+// POST /api/admin/service-requests -- ver `ServiceRequestController::store()`.
+// `organization_id` SOLO se manda si el actor es platform staff (REQUERIDO
+// en ese caso), mismo criterio que `CreateWastePayload`. `items` es
+// OBLIGATORIO desde la creación (`required|array|min:1` en el backend) --
+// a diferencia del wizard de Residuos, NO existe un Borrador de cabecera
+// sin ítems: `ServiceRequestWizard.tsx` por eso solo llama a este endpoint
+// al final del asistente (Paso 6), nunca progresivamente por paso.
+export type CreateServiceRequestPayload = {
+  organization_id?: number
+  branch_id: number
+  requested_collection_date?: string
+  estimated_ready_date?: string
+  estimated_total_weight?: number
+  estimated_total_volume?: number
+  measurement_unit_id?: number
+  packaging_type?: string
+  requires_lift_platform?: boolean
+  requires_audit?: boolean
+  requires_photo_record?: boolean
+  requires_container_return?: boolean
+  estimated_height?: number
+  estimated_width?: number
+  estimated_length?: number
+  observations?: string
+  request_source?: string
+  priority?: string
+  metadata?: Record<string, unknown>
+  items: ServiceRequestItemPayload[]
+}
+
+// PUT /api/admin/service-requests/{id} -- ver `ServiceRequestController::update()`.
+// SOLO campos de cabecera, y SOLO mientras `service_status.code === 'DRAFT'`
+// -- el backend NO expone sync de ítems aquí (AVISO ya documentado en el
+// docblock del controller), `items` no existe en este payload a propósito.
+export type UpdateServiceRequestPayload = Partial<Omit<CreateServiceRequestPayload, 'organization_id' | 'items'>>
+
+// POST /api/admin/service-requests/{id}/cancel -- ver
+// `ServiceRequestController::cancel()`. `cancellation_reason_id` debe
+// existir en `cancellation_reasons` (activo) -- poblado desde
+// `fetchCancellationReasons({ activeOnly: true })` (gap de contrato ya
+// cerrado, 2026-07-19, ver docblock de `AdminCancellationReason`).
+export type CancelServiceRequestPayload = {
+  cancellation_reason_id: number
+  cancellation_details?: string
+}
+
+// POST .../items/{item}/approve -- `notes` opcional.
+export type ApproveServiceRequestItemPayload = {
+  notes?: string
+}
+
+// POST .../items/{item}/reject -- `notes` OBLIGATORIO (motivo del rechazo).
+export type RejectServiceRequestItemPayload = {
+  notes: string
+}

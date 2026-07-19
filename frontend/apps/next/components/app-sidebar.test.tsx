@@ -157,6 +157,20 @@ describe('AppSidebar -- gating de "Residuos" por permisos', () => {
 
     expect(screen.getByText('Residuos', { selector: 'span' })).toBeInTheDocument()
   })
+
+  // Solicitudes de Servicio (CU-014, Fase 1b) -- mismo mecanismo de gating
+  // individual que "Residuos"/"Corrientes Y/A"/"Códigos UN".
+  test('shows "Solicitudes de Servicio" only when the user has service_requests.read', () => {
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['waste_streams.read'] }
+    renderSidebar()
+
+    expect(screen.queryByText('Solicitudes de Servicio')).not.toBeInTheDocument()
+
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['service_requests.read'] }
+    renderSidebar()
+
+    expect(screen.getByText('Solicitudes de Servicio')).toBeInTheDocument()
+  })
 })
 
 // Batch 1/3 de Catálogos Maestros (geografía en cascada + Tipos de Sede) --

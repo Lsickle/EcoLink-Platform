@@ -6,6 +6,7 @@ import type {
   AdminBranchTreatmentDetail,
   AdminBranchType,
   AdminBusinessRole,
+  AdminCancellationReason,
   AdminContact,
   AdminContactDetail,
   AdminCountry,
@@ -36,6 +37,8 @@ import type {
   AdminTreatmentDetail,
   AdminUnCode,
   AdminUnCodeDetail,
+  AdminServiceRequest,
+  AdminServiceRequestDetail,
   AdminFile,
   AdminGenerationFrequency,
   AdminMeasurementUnit,
@@ -59,12 +62,15 @@ import type {
   AssignPermissionPayload,
   AssignRolePayload,
   AvailableBranchTreatment,
+  ApproveServiceRequestItemPayload,
   BranchKpis,
   BranchTreatmentKpis,
+  CancelServiceRequestPayload,
   ContactSearchResult,
   CreateBranchPayload,
   CreateBranchTreatmentPayload,
   CreateBranchTypePayload,
+  CreateServiceRequestPayload,
   CreateHazardCharacteristicPayload,
   CreateOrganizationalAreaPayload,
   CreateOrganizationContactPayload,
@@ -94,6 +100,7 @@ import type {
   PermissionMatrixByModule,
   PreapprovedTreatmentMatch,
   RejectInvitationRequestPayload,
+  RejectServiceRequestItemPayload,
   RejectTreatmentApprovalCommercialPayload,
   RejectTreatmentApprovalTechnicalPayload,
   RejectWastePayload,
@@ -113,6 +120,7 @@ import type {
   UpdatePhysicalStatePayload,
   UpdatePreapprovedWastePayload,
   UpdateRolePayload,
+  UpdateServiceRequestPayload,
   UpdateTreatmentApprovalPayload,
   UpdateTreatmentPayload,
   UpdateUnCodePayload,
@@ -1819,6 +1827,15 @@ export async function fetchWasteOperationalStatuses(
 // fetchVehicles()/fetchVehicle()/etc. (acceso DUAL, ver docblock de
 // `AdminWaste` en types.ts). `organizationId` como filtro SOLO tiene efecto
 // para platform staff, mismo criterio que `fetchVehicles()`.
+//
+// `withViableTreatment` (-> `with_viable_treatment=1`): cierre del gap de
+// contrato señalado en el lote del wizard de Solicitudes de Servicio --
+// reutiliza `Waste::scopeWithViableTreatment()` (ya existía en el modelo,
+// nunca se exponía como filtro de `index()`). ADITIVO al resto de filtros
+// (nunca reemplaza el scoping de organización de arriba). Ver
+// `ServiceRequestWizard.tsx` (Paso 2, "Residuos Disponibles Para Solicitar")
+// -- reemplaza el workaround N+1 que traía TODOS los residuos y filtraba en
+// cliente contra `fetchWasteTreatmentApprovals()` por cada uno.
 export async function fetchWastes(
   params: {
     page?: number
@@ -1829,6 +1846,7 @@ export async function fetchWastes(
     wasteCategoryId?: number | string
     status?: WasteStatus
     operationalStatusId?: number | string
+    withViableTreatment?: boolean
     sort?: string
     direction?: 'asc' | 'desc'
   } = {}
@@ -1842,6 +1860,7 @@ export async function fetchWastes(
     waste_category_id: params.wasteCategoryId,
     status: params.status,
     operational_status_id: params.operationalStatusId,
+    with_viable_treatment: params.withViableTreatment === undefined ? undefined : String(params.withViableTreatment),
     sort: params.sort,
     direction: params.direction,
   })
@@ -2313,6 +2332,116 @@ export async function destroyWorkflowTransition(
   transitionId: number | string
 ): Promise<void> {
   await apiFetch(`/api/admin/workflows/${workflowId}/transitions/${transitionId}`, { method: 'DELETE' })
+}
+
+// ---- Solicitudes de Servicio (/api/admin/service-requests) ---------------
+// Fase 1b -- ver docblock completo de tipos en types.ts. Acceso NO simétrico
+// (ver `ServiceRequestPolicy`): `organizationId` como filtro de `index()`
+// SOLO tiene efecto para platform staff, mismo criterio que
+// `fetchWastes()`/`fetchVehicles()` -- para cualquier otro actor el backend
+// devuelve la UNIÓN de "mis solicitudes como Generador" + "solicitudes donde
+// tengo al menos un ítem asignado como Gestor", sin que el cliente pueda
+// elegir cuál de las dos ver.
+export async function fetchServiceRequests(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    organizationId?: number | string
+    status?: string
+  } = {}
+): Promise<Paginated<AdminServiceRequest>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    organization_id: params.organizationId,
+    status: params.status,
+  })
+  return apiFetch(`/api/admin/service-requests${query}`)
+}
+
+// GET /api/admin/service-requests/{id} -- ver `ServiceRequestController::show()`.
+// La forma de `items` es POLIMÓRFICA según quién pregunta -- ver AVISO
+// completo en `AdminServiceRequestDetail` (types.ts).
+export async function fetchServiceRequest(id: number | string): Promise<{ service_request: AdminServiceRequestDetail }> {
+  return apiFetch(`/api/admin/service-requests/${id}`)
+}
+
+// POST /api/admin/service-requests -- `items` es OBLIGATORIO desde la
+// creación (ver AVISO en `CreateServiceRequestPayload`, types.ts) -- nunca
+// llamar esto con un array vacío, el backend responde 422.
+export async function createServiceRequest(
+  payload: CreateServiceRequestPayload
+): Promise<{ service_request: AdminServiceRequestDetail }> {
+  return apiFetch('/api/admin/service-requests', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// PUT /api/admin/service-requests/{id} -- SOLO campos de cabecera, y SOLO
+// mientras `service_status.code === 'DRAFT'` (ver
+// `ServiceRequestController::update()`, 422 clave "service_status" en
+// cualquier otro estado).
+export async function updateServiceRequest(
+  id: number | string,
+  payload: UpdateServiceRequestPayload
+): Promise<{ service_request: AdminServiceRequestDetail }> {
+  return apiFetch(`/api/admin/service-requests/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+// POST /api/admin/service-requests/{id}/submit -- DRAFT -> SUBMITTED ->
+// UNDER_REVIEW (D-S13, la segunda transición es automática en el mismo
+// request). Exige al menos un ítem y que TODOS tengan
+// `waste_treatment_approval_id`/`estimated_quantity`/`measurement_unit_id`
+// completos -- 422 con esas claves si falta alguno.
+export async function submitServiceRequest(id: number | string): Promise<{ service_request: AdminServiceRequestDetail }> {
+  return apiFetch(`/api/admin/service-requests/${id}/submit`, { method: 'POST' })
+}
+
+// POST /api/admin/service-requests/{id}/cancel -- SOLO el Generador dueño (o
+// platform staff), alcanzable desde cualquier estado no-final (RN-SOL-009).
+// `cancellation_reason_id` se puebla desde `fetchCancellationReasons()`
+// (gap de contrato ya cerrado, 2026-07-19).
+export async function cancelServiceRequest(
+  id: number | string,
+  payload: CancelServiceRequestPayload
+): Promise<{ service_request: AdminServiceRequestDetail }> {
+  return apiFetch(`/api/admin/service-requests/${id}/cancel`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// GET /api/admin/cancellation-reasons -- ver
+// `CancellationReasonController::index()`. Catálogo de solo lectura,
+// gateado por `service_requests.read` (NO `isPlatformStaff()`) -- cierre del
+// GAP DE CONTRATO señalado en el resumen del lote anterior (2026-07-19). Se
+// usa para poblar el selector "Motivo de Cancelación" de
+// `ServiceRequestDetailScreen.tsx`, siempre con `activeOnly: true` (nunca se
+// ofrece un motivo inactivo en el selector, aunque el backend no lo impida
+// por sí solo -- el filtro es responsabilidad del caller).
+export async function fetchCancellationReasons(
+  params: { activeOnly?: boolean } = {}
+): Promise<{ data: AdminCancellationReason[] }> {
+  const query = buildQuery({
+    active_only: params.activeOnly === undefined ? undefined : String(params.activeOnly),
+  })
+  return apiFetch(`/api/admin/cancellation-reasons${query}`)
+}
+
+// POST /api/admin/service-requests/items/{item}/approve -- SOLO el Gestor
+// dueño de ESE ítem específico (o platform staff), ver
+// `WasteServiceRequestItem::isEvaluableBy()`.
+export async function approveServiceRequestItem(
+  itemId: number | string,
+  payload: ApproveServiceRequestItemPayload = {}
+): Promise<{ item: AdminServiceRequestDetail['items'][number] }> {
+  return apiFetch(`/api/admin/service-requests/items/${itemId}/approve`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// POST /api/admin/service-requests/items/{item}/reject -- mismo criterio que
+// approveServiceRequestItem(), `notes` es OBLIGATORIO (motivo de rechazo).
+export async function rejectServiceRequestItem(
+  itemId: number | string,
+  payload: RejectServiceRequestItemPayload
+): Promise<{ item: AdminServiceRequestDetail['items'][number] }> {
+  return apiFetch(`/api/admin/service-requests/items/${itemId}/reject`, { method: 'POST', body: JSON.stringify(payload) })
 }
 
 export type * from './types'

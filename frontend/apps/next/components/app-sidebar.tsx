@@ -16,7 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon } from "lucide-react"
+import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon } from "lucide-react"
 import { useAuth } from "app/provider/auth"
 
 // Sin módulos de negocio todavía (Residuos, Solicitudes, Manifiestos, etc.)
@@ -187,6 +187,18 @@ const data = {
       url: "/admin/preapproved-wastes",
       icon: <ClipboardCheckIcon />,
       permission: "preapproved_wastes.read",
+    },
+    // Solicitudes de Servicio (CU-014, Fase 1b, D-S01/D-S25) -- acceso NO
+    // simétrico (ver docblock de `ServiceRequestPolicy`): un Generador ve
+    // SUS solicitudes, un Gestor ve las que tienen al menos un ítem suyo
+    // asignado, platform staff ve todas. Vive en "Residuos" (no en
+    // "Administración") porque es un flujo operativo sobre `wastes`
+    // declarados, mismo criterio que "Residuos Preaprobados" arriba.
+    {
+      title: "Solicitudes de Servicio",
+      url: "/admin/service-requests",
+      icon: <SendIcon />,
+      permission: "service_requests.read",
     },
     {
       title: "Corrientes Y/A",
