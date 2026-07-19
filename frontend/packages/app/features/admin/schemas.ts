@@ -454,3 +454,35 @@ export const createTransportScheduleSchema = z.object({
 export type CreateTransportScheduleFormValues = z.infer<typeof createTransportScheduleSchema>
 
 export type CreateBranchTreatmentFormValues = z.infer<typeof createBranchTreatmentSchema>
+
+// POST /api/admin/transport-personnel -- ver
+// `TransportPersonnelController::store()`/`validationRules()` (cierre del
+// GAP DE CONTRATO señalado en el lote anterior de Programación Logística,
+// 2026-07-19). "Un conductor es una Person YA existente como contacto de la
+// organización con cargo Conductor" (decisión de negocio verbatim) --
+// `personId` SIEMPRE proviene de `ContactSearchSelect`/`searchContacts()`,
+// nunca de un input libre (mismo criterio que `linkExistingContactSchema`).
+// `licenseNumber`/`licenseCategory`/`licenseExpirationDate` son opcionales en
+// el backend (`sometimes|nullable`) -- se dejan igual aquí, sin inventar
+// obligatoriedad que el backend no exige.
+export const createTransportPersonnelSchema = z.object({
+  organizationId: z.number().int().positive().optional(),
+  personId: z.number().int().positive('Selecciona un contacto.'),
+  licenseNumber: z.string().trim().optional().or(z.literal('')),
+  licenseCategory: z.string().trim().optional().or(z.literal('')),
+  licenseExpirationDate: z.string().trim().optional().or(z.literal('')),
+  hasHazmatPermit: z.boolean(),
+})
+
+export type CreateTransportPersonnelFormValues = z.infer<typeof createTransportPersonnelSchema>
+
+// PUT /api/admin/transport-personnel/{id} -- ver
+// `TransportPersonnelController::update()`. Mismos campos que
+// `createTransportPersonnelSchema` MENOS `organizationId`/`personId`
+// (inmutables tras crear) MÁS `isActive` (editable aquí, `transport_personnel`
+// no tiene el par activate()/deactivate() dedicado que sí tiene `Vehicle`).
+export const updateTransportPersonnelSchema = createTransportPersonnelSchema
+  .omit({ organizationId: true, personId: true })
+  .extend({ isActive: z.boolean() })
+
+export type UpdateTransportPersonnelFormValues = z.infer<typeof updateTransportPersonnelSchema>

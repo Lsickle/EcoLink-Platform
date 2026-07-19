@@ -16,7 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon } from "lucide-react"
+import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon, UserRoundIcon } from "lucide-react"
 import { useAuth } from "app/provider/auth"
 
 // Sin módulos de negocio todavía (Residuos, Solicitudes, Manifiestos, etc.)
@@ -80,6 +80,22 @@ const data = {
       url: "/admin/vehicles",
       icon: <CarFrontIcon />,
       permission: "vehicles.read",
+    },
+    // CRUD de Conductores (`transport_personnel`, cierre del GAP DE
+    // CONTRATO señalado en el lote anterior de Programación Logística,
+    // 2026-07-19) -- mismo mecanismo de acceso DUAL EXACTO que "Vehículos"
+    // (ver `TransportPersonnelController`/`TransportPersonnelPolicy`), por
+    // eso vive junto a "Vehículos" en "Administración" (mismo grupo de
+    // flota) y no en "Residuos" (donde vive "Programación de Recolección",
+    // que SOLO consume conductores ya registrados, sin CRUD propio).
+    // "Un conductor es una Person ya existente como contacto con cargo
+    // Conductor" (decisión de negocio verbatim) -- por eso NO usa
+    // `IdCardIcon` (ya usado por "Contactos") para no repetir semántica.
+    {
+      title: "Conductores",
+      url: "/admin/transport-personnel",
+      icon: <UserRoundIcon />,
+      permission: "transport_personnel.read",
     },
     // Módulo Tratamiento (RN-063/D-R02) -- "Tratamientos de Sucursal"
     // (`branch_treatments`), acceso DUAL, mismo patrón EXACTO que Sedes/

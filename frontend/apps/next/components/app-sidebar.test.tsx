@@ -108,6 +108,21 @@ describe('AppSidebar -- gating de "Administración" por permisos', () => {
 
     expect(screen.queryByText('Administración')).not.toBeInTheDocument()
   })
+
+  // CRUD de Conductores (`transport_personnel`, cierre del GAP DE CONTRATO
+  // del lote anterior de Programación Logística) -- mismo mecanismo de
+  // gating individual que "Vehículos"/"Sucursales".
+  test('shows "Conductores" only when the user has transport_personnel.read', () => {
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['roles.read'] }
+    renderSidebar()
+
+    expect(screen.queryByText('Conductores')).not.toBeInTheDocument()
+
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['transport_personnel.read'] }
+    renderSidebar()
+
+    expect(screen.getByText('Conductores')).toBeInTheDocument()
+  })
 })
 
 // Primer módulo real del dominio Residuos (plan aprobado) -- mismo mecanismo
