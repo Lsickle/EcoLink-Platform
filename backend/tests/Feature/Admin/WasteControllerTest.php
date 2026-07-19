@@ -135,6 +135,39 @@ test('index acota el listado a la organización del actor cuando NO es platform 
     expect($ids)->toContain($ownWaste->id)->not->toContain($foreignWaste->id);
 });
 
+// Gap de contrato encontrado por el agente de frontend (wizard de
+// Solicitudes de Servicio, Paso 2): Waste::scopeWithViableTreatment() ya
+// existía en el modelo, pero index() nunca lo exponía como filtro --
+// obligaba a un workaround N+1 en el cliente. `with_viable_treatment=1`
+// aplica el scope (ambos ejes de AL MENOS una aprobación activa en
+// APPROVED); sin el filtro, el comportamiento es el mismo de siempre.
+test('index filtra por with_viable_treatment cuando se pide, sin alterar el aislamiento de organización', function () {
+    $organization = Organization::factory()->create();
+    $actor = wasteActor(['wastes.read'], $organization->id);
+
+    $wasteWithViableTreatment = Waste::factory()->create(['organization_id' => $organization->id]);
+    WasteTreatmentApproval::factory()->viable()->create([
+        'organization_id' => $organization->id,
+        'waste_id' => $wasteWithViableTreatment->id,
+    ]);
+
+    $wasteWithoutViableTreatment = Waste::factory()->create(['organization_id' => $organization->id]);
+    WasteTreatmentApproval::factory()->create([
+        'organization_id' => $organization->id,
+        'waste_id' => $wasteWithoutViableTreatment->id,
+        'technical_status' => 'PENDING',
+        'commercial_status' => 'DRAFT',
+    ]);
+
+    $withoutFilter = $this->actingAs($actor)->getJson('/api/admin/wastes')->assertOk();
+    $idsWithoutFilter = collect($withoutFilter->json('data'))->pluck('id');
+    expect($idsWithoutFilter)->toContain($wasteWithViableTreatment->id)->toContain($wasteWithoutViableTreatment->id);
+
+    $withFilter = $this->actingAs($actor)->getJson('/api/admin/wastes?with_viable_treatment=1')->assertOk();
+    $idsWithFilter = collect($withFilter->json('data'))->pluck('id');
+    expect($idsWithFilter)->toContain($wasteWithViableTreatment->id)->not->toContain($wasteWithoutViableTreatment->id);
+});
+
 // ---- store(): defaults + anti-role-smuggling ----
 
 test('store crea un residuo con los defaults correctos (waste_type OPERATIONAL, measurement_unit KG, operational_status ACTIVE, status BR)', function () {

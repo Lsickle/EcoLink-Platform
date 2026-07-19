@@ -61,6 +61,7 @@ class WasteController extends Controller
         $wasteCategoryId = $request->input('waste_category_id');
         $status = $request->input('status');
         $operationalStatusId = $request->input('operational_status_id');
+        $withViableTreatment = $request->boolean('with_viable_treatment');
 
         $sortableColumns = ['name', 'code', 'status', 'created_at'];
         $sort = in_array($request->input('sort'), $sortableColumns, true) ? $request->input('sort') : 'created_at';
@@ -79,6 +80,12 @@ class WasteController extends Controller
             ->when($wasteCategoryId, fn ($query) => $query->where('waste_category_id', $wasteCategoryId))
             ->when($status, fn ($query) => $query->where('status', $status))
             ->when($operationalStatusId, fn ($query) => $query->where('operational_status_id', $operationalStatusId))
+            // Gap de contrato (frontend, wizard de Solicitudes de Servicio,
+            // Paso 2): scopeWithViableTreatment() ya existía en el modelo
+            // pero nunca se exponía como filtro -- forzaba un workaround
+            // N+1 en el cliente. Filtro ADITIVO, no reemplaza el scoping de
+            // organización de arriba.
+            ->when($withViableTreatment, fn ($query) => $query->withViableTreatment())
             ->with(['organization:id,legal_name', 'branch:id,name', 'wasteCategory:id,code,name'])
             ->orderBy($sort, $direction)
             ->paginate($request->integer('per_page', 15));

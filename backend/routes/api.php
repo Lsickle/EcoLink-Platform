@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\BranchController;
 use App\Http\Controllers\Api\Admin\BranchTreatmentController;
 use App\Http\Controllers\Api\Admin\BranchTypeController;
 use App\Http\Controllers\Api\Admin\BusinessRoleController;
+use App\Http\Controllers\Api\Admin\CancellationReasonController;
 use App\Http\Controllers\Api\Admin\ContactController;
 use App\Http\Controllers\Api\Admin\CountryController;
 use App\Http\Controllers\Api\Admin\DepartmentController;
@@ -465,6 +466,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('service-requests/{serviceRequest}/cancel', [ServiceRequestController::class, 'cancel'])->name('service-requests.cancel');
         Route::post('service-requests/items/{item}/approve', [ServiceRequestController::class, 'approveItem'])->name('service-requests.items.approve');
         Route::post('service-requests/items/{item}/reject', [ServiceRequestController::class, 'rejectItem'])->name('service-requests.items.reject');
+
+        // Catálogo de solo lectura de motivos de cancelación (D-S09) -- ver
+        // docblock de CancellationReasonController.
+        Route::get('cancellation-reasons', [CancellationReasonController::class, 'index'])->name('cancellation-reasons.index');
 
         // Subsistema TRANSVERSAL de archivos (esquema-bd: `files`). La
         // autorización real vive SIEMPRE en la entidad dueña (Policy
