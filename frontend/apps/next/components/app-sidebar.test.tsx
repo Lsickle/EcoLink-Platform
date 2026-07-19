@@ -85,6 +85,22 @@ describe('AppSidebar -- gating de "Administración" por permisos', () => {
     expect(screen.getByText('Matriz de Permisos')).toBeInTheDocument()
   })
 
+  // CU-021 "Configurar Workflow" -- gateado por su propio permiso
+  // `workflows.manage`, distinto de users.read/roles.read/permissions.read
+  // (acceso dual: platform staff Y un admin de organización Gestor, ver
+  // WorkflowPolicy -- nunca por `is_platform_staff`).
+  test('shows "Workflows" only when the user has workflows.manage', () => {
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['roles.read'] }
+    renderSidebar()
+
+    expect(screen.queryByText('Workflows')).not.toBeInTheDocument()
+
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['workflows.manage'] }
+    renderSidebar()
+
+    expect(screen.getByText('Workflows')).toBeInTheDocument()
+  })
+
   test('hides the group while the session is still loading (no flash of items)', () => {
     mockUser = null
     mockIsLoading = true

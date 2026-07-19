@@ -2231,3 +2231,162 @@ export type UpdatePreapprovedWastePayload = Partial<
 > & {
   approval?: Partial<CreatePreapprovedWasteApprovalPayload>
 }
+
+// ---- Motor de Workflow genérico (workflows / CU-021 "Configurar Workflow") -
+// Ver docblock completo de `WorkflowController`/`WorkflowPolicy` en el
+// backend. Solo `entity_type=TREATMENT` tiene datos reales sembrados hoy
+// (WorkflowSeeder, 11 `respel_statuses` / 17 `workflow_transitions` sobre el
+// BASE "RESPEL") -- el resto de valores de `WorkflowEntityType` está
+// reservado para módulos futuros, ninguno con pantalla propia todavía.
+export type WorkflowEntityType =
+  | 'WASTE'
+  | 'SERVICE'
+  | 'TRANSPORT'
+  | 'MANIFEST'
+  | 'CERTIFICATE'
+  | 'CONCILIATION'
+  | 'TREATMENT'
+  | 'ORGANIZATION'
+  | 'BRANCH'
+  | 'CONTACT'
+  | 'SCHEDULING'
+  | 'DOCUMENT'
+
+export type WorkflowVersionStatus = 'DRAFT' | 'PUBLISHED'
+
+// GET /api/admin/respel-statuses -- catálogo de solo lectura de
+// `respel_statuses` (ver `RespelStatusController::index()`). Cierra el gap de
+// contrato que existía en el lote anterior: antes `WorkflowTransition` solo
+// exponía el código crudo (`from_status_code`/`to_status_code`), sin forma de
+// resolver nombre/orden/flags -- ahora este catálogo existe y, además,
+// `WorkflowTransition::fromStatus()`/`toStatus()` lo embeben directamente en
+// cada transición (ver `AdminWorkflowTransition.from_status`/`to_status`
+// abajo).
+export type AdminRespelStatus = {
+  id: number
+  code: string
+  name: string
+  description: string | null
+  sort_order: number
+  is_initial: boolean
+  is_final: boolean
+  is_approved_status: boolean
+  is_rejected_status: boolean
+  color_hex: string | null
+  icon: string | null
+  is_active: boolean
+}
+
+export type AdminWorkflowTransitionRoleAssignment = {
+  id: number
+  role_id: number | null
+  business_role_id: number | null
+  role: { id: number; code: string; name: string } | null
+  business_role: { id: number; code: string; name: string } | null
+}
+
+// `rule_type`/`rule_definition`/`error_message` -- `WorkflowController` los
+// devuelve (eager-cargados en `show()`) pero NO tiene forma de crearlos ni
+// editarlos (`storeTransition()`/`updateTransition()` no validan ningún
+// campo `rules`, ver docblock del controller) -- de solo lectura en la UI,
+// sin formulario asociado.
+export type AdminWorkflowTransitionRule = {
+  id: number
+  rule_type: string
+  rule_definition: Record<string, unknown> | null
+  error_message: string | null
+}
+
+export type AdminWorkflowTransition = {
+  id: number
+  uuid: string
+  workflow_version_id: number
+  from_status_code: string
+  to_status_code: string
+  is_automatic: boolean
+  requires_approval: boolean
+  // Gap de contrato cerrado (backend, `WorkflowTransition::fromStatus()`/
+  // `toStatus()`): la fila completa de `respel_statuses` viaja embebida en
+  // CADA transición -- preferir esto sobre cruzar `from_status_code`/
+  // `to_status_code` contra un catálogo cargado aparte, es más simple y
+  // siempre consistente con la transición concreta que se está mostrando.
+  from_status?: AdminRespelStatus | null
+  to_status?: AdminRespelStatus | null
+  roles?: AdminWorkflowTransitionRoleAssignment[]
+  rules?: AdminWorkflowTransitionRule[]
+}
+
+// Gap de contrato cerrado (backend, `WorkflowController::show()`): ahora se
+// eager-carga el mismo detalle completo (`roles`/`rules`/`fromStatus`/
+// `toStatus`) para TODAS las versiones (`versions[]`), no solo
+// `current_version` -- `transitions` ya no es opcional/"desconocido", viene
+// SIEMPRE como array (posiblemente vacío) para cualquier versión de
+// `AdminWorkflowDetail.versions`.
+export type AdminWorkflowVersion = {
+  id: number
+  uuid: string
+  workflow_id: number
+  version_number: number
+  status: WorkflowVersionStatus
+  published_at: string | null
+  published_by: number | null
+  created_by: number | null
+  created_at: string
+  transitions: AdminWorkflowTransition[]
+}
+
+// `tenant_organization` (gap de contrato cerrado, `WorkflowController::
+// index()`/`show()` ahora eager-cargan `tenantOrganization:id,legal_name`
+// en AMBOS métodos) -- disponible tanto en el listado como en el detalle,
+// por eso vive en el tipo base en vez de solo en `AdminWorkflowDetail`.
+export type AdminWorkflow = {
+  id: number
+  uuid: string
+  tenant_organization_id: number | null
+  code: string
+  name: string
+  description: string | null
+  entity_type: WorkflowEntityType
+  is_system: boolean
+  is_active: boolean
+  current_version_id: number | null
+  created_at: string
+  updated_at: string
+  current_version?: AdminWorkflowVersion | null
+  tenant_organization?: { id: number; legal_name: string } | null
+}
+
+// GET /api/admin/workflows/{workflow} -- ver `WorkflowController::show()`.
+// Todas las entradas de `versions` (no solo `current_version`) traen el
+// detalle completo de sus transiciones (ver AVISO en `AdminWorkflowVersion`
+// arriba).
+export type AdminWorkflowDetail = AdminWorkflow & {
+  versions: AdminWorkflowVersion[]
+}
+
+export type CreateWorkflowTransitionRolePayload = {
+  role_id?: number | null
+  business_role_id?: number | null
+}
+
+// POST /api/admin/workflows/{workflow}/transitions -- ver
+// `WorkflowController::validateTransitionPayload()`. `from_status_code`/
+// `to_status_code` deben existir en `respel_statuses` (código EXACTO,
+// prefijado -- `TECH_*`/`COM_*`, ver `RespelStatusSeeder`).
+export type CreateWorkflowTransitionPayload = {
+  from_status_code: string
+  to_status_code: string
+  is_automatic?: boolean
+  requires_approval?: boolean
+  roles?: CreateWorkflowTransitionRolePayload[]
+}
+
+// PUT /api/admin/workflows/{workflow}/transitions/{transition} --
+// `from_status_code`/`to_status_code` NUNCA viajan aquí (inmutables tras
+// crear, ver `WorkflowController::updateTransition()` -- solo
+// is_automatic/requires_approval/roles).
+export type UpdateWorkflowTransitionPayload = {
+  is_automatic?: boolean
+  requires_approval?: boolean
+  roles?: CreateWorkflowTransitionRolePayload[]
+}

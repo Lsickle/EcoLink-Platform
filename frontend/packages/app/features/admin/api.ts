@@ -26,6 +26,7 @@ import type {
   AdminPhysicalState,
   AdminPreapprovedWaste,
   AdminPreapprovedWasteDetail,
+  AdminRespelStatus,
   AdminRole,
   AdminRoleDetail,
   AdminTreatment,
@@ -49,6 +50,10 @@ import type {
   AdminWasteStream,
   AdminWasteStreamDetail,
   AdminWasteType,
+  AdminWorkflow,
+  AdminWorkflowDetail,
+  AdminWorkflowTransition,
+  AdminWorkflowVersion,
   ApproveInvitationRequestPayload,
   ApproveTreatmentApprovalTechnicalPayload,
   AssignPermissionPayload,
@@ -78,6 +83,7 @@ import type {
   CreateWastePayload,
   CreateWasteCategoryPayload,
   CreateWasteStreamPayload,
+  CreateWorkflowTransitionPayload,
   ImportResult,
   OrganizationBranch,
   OrganizationContactLink,
@@ -116,6 +122,7 @@ import type {
   UpdateWastePayload,
   UpdateWasteCategoryPayload,
   UpdateWasteStreamPayload,
+  UpdateWorkflowTransitionPayload,
   UploadFilePayload,
   UserActivityEvent,
   VehicleKpis,
@@ -123,6 +130,7 @@ import type {
   WasteFilesByCategory,
   WasteKpis,
   WasteStatus,
+  WorkflowEntityType,
 } from './types'
 
 export { apiUrl } from '../../lib/api-client'
@@ -244,6 +252,14 @@ export async function fetchUserActivity(
 // description), status (active/inactive), type (system/custom) y sort/
 // direction (whitelist en el backend -- ver RoleController::index()).
 
+// `organizationId` (CU-021 "Configurar Workflow"): filtro OPCIONAL, mismo
+// criterio EXACTO que `fetchWorkflows()`/`fetchOrganizationalAreas()` -- el
+// backend solo lo respeta para un actor `isPlatformStaff()` (ver
+// `RoleController::index()`); para cualquier otro actor lo ignora en
+// silencio. Se usa cuando platform staff administra el workflow
+// PERSONALIZADO de una organización Gestor ajena, para traer los roles
+// reales de ESA organización (no los del propio actor) al selector de la
+// transición.
 export async function fetchRoles(
   params: {
     page?: number
@@ -253,6 +269,7 @@ export async function fetchRoles(
     type?: 'system' | 'custom'
     sort?: string
     direction?: 'asc' | 'desc'
+    organizationId?: number | string
   } = {}
 ): Promise<Paginated<AdminRole>> {
   const query = buildQuery({
@@ -263,6 +280,7 @@ export async function fetchRoles(
     type: params.type,
     sort: params.sort,
     direction: params.direction,
+    organization_id: params.organizationId,
   })
   return apiFetch(`/api/admin/roles${query}`)
 }
@@ -2182,6 +2200,119 @@ export async function negotiateTreatmentApproval(
 
 export async function cancelTreatmentApproval(id: number | string): Promise<{ treatment_approval: AdminTreatmentApproval }> {
   return apiFetch(`/api/admin/treatment-approvals/${id}/cancel`, { method: 'POST' })
+}
+
+// ---- Motor de Workflow genérico (/api/admin/workflows, CU-021) -----------
+// Ver docblock completo de `WorkflowController`/`WorkflowPolicy` en el
+// backend. Los 2 gaps de contrato documentados en el lote anterior ya se
+// cerraron: `show()` ahora eager-carga `versions[].transitions` completo
+// (no solo `current_version`), y existe `GET /admin/respel-statuses`
+// (`fetchRespelStatuses()` abajo) para el catálogo de estados.
+
+// GET /api/admin/respel-statuses -- catálogo de solo lectura (ver
+// `RespelStatusController::index()`), gateado por `workflows.manage` (no
+// `isPlatformStaff()`) -- lo consume cualquier actor autorizado a
+// administrar un workflow, incluido un admin de organización Gestor sobre
+// su propio clon. `activeOnly` mapea a `active_only=true` en el backend.
+export async function fetchRespelStatuses(
+  params: { activeOnly?: boolean } = {}
+): Promise<{ data: AdminRespelStatus[] }> {
+  const query = buildQuery({ active_only: params.activeOnly ? 'true' : undefined })
+  return apiFetch(`/api/admin/respel-statuses${query}`)
+}
+
+// `organizationId`: filtro OPCIONAL, SOLO tiene efecto para platform staff
+// (el backend lo exige si lo manda, y lo ignora -- fuerza BASE + tenant
+// propio -- para cualquier otro actor), mismo criterio EXACTO que
+// `fetchOrganizationalAreas()`/`fetchBranches()`. `entityType` acota a un
+// valor de `Workflow::ENTITY_TYPES` -- hoy solo `TREATMENT` tiene datos
+// reales.
+export async function fetchWorkflows(
+  params: {
+    page?: number
+    perPage?: number
+    organizationId?: number | string
+    entityType?: WorkflowEntityType
+  } = {}
+): Promise<Paginated<AdminWorkflow>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    organization_id: params.organizationId,
+    entity_type: params.entityType,
+  })
+  return apiFetch(`/api/admin/workflows${query}`)
+}
+
+export async function fetchWorkflow(id: number | string): Promise<{ workflow: AdminWorkflowDetail }> {
+  return apiFetch(`/api/admin/workflows/${id}`)
+}
+
+// POST /api/admin/workflows/{workflow}/clone (CU-021_13) -- SOLO sobre el
+// workflow BASE, SOLO un admin de organización Gestor sin workflow propio de
+// ese `entity_type` todavía (ver `WorkflowPolicy::clone()`, el backend
+// responde 403/422 fuera de ese caso). El caller (WorkflowsListScreen/
+// WorkflowDetailScreen) navega al workflow recién clonado y deja que
+// `WorkflowDetailScreen` lo cargue con `fetchWorkflow()` (show() ya trae el
+// detalle completo de todas las versiones, ver types.ts) -- ya NO hace falta
+// aprovechar/cachear la respuesta de este endpoint (gap de contrato cerrado,
+// se retiró el workaround de `sessionStorage`).
+export async function cloneWorkflow(id: number | string): Promise<{ workflow: AdminWorkflowDetail }> {
+  return apiFetch(`/api/admin/workflows/${id}/clone`, { method: 'POST' })
+}
+
+// POST /api/admin/workflows/{workflow}/versions (CU-021_12) -- rechaza con
+// 422 (clave "workflow") si ya existe una versión DRAFT sin publicar.
+export async function storeWorkflowVersion(
+  workflowId: number | string
+): Promise<{ workflow_version: AdminWorkflowVersion }> {
+  return apiFetch(`/api/admin/workflows/${workflowId}/versions`, { method: 'POST' })
+}
+
+// POST /api/admin/workflows/{workflow}/versions/{version}/publish (CU-021_15)
+// -- atómico, fija `version.status=PUBLISHED` Y `workflow.current_version_id`
+// en el mismo paso (ver requisito 4, docblock del backend). Rechaza con 422
+// si la versión no está en DRAFT.
+export async function publishWorkflowVersion(
+  workflowId: number | string,
+  versionId: number | string
+): Promise<{ workflow: AdminWorkflowDetail }> {
+  return apiFetch(`/api/admin/workflows/${workflowId}/versions/${versionId}/publish`, { method: 'POST' })
+}
+
+// POST /api/admin/workflows/{workflow}/transitions -- crea SOLO sobre la
+// versión DRAFT más reciente (resuelta en el backend, `resolveDraftVersion()`
+// -- el caller nunca manda un `workflow_version_id`). 422 (clave
+// "workflow_version") si no hay ninguna DRAFT -- cree una versión primero
+// con `storeWorkflowVersion()`.
+export async function storeWorkflowTransition(
+  workflowId: number | string,
+  payload: CreateWorkflowTransitionPayload
+): Promise<{ workflow_transition: AdminWorkflowTransition }> {
+  return apiFetch(`/api/admin/workflows/${workflowId}/transitions`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// PUT /api/admin/workflows/{workflow}/transitions/{transition} -- 422 (clave
+// "workflow_transition") si la transición pertenece a una versión PUBLISHED
+// (inmutable, ver `assertTransitionBelongsToDraftOf()`).
+export async function updateWorkflowTransition(
+  workflowId: number | string,
+  transitionId: number | string,
+  payload: UpdateWorkflowTransitionPayload
+): Promise<{ workflow_transition: AdminWorkflowTransition }> {
+  return apiFetch(`/api/admin/workflows/${workflowId}/transitions/${transitionId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+// DELETE /api/admin/workflows/{workflow}/transitions/{transition} -- mismo
+// guard DRAFT-only que `updateWorkflowTransition()`. 204 sin body.
+export async function destroyWorkflowTransition(
+  workflowId: number | string,
+  transitionId: number | string
+): Promise<void> {
+  await apiFetch(`/api/admin/workflows/${workflowId}/transitions/${transitionId}`, { method: 'DELETE' })
 }
 
 export type * from './types'

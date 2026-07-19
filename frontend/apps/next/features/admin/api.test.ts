@@ -2,6 +2,15 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   ApiValidationError,
   activateBranchType,
+  cloneWorkflow,
+  destroyWorkflowTransition,
+  fetchRespelStatuses,
+  fetchWorkflow,
+  fetchWorkflows,
+  publishWorkflowVersion,
+  storeWorkflowTransition,
+  storeWorkflowVersion,
+  updateWorkflowTransition,
   activateCountry,
   activateDepartment,
   activateLocality,
@@ -251,6 +260,20 @@ describe('admin api client', () => {
     expect(url).toBe(
       'http://localhost/api/admin/roles?page=2&per_page=10&search=coord&status=active&type=custom&sort=created_at&direction=desc'
     )
+  })
+
+  // CU-021 "Configurar Workflow": filtro OPCIONAL para platform staff
+  // administrando el workflow personalizado de una organización ajena (ver
+  // RoleController::index()).
+  test('fetchRoles forwards organizationId as organization_id', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ data: [], current_page: 1, last_page: 1, total: 0, per_page: 15 }))
+
+    await fetchRoles({ organizationId: 7 })
+
+    const [url] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/roles?organization_id=7')
   })
 
   test('activateRole POSTs to the activate endpoint', async () => {
@@ -903,5 +926,136 @@ describe('admin api client', () => {
       .mockResolvedValueOnce(jsonResponse({ waste: { id: 30, is_active: false } }))
     await deactivatePreapprovedWaste(30)
     expect(fetchMock.mock.calls[3]![0]).toBe('http://localhost/api/admin/preapproved-wastes/30/deactivate')
+  })
+
+  // ---- Motor de Workflow genérico (/api/admin/workflows, CU-021) ---------
+
+  test('fetchWorkflows forwards organization_id/entity_type as query params', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ data: [], current_page: 1, last_page: 1, total: 0, per_page: 15 }))
+
+    await fetchWorkflows({ organizationId: 7, entityType: 'TREATMENT' })
+
+    const [url] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/workflows?organization_id=7&entity_type=TREATMENT')
+  })
+
+  test('fetchWorkflows omits query params when not provided', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ data: [], current_page: 1, last_page: 1, total: 0, per_page: 15 }))
+
+    await fetchWorkflows()
+
+    const [url] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/workflows')
+  })
+
+  test('fetchWorkflow gets a single workflow by id', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ workflow: { id: 1, code: 'RESPEL' } }))
+
+    await fetchWorkflow(1)
+
+    expect(fetchMock.mock.calls[1]![0]).toBe('http://localhost/api/admin/workflows/1')
+  })
+
+  test('cloneWorkflow POSTs to the clone endpoint with no body', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ workflow: { id: 2 } }, 201))
+
+    await cloneWorkflow(1)
+
+    const [url, options] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/workflows/1/clone')
+    expect(options.method).toBe('POST')
+  })
+
+  test('storeWorkflowVersion POSTs to the versions endpoint with no body', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ workflow_version: { id: 5, version_number: 2, status: 'DRAFT' } }, 201))
+
+    await storeWorkflowVersion(1)
+
+    const [url, options] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/workflows/1/versions')
+    expect(options.method).toBe('POST')
+  })
+
+  test('publishWorkflowVersion POSTs to the versions/{version}/publish endpoint', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ workflow: { id: 1, current_version_id: 5 } }))
+
+    await publishWorkflowVersion(1, 5)
+
+    const [url, options] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/workflows/1/versions/5/publish')
+    expect(options.method).toBe('POST')
+  })
+
+  test('storeWorkflowTransition POSTs the payload as JSON', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ workflow_transition: { id: 10 } }, 201))
+
+    const payload = {
+      from_status_code: 'TECH_PENDING',
+      to_status_code: 'TECH_UNDER_REVIEW',
+      roles: [{ role_id: 1 }],
+    }
+    await storeWorkflowTransition(1, payload)
+
+    const [url, options] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/workflows/1/transitions')
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body as string)).toEqual(payload)
+  })
+
+  test('updateWorkflowTransition PUTs the partial payload', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ workflow_transition: { id: 10, requires_approval: true } }))
+
+    await updateWorkflowTransition(1, 10, { requires_approval: true })
+
+    const [url, options] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/workflows/1/transitions/10')
+    expect(options.method).toBe('PUT')
+    expect(JSON.parse(options.body as string)).toEqual({ requires_approval: true })
+  })
+
+  test('destroyWorkflowTransition sends a DELETE request', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({})).mockResolvedValueOnce(jsonResponse(null, 204))
+
+    await destroyWorkflowTransition(1, 10)
+
+    const [url, options] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/workflows/1/transitions/10')
+    expect(options.method).toBe('DELETE')
+  })
+
+  // GET /api/admin/respel-statuses -- gap de contrato cerrado (ver
+  // RespelStatusController::index()).
+  test('fetchRespelStatuses requests the catalog with no query params by default', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ id: 1, code: 'TECH_PENDING', name: 'Pendiente Técnico' }] }))
+
+    await fetchRespelStatuses()
+
+    expect(fetchMock.mock.calls[1]![0]).toBe('http://localhost/api/admin/respel-statuses')
+  })
+
+  test('fetchRespelStatuses forwards activeOnly as active_only=true', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({})).mockResolvedValueOnce(jsonResponse({ data: [] }))
+
+    await fetchRespelStatuses({ activeOnly: true })
+
+    expect(fetchMock.mock.calls[1]![0]).toBe('http://localhost/api/admin/respel-statuses?active_only=true')
   })
 })

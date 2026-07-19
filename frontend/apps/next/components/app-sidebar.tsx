@@ -16,7 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon } from "lucide-react"
+import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon } from "lucide-react"
 import { useAuth } from "app/provider/auth"
 
 // Sin módulos de negocio todavía (Residuos, Solicitudes, Manifiestos, etc.)
@@ -137,6 +137,22 @@ const data = {
       url: "/admin/permissions/matrix",
       icon: <LayoutGridIcon />,
       permission: "permissions.read",
+    },
+    // CU-021 "Configurar Workflow" -- administración del motor de Workflow
+    // genérico (item 17/D-WF-01, ya consumido en producción por
+    // WasteTreatmentApprovalController). Acceso DUAL controlado por el
+    // permiso dedicado `workflows.manage` (NO por `is_platform_staff` -- ver
+    // `WorkflowPolicy`): platform staff administra el BASE + el workflow
+    // personalizado de cualquier organización Gestor; un admin de
+    // organización Gestor administra el BASE (solo lectura) + el suyo propio
+    // (o lo clona si todavía no existe). Vive en "Administración" (mismo
+    // grupo que Roles/Permisos) y no en "Plataforma" -- no es exclusivo de
+    // platform staff.
+    {
+      title: "Workflows",
+      url: "/admin/workflows",
+      icon: <WorkflowIcon />,
+      permission: "workflows.manage",
     },
   ],
   // Primer módulo real del dominio Residuos (plan aprobado, distinto de
