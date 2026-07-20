@@ -75,7 +75,10 @@ use Database\Seeders\RoleSeeder;
 // `.create`/`.update`/`.decide` y `plant_reception_schedules.read`/`.manage`.
 // "Modalidad 3" (revisión especialista-seguridad, 2026-07-21, mismo GAP):
 // crece a 116 permisos con `gestor_carrier_authorizations.read`/`.create`/
-// `.revoke`. ADMINISTRADOR queda con los 116 permisos del catálogo completo.
+// `.revoke`. Módulo Manifiesto de Descargue, Fase 5 -- última fase del plan
+// (2026-07-22, mismo GAP): crece a 121 permisos con `manifest_unloads.read`/
+// `.create`/`.update`/`.sign`/`.cancel`. ADMINISTRADOR queda con los 121
+// permisos del catálogo completo.
 
 beforeEach(function () {
     $this->seed(PermissionSeeder::class);
@@ -83,8 +86,8 @@ beforeEach(function () {
     $this->seed(RolePermissionSeeder::class);
 });
 
-test('siembra exactamente 116 permisos con los códigos exactos del catálogo', function () {
-    expect(Permission::query()->count())->toBe(116);
+test('siembra exactamente 121 permisos con los códigos exactos del catálogo', function () {
+    expect(Permission::query()->count())->toBe(121);
 
     $expectedCodes = [
         'users.create', 'users.read', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.reset-password',
@@ -125,6 +128,7 @@ test('siembra exactamente 116 permisos con los códigos exactos del catálogo', 
         'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
         'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
+        'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
     ];
 
     expect(Permission::query()->pluck('code')->sort()->values()->all())
@@ -199,6 +203,7 @@ test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, A
         'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
         'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
+        'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
     ])->sort()->values()->all();
 
     expect($codes)->toBe($expected);
@@ -217,7 +222,7 @@ test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, A
  * mismo lote que resuelve el gap real de contrato señalado por el agente de
  * frontend -- ver docblock de `RolePermissionSeeder::LOGISTICA_PERMISSION_CODES`.
  */
-test('LOGÍSTICA queda con vehicles.read + transport_personnel.read (solo lectura) + transport_schedules.*/transport_routes.*/manifest_loads.*/unload_requests.*/plant_reception_schedules.* completos', function () {
+test('LOGÍSTICA queda con vehicles.read + transport_personnel.read (solo lectura) + transport_schedules.*/transport_routes.*/manifest_loads.*/unload_requests.*/plant_reception_schedules.*/manifest_unloads.* completos', function () {
     $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
 
     $codes = $logistica->permissions()->pluck('code')->sort()->values()->all();
@@ -231,6 +236,7 @@ test('LOGÍSTICA queda con vehicles.read + transport_personnel.read (solo lectur
         'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
         'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
+        'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
     ])->sort()->values()->all());
 });
 
@@ -255,7 +261,7 @@ test('marca is_critical=true solo en los 5 permisos confirmados por el usuario (
     expect(Permission::query()->where('is_critical', true)->pluck('code')->sort()->values()->all())
         ->toBe(collect($expectedCritical)->sort()->values()->all());
 
-    expect(Permission::query()->where('is_critical', false)->count())->toBe(116 - count($expectedCritical));
+    expect(Permission::query()->where('is_critical', false)->count())->toBe(121 - count($expectedCritical));
 });
 
 test('los seeders son idempotentes (correr dos veces no duplica filas)', function () {
@@ -263,8 +269,8 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
     $this->seed(RoleSeeder::class);
     $this->seed(RolePermissionSeeder::class);
 
-    expect(Permission::query()->count())->toBe(116)
+    expect(Permission::query()->count())->toBe(121)
         ->and(Role::query()->count())->toBe(2)
-        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(116)
-        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(22);
+        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(121)
+        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(27);
 });

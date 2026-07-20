@@ -13,11 +13,15 @@ use App\Models\WasteTreatmentApproval;
 use App\Models\Workflow;
 use App\Models\WorkflowServiceBinding;
 use App\Models\WorkflowVersion;
+use Database\Seeders\BusinessRoleSeeder;
+use Database\Seeders\ManifestUnloadWorkflowSeeder;
 use Database\Seeders\OrganizationStatusSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\PlatformOrganizationSeeder;
 use Database\Seeders\RespelStatusSeeder;
 use Database\Seeders\RoleSeeder;
+use Database\Seeders\ServiceRequestWorkflowSeeder;
+use Database\Seeders\TransportScheduleWorkflowSeeder;
 use Database\Seeders\WorkflowSeeder;
 use Illuminate\Validation\ValidationException;
 
@@ -694,6 +698,46 @@ test('gap 2: show() eager-carga transitions.roles de TODAS las versiones (inclui
     expect($transitionWithRole)->not->toBeNull()
         ->and($transitionWithRole['roles'])->not->toBeEmpty()
         ->and($transitionWithRole['roles'][0]['role_id'])->toBe($administrador->id);
+});
+
+// ---- Hallazgo Media (especialista-seguridad, revisión Fase 5 "Manifiesto de Descargue"):
+// clone() nunca copiaba workflow_entity_bindings -- para entity_type=MANIFEST (el único con
+// MÁS DE UN workflow de sistema simultáneo, MANIFEST_LOAD/MANIFEST_UNLOAD, desambiguados por
+// entity_table) esto dejaba el clon SIN binding, por lo que Workflow::resolveFor() nunca lo
+// resolvía y la personalización quedaba silenciosamente inoperante. Guarda explícita: rechaza
+// con 422 en vez de fallar en silencio. ----
+
+test('clone: rechaza (422) clonar el workflow base MANIFEST_UNLOAD -- personalización no soportada mientras clone() no copie workflow_entity_bindings', function () {
+    $this->seed(ManifestUnloadWorkflowSeeder::class);
+
+    $gestor = workflowGestorOrganization();
+    $actor = workflowControllerActor(tenantOrganizationId: $gestor->id);
+
+    $baseManifestUnload = Workflow::query()->where('code', 'MANIFEST_UNLOAD')->whereNull('tenant_organization_id')->firstOrFail();
+
+    $this->actingAs($actor)->postJson("/api/admin/workflows/{$baseManifestUnload->id}/clone")
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('entity_type');
+
+    expect(Workflow::query()->where('tenant_organization_id', $gestor->id)->where('entity_type', 'MANIFEST')->exists())->toBeFalse();
+});
+
+test('clone: otros entity_type (SERVICE/SCHEDULING) que SÍ soportan personalización real NO se ven afectados por la guarda de MANIFEST', function () {
+    $this->seed(BusinessRoleSeeder::class);
+    $this->seed(ServiceRequestWorkflowSeeder::class);
+    $this->seed(TransportScheduleWorkflowSeeder::class);
+
+    $serviceGestor = workflowGestorOrganization();
+    $serviceActor = workflowControllerActor(tenantOrganizationId: $serviceGestor->id);
+    $baseService = Workflow::query()->where('entity_type', 'SERVICE')->whereNull('tenant_organization_id')->firstOrFail();
+
+    $this->actingAs($serviceActor)->postJson("/api/admin/workflows/{$baseService->id}/clone")->assertCreated();
+
+    $schedulingGestor = workflowGestorOrganization();
+    $schedulingActor = workflowControllerActor(tenantOrganizationId: $schedulingGestor->id);
+    $baseScheduling = Workflow::query()->where('entity_type', 'SCHEDULING')->whereNull('tenant_organization_id')->firstOrFail();
+
+    $this->actingAs($schedulingActor)->postJson("/api/admin/workflows/{$baseScheduling->id}/clone")->assertCreated();
 });
 
 test('gap 3: index() eager-carga tenantOrganization -- el listado expone la razón social, no solo el id', function () {

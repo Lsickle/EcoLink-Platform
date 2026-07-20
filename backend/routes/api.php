@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Admin\GestorCarrierAuthorizationController;
 use App\Http\Controllers\Api\Admin\HazardCharacteristicController;
 use App\Http\Controllers\Api\Admin\LocalityController;
 use App\Http\Controllers\Api\Admin\ManifestLoadController;
+use App\Http\Controllers\Api\Admin\ManifestUnloadController;
 use App\Http\Controllers\Api\Admin\MeasurementUnitController;
 use App\Http\Controllers\Api\Admin\MunicipalityController;
 use App\Http\Controllers\Api\Admin\OrganizationalAreaController;
@@ -566,6 +567,21 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('plant-reception-schedules/{schedule}/counter-propose', [PlantReceptionScheduleController::class, 'counterPropose'])->name('plant-reception-schedules.counter-propose');
         Route::post('plant-reception-schedules/{schedule}/confirm', [PlantReceptionScheduleController::class, 'confirm'])->name('plant-reception-schedules.confirm');
         Route::post('plant-reception-schedules/{schedule}/reschedule', [PlantReceptionScheduleController::class, 'reschedule'])->name('plant-reception-schedules.reschedule');
+
+        // Módulo Manifiesto de Descargue, Fase 5 (última fase del plan) --
+        // documento/registro firmado en la planta del Gestor al descargar los
+        // residuos, con firmas del receptor y del conductor. Ciclo cubierto:
+        // Draft->Generated (generate)->PartiallySigned/Signed (sign,
+        // automático)->Closed (complete). Cancelled alcanzable solo desde
+        // Generated/PartiallySigned. Ver docblock de ManifestUnloadController.
+        Route::get('manifest-unloads', [ManifestUnloadController::class, 'index'])->name('manifest-unloads.index');
+        Route::post('manifest-unloads', [ManifestUnloadController::class, 'store'])->name('manifest-unloads.store');
+        Route::get('manifest-unloads/{manifestUnload}', [ManifestUnloadController::class, 'show'])->name('manifest-unloads.show');
+        Route::post('manifest-unloads/{manifestUnload}/inspect-items', [ManifestUnloadController::class, 'inspectItems'])->name('manifest-unloads.inspect-items');
+        Route::post('manifest-unloads/{manifestUnload}/generate', [ManifestUnloadController::class, 'generate'])->name('manifest-unloads.generate');
+        Route::post('manifest-unloads/{manifestUnload}/sign', [ManifestUnloadController::class, 'sign'])->name('manifest-unloads.sign');
+        Route::post('manifest-unloads/{manifestUnload}/complete', [ManifestUnloadController::class, 'complete'])->name('manifest-unloads.complete');
+        Route::post('manifest-unloads/{manifestUnload}/cancel', [ManifestUnloadController::class, 'cancel'])->name('manifest-unloads.cancel');
 
         // Subsistema TRANSVERSAL de archivos (esquema-bd: `files`). La
         // autorización real vive SIEMPRE en la entidad dueña (Policy

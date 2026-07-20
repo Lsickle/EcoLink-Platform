@@ -69,6 +69,34 @@ class WorkflowController extends Controller
     use LogsSecurityEvents;
 
     /**
+     * Hallazgo Media (especialista-seguridad, Módulo Manifiesto de
+     * Descargue, Fase 5, 2026-07-20): `clone()` nunca crea un
+     * `WorkflowEntityBinding` para el workflow clonado. Para la mayoría de
+     * `entity_type` esto es inofensivo porque `Workflow::resolveFor()` solo
+     * exige el binding cuando el llamador pasa `$entityTable` explícito
+     * (desambiguación) -- pero `entity_type=MANIFEST` es HOY el único caso
+     * con MÁS DE UN workflow de sistema simultáneo (`MANIFEST_LOAD`/
+     * `MANIFEST_UNLOAD`, ver `Workflow::resolveFor()`), así que sus
+     * llamadores SIEMPRE pasan `$entityTable`. Sin el binding copiado, un
+     * clon de cualquiera de esos dos nunca se resuelve -- cae
+     * SILENCIOSAMENTE al workflow BASE de sistema, sin error visible para el
+     * Gestor que creyó haber personalizado su workflow.
+     *
+     * Implementar el copiado real de `workflow_entity_bindings` al clonar
+     * expandiría el motor de Workflow más allá del alcance de esta tarea
+     * (nadie usa hoy la personalización de manifiestos) -- en vez de eso, se
+     * bloquea EXPLÍCITAMENTE la clonación para este `entity_type` mientras
+     * ese copiado no exista: preferible un 422 claro a una personalización
+     * que nunca se aplica sin que nadie lo note. Otros `entity_type`
+     * (`TREATMENT`/`SERVICE`/`SCHEDULING`/`TRANSPORT`) tienen HOY un único
+     * workflow de sistema por tipo -- no sufren esta ambigüedad y no se ven
+     * afectados por esta guarda.
+     *
+     * @var list<string>
+     */
+    private const CLONE_UNSUPPORTED_ENTITY_TYPES = ['MANIFEST'];
+
+    /**
      * `organization_id`: filtro OPCIONAL para platform staff (sin filtro ve
      * TODOS los workflows, base + de cualquier organización). Un admin de
      * organización Gestor SIEMPRE ve el BASE (solo lectura) + el suyo propio
@@ -150,6 +178,12 @@ class WorkflowController extends Controller
     public function clone(Request $request, Workflow $workflow)
     {
         Gate::authorize('clone', $workflow);
+
+        if (in_array($workflow->entity_type, self::CLONE_UNSUPPORTED_ENTITY_TYPES, true)) {
+            throw ValidationException::withMessages([
+                'entity_type' => ['La personalización de workflows para Manifiestos aún no está soportada, contacte al equipo de producto.'],
+            ]);
+        }
 
         $actor = $request->user();
         $organizationId = $actor->tenant_organization_id;

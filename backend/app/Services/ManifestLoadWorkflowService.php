@@ -17,8 +17,10 @@ use Illuminate\Validation\ValidationException;
  * `manifest_loads.manifest_status_id` vía el motor de Workflow genérico
  * (`entity_type=MANIFEST`, `ManifestLoadWorkflowSeeder`). Mismo patrón EXACTO
  * que `TransportScheduleWorkflowService`/`ServiceRequestApprovalService::transitionHeader()`:
- * resuelve `Workflow::resolveFor('MANIFEST', $manifestLoad->carrier_organization_id)`,
- * valida que exista una `workflow_transition` real desde el código actual
+ * resuelve `Workflow::resolveFor('MANIFEST', $manifestLoad->carrier_organization_id, 'manifest_loads')`
+ * (Fase 5: el 3er argumento desambigua frente al workflow "MANIFEST_UNLOAD"
+ * de `manifest_unloads`, que comparte el mismo `entity_type=MANIFEST` -- ver
+ * docblock de `Workflow::resolveFor()`), valida que exista una `workflow_transition` real desde el código actual
  * hacia el destino, autoriza al actor contra `workflow_transition_roles`, y
  * deja rastro en `workflow_logs` (`process_type=MANIFEST_LOAD`).
  *
@@ -47,7 +49,7 @@ class ManifestLoadWorkflowService
             return $manifestLoad;
         }
 
-        $workflow = Workflow::resolveFor('MANIFEST', $manifestLoad->carrier_organization_id);
+        $workflow = Workflow::resolveFor('MANIFEST', $manifestLoad->carrier_organization_id, 'manifest_loads');
 
         $transition = $workflow?->currentVersion
             ?->transitions()

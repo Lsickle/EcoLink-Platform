@@ -60,6 +60,7 @@ class RolePermissionSeeder extends Seeder
         'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
         'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
+        'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
     ];
 
     /**
@@ -123,6 +124,15 @@ class RolePermissionSeeder extends Seeder
      * "Modalidad 3"): acceso COMPLETO -- LOGÍSTICA ya gestiona toda la
      * relación de transporte (`transport_schedules.*`), autorizar/revocar un
      * transportador independiente es parte de la misma coordinación.
+     *
+     * `manifest_unloads.*` (Módulo Manifiesto de Descargue, Fase 5, última
+     * fase del plan): acceso COMPLETO, MISMO FLAG documentado arriba para
+     * `manifest_loads.sign`/`unload_requests.*` -- tanto el lado receptor
+     * (que gestiona/inspecciona/genera/cierra) como el lado transportador
+     * (que solo lee/firma como conductor) usan el MISMO rol de sistema
+     * LOGÍSTICA hasta que existan roles dedicados por lado; la restricción
+     * fina de "qué organización concreta" vive en `ManifestUnloadPolicy`/
+     * `ManifestUnloadSignatureService::assertActorCanSign()`.
      */
     private const LOGISTICA_PERMISSION_CODES = [
         'vehicles.read',
@@ -133,6 +143,7 @@ class RolePermissionSeeder extends Seeder
         'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
         'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
+        'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
     ];
 
     public function run(): void

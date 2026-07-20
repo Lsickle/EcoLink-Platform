@@ -81,6 +81,15 @@ class FileController extends Controller
      */
     private const ENTITY_FILE_CATEGORIES = [
         'WASTE' => ['WASTE_PHOTO', 'SDS', 'ADDITIONAL_DOCUMENT'],
+        // Hallazgo Media (especialista-seguridad, Módulo Manifiesto de
+        // Descargue, Fase 5, 2026-07-20): faltaba por completo -- CUALQUIER
+        // file_category para MANIFEST_UNLOAD era rechazado (422) antes de
+        // siquiera llegar a la autorización, contradiciendo el docblock de
+        // File.php (ya documentaba a MANIFEST_UNLOAD en ENTITY_MODELS como si
+        // funcionara). Única categoría real hoy: evidencia fotográfica de la
+        // inspección/descargue en planta (CU-069), sin tabla de evidencias
+        // propia (decisión ya tomada en Fase 5).
+        'MANIFEST_UNLOAD' => ['PHOTO_EVIDENCE'],
     ];
 
     /**
@@ -95,6 +104,9 @@ class FileController extends Controller
         'WASTE_PHOTO' => ['jpg', 'jpeg', 'png', 'webp'],
         'SDS' => ['pdf'],
         'ADDITIONAL_DOCUMENT' => ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
+        // Mismo criterio que WASTE_PHOTO -- solo imagen, es evidencia
+        // fotográfica, no un documento arbitrario.
+        'PHOTO_EVIDENCE' => ['jpg', 'jpeg', 'png', 'webp'],
     ];
 
     /**

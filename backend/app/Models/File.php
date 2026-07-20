@@ -45,6 +45,13 @@ class File extends Model
      */
     public const ENTITY_MODELS = [
         'WASTE' => Waste::class,
+        // Módulo Manifiesto de Descargue, Fase 5: evidencias fotográficas de
+        // la inspección/descargue en planta -- reutiliza este subsistema
+        // transversal, sin tabla de evidencias propia (decisión #7 del
+        // enunciado de esta tarea). La autorización real vía
+        // `ManifestUnload::isAccessibleBy()`/`ManifestUnloadPolicy`, resuelta
+        // automáticamente por `File::resolveEntity()`.
+        'MANIFEST_UNLOAD' => ManifestUnload::class,
     ];
 
     protected function casts(): array

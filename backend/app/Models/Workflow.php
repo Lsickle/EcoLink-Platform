@@ -105,8 +105,23 @@ class Workflow extends Model
      *   3. Si tampoco existe un workflow base, devuelve NULL -- responsabilidad
      *      del llamador decidir qué hacer (p. ej. mantener el flujo hardcodeado
      *      actual como fallback, ver docblock de WasteTreatmentApprovalController).
+     *
+     * `$entityTable` (Módulo Manifiesto de Descargue, Fase 5): parámetro
+     * OPCIONAL de desambiguación -- hasta esta fase, cada `entity_type` tenía
+     * como máximo UN workflow de sistema (`tenant_organization_id IS NULL`),
+     * así que resolver solo por `entity_type` era determinista. Con
+     * `manifest_loads`/`manifest_unloads` compartiendo `entity_type=MANIFEST`
+     * pero siendo ENTIDADES DISTINTAS (workflows "MANIFEST_LOAD"/
+     * "MANIFEST_UNLOAD" separados), resolver solo por `entity_type` se
+     * volvería ambiguo. Cuando se pasa `$entityTable`, se exige que el
+     * workflow tenga un `workflow_entity_bindings` registrado para esa tabla
+     * concreta (`WorkflowEntityBinding.entity_table`) -- convierte esa tabla,
+     * hasta ahora solo escrita por los seeders y nunca consultada en tiempo
+     * de ejecución, en el mecanismo real de desambiguación. Los llamadores
+     * existentes (`TREATMENT`/`SERVICE`/`SCHEDULING`/`TRANSPORT`, todos con
+     * un único workflow de sistema por `entity_type`) no necesitan pasarlo.
      */
-    public static function resolveFor(string $entityType, ?int $organizationId): ?self
+    public static function resolveFor(string $entityType, ?int $organizationId, ?string $entityTable = null): ?self
     {
         if ($organizationId !== null) {
             $bound = static::query()
@@ -114,6 +129,9 @@ class Workflow extends Model
                 ->where('is_active', true)
                 ->whereHas('serviceBindings', function ($query) use ($organizationId) {
                     $query->where('scope_type', 'organization')->where('scope_id', $organizationId);
+                })
+                ->when($entityTable !== null, function ($query) use ($entityTable) {
+                    $query->whereHas('entityBindings', fn ($binding) => $binding->where('entity_table', $entityTable));
                 })
                 ->first();
 
@@ -127,6 +145,9 @@ class Workflow extends Model
             ->whereNull('tenant_organization_id')
             ->where('is_system', true)
             ->where('is_active', true)
+            ->when($entityTable !== null, function ($query) use ($entityTable) {
+                $query->whereHas('entityBindings', fn ($binding) => $binding->where('entity_table', $entityTable));
+            })
             ->first();
     }
 

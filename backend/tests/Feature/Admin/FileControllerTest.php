@@ -1,10 +1,12 @@
 <?php
 
 use App\Models\File;
+use App\Models\ManifestUnload;
 use App\Models\Organization;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\RolePermission;
+use App\Models\UnloadRequest;
 use App\Models\User;
 use App\Models\UserRole;
 use App\Models\Waste;
@@ -493,4 +495,58 @@ test('WasteController::files exige wastes.read Y accesibilidad al residuo', func
     $actor = fileActor(['wastes.read'], $ownOrganization->id);
 
     $this->actingAs($actor)->getJson("/api/admin/wastes/{$foreignWaste->id}/files")->assertForbidden();
+});
+
+// ---- MANIFEST_UNLOAD: evidencias fotográficas (hallazgo Media, especialista-seguridad,
+// revisión Fase 5 "Manifiesto de Descargue" -- ENTITY_FILE_CATEGORIES/CATEGORY_EXTENSIONS
+// no tenían entrada para MANIFEST_UNLOAD y ManifestUnloadPolicy no exponía un método
+// update(), así que Gate::authorize('update', $entity) resolvía false para CUALQUIER
+// actor -- la subida fallaba cerrado para todos, contradiciendo el docblock de File.php) ----
+
+function fuManifestUnloadFixture(): array
+{
+    $receiver = Organization::factory()->create();
+    $carrier = Organization::factory()->create();
+    $unloadRequest = UnloadRequest::factory()->create(['carrier_organization_id' => $carrier->id]);
+    $manifestUnload = ManifestUnload::factory()->create([
+        'receiving_organization_id' => $receiver->id,
+        'unload_request_id' => $unloadRequest->id,
+    ]);
+
+    return [$manifestUnload, $receiver, $carrier];
+}
+
+test('store sube una evidencia fotográfica (PHOTO_EVIDENCE) para manifest_unloads como el receptor legítimo', function () {
+    [$manifestUnload, $receiver] = fuManifestUnloadFixture();
+    $actor = fileActor(['manifest_unloads.update'], $receiver->id);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/files', [
+        'entity_type' => 'MANIFEST_UNLOAD',
+        'entity_id' => $manifestUnload->id,
+        'file_category' => 'PHOTO_EVIDENCE',
+        'file' => UploadedFile::fake()->image('evidencia.jpg'),
+    ])->assertCreated();
+
+    $file = File::query()->findOrFail($response->json('file.id'));
+    expect($file->entity_type)->toBe('MANIFEST_UNLOAD')
+        ->and($file->entity_id)->toBe($manifestUnload->id)
+        ->and($file->file_category)->toBe('PHOTO_EVIDENCE');
+});
+
+test('store rechaza (403) al actor transportador de manifest_unloads -- solo lee/firma, no gestiona evidencias', function () {
+    [$manifestUnload, , $carrier] = fuManifestUnloadFixture();
+
+    // Con el permiso manifest_unloads.update -- aun así rechazado, porque
+    // ManifestUnloadPolicy::update() (misma lógica que manage()) exige
+    // pertenecer a la organización RECEPTORA, no basta con el permiso.
+    $carrierActor = fileActor(['manifest_unloads.update'], $carrier->id);
+
+    $this->actingAs($carrierActor)->postJson('/api/admin/files', [
+        'entity_type' => 'MANIFEST_UNLOAD',
+        'entity_id' => $manifestUnload->id,
+        'file_category' => 'PHOTO_EVIDENCE',
+        'file' => UploadedFile::fake()->image('evidencia.jpg'),
+    ])->assertForbidden();
+
+    expect(File::query()->where('entity_id', $manifestUnload->id)->count())->toBe(0);
 });

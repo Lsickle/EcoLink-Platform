@@ -170,5 +170,13 @@ class DatabaseSeeder extends Seeder
         // arriba). Sin datos de demo de unload_requests todavía.
         $this->call(UnloadRequestStatusSeeder::class);
         $this->call(UnloadRequestWorkflowSeeder::class);
+
+        // Módulo Manifiesto de Descargue, Fase 5 (última fase del plan):
+        // workflow BASE "MANIFEST_UNLOAD" (entity_type=MANIFEST, MISMO
+        // catálogo `manifest_statuses` de Fase 3, sin catálogo nuevo) --
+        // debe correr DESPUÉS de ManifestStatusSeeder (ya sembrado arriba,
+        // vocabulario compartido) y de RoleSeeder (rol LOGÍSTICA, ya
+        // sembrado arriba). Sin datos de demo de manifest_unloads todavía.
+        $this->call(ManifestUnloadWorkflowSeeder::class);
     }
 }
