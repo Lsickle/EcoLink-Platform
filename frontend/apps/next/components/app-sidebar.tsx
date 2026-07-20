@@ -16,7 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon, UserRoundIcon } from "lucide-react"
+import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon, UserRoundIcon, FileSignatureIcon } from "lucide-react"
 import { useAuth } from "app/provider/auth"
 
 // Sin módulos de negocio todavía (Residuos, Solicitudes, Manifiestos, etc.)
@@ -242,6 +242,21 @@ const data = {
       url: "/admin/transport-schedules/dispatch-board",
       icon: <MapIcon />,
       permission: "transport_routes.read",
+    },
+    // Módulo Manifiesto de Cargue, Fase 3 (2026-07-19, backend cerrado -- 1247
+    // tests Pest, hallazgo de seguridad ya cerrado; sin frame de Figma para
+    // esta pantalla, diseño PROPUESTO -- ver docblock de
+    // `ManifestLoadsListScreen.tsx`). Vive en "Residuos" junto a "Programación
+    // de Recolección" (su dominio hermano inmediato: un manifiesto se genera
+    // SIEMPRE a partir de una `transport_schedule` ya existente) y no en
+    // "Administración" -- mismo criterio que esa. `FileSignatureIcon` (nuevo
+    // en este grupo) refleja el panel de firmas propio de este dominio, sin
+    // repetir semántica con `TruckIcon`/`MapIcon` ya usados por sus hermanos.
+    {
+      title: "Manifiestos de Cargue",
+      url: "/admin/manifest-loads",
+      icon: <FileSignatureIcon />,
+      permission: "manifest_loads.read",
     },
     {
       title: "Corrientes Y/A",

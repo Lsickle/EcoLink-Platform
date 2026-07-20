@@ -214,6 +214,20 @@ describe('AppSidebar -- gating de "Residuos" por permisos', () => {
 
     expect(screen.getByText('Rutas de Transporte')).toBeInTheDocument()
   })
+
+  // Módulo Manifiesto de Cargue, Fase 3 (2026-07-19) -- mismo mecanismo de
+  // gating individual que "Programación de Recolección"/"Rutas de Transporte".
+  test('shows "Manifiestos de Cargue" only when the user has manifest_loads.read', () => {
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['transport_schedules.read'] }
+    renderSidebar()
+
+    expect(screen.queryByText('Manifiestos de Cargue')).not.toBeInTheDocument()
+
+    mockUser = { username: 'ana', email: 'ana@example.com', permissions: ['manifest_loads.read'] }
+    renderSidebar()
+
+    expect(screen.getByText('Manifiestos de Cargue')).toBeInTheDocument()
+  })
 })
 
 // Batch 1/3 de Catálogos Maestros (geografía en cascada + Tipos de Sede) --

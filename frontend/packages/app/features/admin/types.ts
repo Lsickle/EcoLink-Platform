@@ -2964,3 +2964,143 @@ export type CreateTransportRoutePayload = {
   observations?: string
   metadata?: Record<string, unknown>
 }
+
+// ---- Manifiesto de Cargue (/api/admin/manifest-loads) ----------------------
+// Módulo Manifiesto de Cargue, Fase 3 (backend cerrado -- 1247 tests Pest,
+// hallazgo de seguridad ya cerrado -- ver docblock completo de
+// `ManifestLoadController`/`ManifestLoadPolicy`/`ManifestLoadWorkflowService`/
+// `ManifestLoadSignatureService`). Acceso DUAL NO SIMÉTRICO (a diferencia de
+// `AdminTransportSchedule`, mismo criterio que `AdminServiceRequest`): AMBOS
+// lados (`carrier_organization_id` -- el Gestor/transportador que programó el
+// transporte -- y la organización Generadora dueña de `generator_branch_id`)
+// pueden VER el manifiesto, pero SOLO el lado transportador puede
+// generar/cancelar/iniciar tránsito; el Generador tiene solo lectura + firmar
+// como GENERATOR (ver `ManifestLoadPolicy::manage()`/`::sign()`).
+//
+// Grafo cubierto por este controller (ver docblock de `ManifestLoadController`):
+// Draft->(generate)->Generated->(sign, automático)->PartiallySigned/Signed
+// ->(startTransit)->InTransit. Cancelled alcanzable SOLO desde
+// Generated/PartiallySigned. `Received`/`Closed` pertenecen al ciclo del
+// futuro `manifest_unloads` (Fase 5) -- el catálogo `manifest_statuses` los
+// incluye (8 valores compartidos), pero nunca aparecen en un `manifest_load`.
+export type AdminManifestStatus = {
+  id: number
+  code: string
+  name: string
+  description: string | null
+  sort_order: number
+  is_initial: boolean
+  is_final: boolean
+  color_hex: string | null
+  icon: string | null
+  is_active: boolean
+}
+
+// Fila de `GET /api/admin/manifest-loads` -- ver
+// `ManifestLoadController::index()`, que eager-carga exactamente estas 5
+// relaciones (columnas mínimas cada una).
+export type AdminManifestLoad = {
+  id: number
+  uuid: string
+  tenant_organization_id: number
+  manifest_number: string
+  transport_schedule_id: number
+  generator_branch_id: number
+  carrier_organization_id: number
+  vehicle_id: number
+  transport_personnel_id: number
+  load_date: string
+  load_started_at: string | null
+  load_completed_at: string | null
+  declared_total_weight_kg: number | string | null
+  declared_total_volume_m3: number | string | null
+  generator_signer_person_id: number
+  generator_signed_at: string | null
+  driver_signer_person_id: number
+  driver_signed_at: string | null
+  pdf_file_id: number | null
+  observations: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  manifest_status?: AdminManifestStatus
+  transport_schedule?: { id: number; schedule_number: string }
+  carrier_organization?: { id: number; legal_name: string }
+  generator_branch?: { id: number; name: string; organization_id: number }
+  vehicle?: { id: number; plate_number: string }
+}
+
+// Ítem de carga (`manifest_load_items`) -- ver migración
+// `create_manifest_load_items_table` (esquema-bd). Derivado automáticamente
+// de un `transport_schedule_item` al crear el manifiesto -- no se selecciona
+// a mano (ver docblock de `ManifestLoadController::store()`).
+export type AdminManifestLoadItem = {
+  id: number
+  uuid: string
+  manifest_load_id: number
+  transport_schedule_item_id: number | null
+  waste_id: number
+  approved_treatment_id: number | null
+  declared_quantity: number | string
+  unit_of_measure: string
+  actual_weight_kg: number | string | null
+  actual_volume_m3: number | string | null
+  container_quantity: number | null
+  packaging_type: string | null
+  internal_container_code: string | null
+  packaging_condition: string | null
+  transport_approved: boolean
+  special_handling_required: boolean
+  observations: string | null
+  line_number: number
+  is_active: boolean
+  waste?: { id: number; name: string; code: string | null }
+}
+
+// GET /api/admin/manifest-loads/{id} -- ver `ManifestLoadController::show()`.
+// A diferencia de la fila de `index()`, TODAS las relaciones vienen SIEMPRE
+// eager-cargadas, incluyendo los firmantes (`generator_signer_person`/
+// `driver_signer_person`) que alimentan el panel de firmas de la UI.
+export type AdminManifestLoadDetail = Omit<
+  AdminManifestLoad,
+  'manifest_status' | 'transport_schedule' | 'carrier_organization' | 'generator_branch' | 'vehicle'
+> & {
+  manifest_status: AdminManifestStatus
+  transport_schedule: { id: number; schedule_number: string; organization_id: number }
+  generator_branch: { id: number; name: string; organization_id: number }
+  carrier_organization: { id: number; legal_name: string }
+  vehicle: AdminVehicle
+  transport_personnel: {
+    id: number
+    license_number: string | null
+    license_category: string | null
+    has_hazmat_permit: boolean
+    person: { id: number; first_name: string; last_name: string }
+  }
+  generator_signer_person: { id: number; first_name: string; last_name: string; document_number?: string }
+  driver_signer_person: { id: number; first_name: string; last_name: string; document_number?: string }
+  items: AdminManifestLoadItem[]
+}
+
+// POST /api/admin/manifest-loads -- ver `ManifestLoadController::store()`. El
+// resto de los campos (branch/carrier/vehicle/personnel/driver_signer/items)
+// se derivan AUTOMÁTICAMENTE server-side del `transport_schedule_id` -- NO se
+// aceptan independientes en este payload (ver docblock completo del
+// controller). `generator_signer_person_id` es la ÚNICA persona que se elige
+// a mano -- debe pertenecer a la organización Generadora dueña de la sede de
+// origen de la programación (anti-IDOR server-side,
+// `ManifestLoadController::assertPersonBelongsToOrganization()`).
+export type CreateManifestLoadPayload = {
+  transport_schedule_id: number
+  generator_signer_person_id: number
+  load_date?: string
+  observations?: string
+}
+
+// POST .../sign -- ver `ManifestLoadController::sign()`/
+// `ManifestLoadSignatureService`. Anti-IDOR fino por tipo de firmante ya
+// resuelto server-side (`assertActorCanSign()`) -- el frontend solo oculta el
+// botón cuyo lado no le corresponde al actor, sin duplicar esa validación.
+export type SignManifestLoadPayload = {
+  signer_type: 'GENERATOR' | 'DRIVER'
+}

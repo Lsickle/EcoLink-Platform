@@ -1,21 +1,28 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { TruckIcon } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   ApiValidationError,
   cancelTransportSchedule,
   confirmTransportSchedule,
+  createManifestLoad,
   fetchTransportSchedule,
   submitTransportSchedule,
   type AdminTransportScheduleDetail,
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
+import { createManifestLoadSchema } from 'app/features/admin/schemas'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
+import { ContactSearchSelect } from '../ContactSearchSelect'
 
 function errorMessage(error: unknown, key: string): string {
   if (error instanceof ApiValidationError) {
@@ -56,8 +63,29 @@ const STATUS_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructiv
  * crear `transport_routes`, ver AVISO completo en
  * `AssignTransportScheduleToRoutePayload` (types.ts). Se señala en vez de
  * adivinar un contrato de rutas.
+ *
+ * Punto de entrada de Manifiesto de Cargue, Fase 3 (2026-07-19, sin frame de
+ * Figma -- diseño PROPUESTO, ver resumen del lote): "Generar Manifiesto de
+ * Cargue" gateado por `manifest_loads.create` + ser dueño de la programación
+ * (mismo criterio `isOwner` de arriba) + `transport_status.code === 'CONF'`.
+ * Esta precondición de estado es una DECISIÓN DE ESTE LOTE, no impuesta por
+ * el backend (`ManifestLoadPolicy::create()` no valida el estado de la
+ * programación) -- se eligió "Confirmada" porque es el primer estado con
+ * vehículo/conductor ya fijos en firme, evitando manifiestos huérfanos si la
+ * programación se reprograma después. El backend igual protege contra
+ * duplicados (`manifest_loads_active_unique`) si se intenta generar más de
+ * uno para la misma programación.
+ *
+ * `ContactSearchSelect` recibe `transportScheduleId={scheduleId}` (lote
+ * 2026-07-19, cierre del gap "0 resultados" señalado en un lote anterior):
+ * `OrganizationController::searchContacts()` ahora acota la búsqueda del
+ * firmante a la organización Generadora real de ESTA programación (en vez de
+ * la organización del actor), para que un actor de tenant normal (Gestor/
+ * transportador, no platform staff) también pueda encontrar contactos del
+ * Generador al crear el manifiesto.
  */
 export function TransportScheduleDetailScreen({ scheduleId }: { scheduleId: number | string }) {
+  const router = useRouter()
   const { user } = useAuth()
   const { isAuthorized } = useRequireAuth('transport_schedules.read')
 
@@ -69,6 +97,14 @@ export function TransportScheduleDetailScreen({ scheduleId }: { scheduleId: numb
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isConfirming, setIsConfirming] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
+
+  const [manifestDialogOpen, setManifestDialogOpen] = useState(false)
+  const [generatorSignerPersonId, setGeneratorSignerPersonId] = useState<number | null>(null)
+  const [generatorSignerPersonLabel, setGeneratorSignerPersonLabel] = useState<string | null>(null)
+  const [manifestLoadDate, setManifestLoadDate] = useState('')
+  const [manifestObservations, setManifestObservations] = useState('')
+  const [manifestFormError, setManifestFormError] = useState<string | null>(null)
+  const [isCreatingManifest, setIsCreatingManifest] = useState(false)
 
   function reload() {
     return fetchTransportSchedule(scheduleId).then((result) => {
@@ -133,6 +169,52 @@ export function TransportScheduleDetailScreen({ scheduleId }: { scheduleId: numb
     }
   }
 
+  function resetManifestForm() {
+    setGeneratorSignerPersonId(null)
+    setGeneratorSignerPersonLabel(null)
+    setManifestLoadDate('')
+    setManifestObservations('')
+    setManifestFormError(null)
+  }
+
+  function handleManifestDialogOpenChange(open: boolean) {
+    setManifestDialogOpen(open)
+    if (!open) resetManifestForm()
+  }
+
+  async function handleCreateManifest(event: React.FormEvent) {
+    event.preventDefault()
+    setManifestFormError(null)
+
+    const parsed = createManifestLoadSchema.safeParse({
+      transportScheduleId: Number(scheduleId),
+      generatorSignerPersonId: generatorSignerPersonId ?? 0,
+      loadDate: manifestLoadDate,
+      observations: manifestObservations,
+    })
+
+    if (!parsed.success) {
+      setManifestFormError(parsed.error.issues[0]?.message ?? 'Revisa los datos del formulario.')
+      return
+    }
+
+    setIsCreatingManifest(true)
+    try {
+      const { manifest_load: created } = await createManifestLoad({
+        transport_schedule_id: parsed.data.transportScheduleId,
+        generator_signer_person_id: parsed.data.generatorSignerPersonId,
+        load_date: parsed.data.loadDate || undefined,
+        observations: parsed.data.observations || undefined,
+      })
+      handleManifestDialogOpenChange(false)
+      router.push(`/admin/manifest-loads/${created.id}`)
+    } catch (error) {
+      setManifestFormError(errorMessage(error, 'generator_signer_person_id'))
+    } finally {
+      setIsCreatingManifest(false)
+    }
+  }
+
   if (!isAuthorized || isLoading) {
     return (
       <p className="text-sm text-muted-foreground" role="status">
@@ -159,6 +241,9 @@ export function TransportScheduleDetailScreen({ scheduleId }: { scheduleId: numb
   const canSubmit = canUpdate && statusCode === 'BOR'
   const canConfirm = canUpdate && (statusCode === 'PEND' || statusCode === 'PROG')
   const canCancel = isOwner && permissions.includes('transport_schedules.cancel') && !isFinal
+  // Ver AVISO completo en el docblock del componente -- precondición de
+  // estado (`CONF`) decidida en este lote, no impuesta por el backend.
+  const canCreateManifest = isOwner && permissions.includes('manifest_loads.create') && statusCode === 'CONF'
 
   const statusBadgeVariant = (statusCode && STATUS_BADGE_VARIANT[statusCode]) || 'outline'
 
@@ -195,6 +280,71 @@ export function TransportScheduleDetailScreen({ scheduleId }: { scheduleId: numb
               <Button size="sm" variant="outline" disabled={isCancelling} onClick={handleCancel}>
                 {isCancelling ? 'Cancelando…' : 'Cancelar'}
               </Button>
+            )}
+            {canCreateManifest && (
+              <Dialog open={manifestDialogOpen} onOpenChange={handleManifestDialogOpenChange}>
+                <DialogTrigger render={<Button size="sm" variant="outline">Generar Manifiesto de Cargue</Button>} />
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Generar Manifiesto de Cargue</DialogTitle>
+                  </DialogHeader>
+                  <form onSubmit={handleCreateManifest} className="flex flex-col gap-4" noValidate>
+                    <ContactSearchSelect
+                      label="Firmante del Generador"
+                      htmlId="manifestGeneratorSignerPersonId"
+                      selectedId={generatorSignerPersonId}
+                      selectedLabel={generatorSignerPersonLabel}
+                      transportScheduleId={scheduleId}
+                      onSelect={(result) => {
+                        setGeneratorSignerPersonId(result.id)
+                        setGeneratorSignerPersonLabel(`${result.first_name} ${result.last_name} (${result.document_number})`)
+                      }}
+                      onClear={() => {
+                        setGeneratorSignerPersonId(null)
+                        setGeneratorSignerPersonLabel(null)
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Debe ser un contacto de la organización Generadora dueña de la sede de origen ({detail.source_branch.name}),
+                      no de tu propia organización.
+                    </p>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="manifestLoadDate">
+                        Fecha de Cargue <span className="text-muted-foreground">(opcional)</span>
+                      </Label>
+                      <Input
+                        id="manifestLoadDate"
+                        type="date"
+                        value={manifestLoadDate}
+                        onChange={(event) => setManifestLoadDate(event.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="manifestObservations">
+                        Observaciones <span className="text-muted-foreground">(opcional)</span>
+                      </Label>
+                      <Input
+                        id="manifestObservations"
+                        value={manifestObservations}
+                        onChange={(event) => setManifestObservations(event.target.value)}
+                      />
+                    </div>
+                    {manifestFormError && (
+                      <p className="text-sm text-destructive" role="alert">
+                        {manifestFormError}
+                      </p>
+                    )}
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => handleManifestDialogOpenChange(false)}>
+                        Cancelar
+                      </Button>
+                      <Button type="submit" disabled={isCreatingManifest}>
+                        {isCreatingManifest ? 'Generando…' : 'Generar Manifiesto'}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
             )}
           </div>
         </CardHeader>

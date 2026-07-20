@@ -486,3 +486,18 @@ export const updateTransportPersonnelSchema = createTransportPersonnelSchema
   .extend({ isActive: z.boolean() })
 
 export type UpdateTransportPersonnelFormValues = z.infer<typeof updateTransportPersonnelSchema>
+
+// POST /api/admin/manifest-loads -- ver `ManifestLoadController::store()`
+// (Módulo Manifiesto de Cargue, Fase 3). El resto de los campos
+// (branch/carrier/vehicle/personnel/driver_signer/items) se derivan
+// AUTOMÁTICAMENTE server-side del `transportScheduleId` -- este formulario
+// SOLO pide `generatorSignerPersonId` (vía `ContactSearchSelect`) y,
+// opcionalmente, `loadDate`/`observations`.
+export const createManifestLoadSchema = z.object({
+  transportScheduleId: z.number().int().positive(),
+  generatorSignerPersonId: z.number().int().positive('Selecciona el firmante del Generador.'),
+  loadDate: z.string().trim().optional().or(z.literal('')),
+  observations: z.string().trim().optional().or(z.literal('')),
+})
+
+export type CreateManifestLoadFormValues = z.infer<typeof createManifestLoadSchema>

@@ -14,6 +14,8 @@ import type {
   AdminHazardCharacteristic,
   AdminInvitationRequest,
   AdminLocality,
+  AdminManifestLoad,
+  AdminManifestLoadDetail,
   AdminMunicipality,
   AdminOrganization,
   AdminOrganizationalArea,
@@ -79,6 +81,7 @@ import type {
   CreateBranchTypePayload,
   CreateServiceRequestPayload,
   CreateHazardCharacteristicPayload,
+  CreateManifestLoadPayload,
   CreateOrganizationalAreaPayload,
   CreateOrganizationContactPayload,
   CreateOrganizationPayload,
@@ -115,6 +118,7 @@ import type {
   RejectTreatmentApprovalTechnicalPayload,
   RejectWastePayload,
   RoleActivityEvent,
+  SignManifestLoadPayload,
   TreatmentApprovalCommercialStatus,
   TreatmentApprovalTechnicalStatus,
   UpdateBranchPayload,
@@ -1313,10 +1317,26 @@ export async function revokeOrganizationContact(
 // poblar el combo (acotado al tenant del actor, o global si platform staff),
 // nunca dejar que el usuario escriba un id a mano (ver
 // `OrganizationController::searchContacts()`).
+//
+// `transportScheduleId` (lote 2026-07-19, cierre del gap "0 resultados" para
+// el firmante del Generador en "Generar Manifiesto de Cargue"): cuando se
+// manda, el backend acota la búsqueda a la organización GENERADORA real de
+// esa `transport_schedule` (en vez de la organización del actor) -- IMPORTANTE:
+// `q` pasa a ser OBLIGATORIO en el backend en ese caso (422 en `errors.q` si
+// viene vacío/ausente), a diferencia del uso normal donde `q` es opcional.
+// El caller es responsable de no invocar esto con `q` vacío cuando manda
+// `transportScheduleId` (ver `ContactSearchSelect.tsx`, que nunca busca sin
+// al menos un carácter). Puede además rechazar con 404 (programación
+// inexistente) o 403 (`'No tiene acceso a esta programación de transporte.'`,
+// actor sin permiso para operarla).
 export async function searchContacts(
-  params: { q?: string; perPage?: number } = {}
+  params: { q?: string; perPage?: number; transportScheduleId?: number | string } = {}
 ): Promise<Paginated<ContactSearchResult>> {
-  const query = buildQuery({ q: params.q, per_page: params.perPage })
+  const query = buildQuery({
+    q: params.q,
+    per_page: params.perPage,
+    transport_schedule_id: params.transportScheduleId,
+  })
   return apiFetch(`/api/admin/organizations/contacts/search${query}`)
 }
 
@@ -2629,6 +2649,74 @@ export async function createTransportRoute(
   payload: CreateTransportRoutePayload
 ): Promise<{ transport_route: AdminTransportRoute }> {
   return apiFetch('/api/admin/transport-routes', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// ---- Manifiesto de Cargue (/api/admin/manifest-loads) ----------------------
+// Módulo Manifiesto de Cargue, Fase 3 (backend cerrado -- 1247 tests Pest,
+// hallazgo de seguridad ya cerrado -- ver docblock completo de
+// `ManifestLoadController`/AVISO en `AdminManifestLoad` (types.ts)).
+
+export async function fetchManifestLoads(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    organizationId?: number | string
+    status?: string
+  } = {}
+): Promise<Paginated<AdminManifestLoad>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    organization_id: params.organizationId,
+    status: params.status,
+  })
+  return apiFetch(`/api/admin/manifest-loads${query}`)
+}
+
+export async function fetchManifestLoad(id: number | string): Promise<{ manifest_load: AdminManifestLoadDetail }> {
+  return apiFetch(`/api/admin/manifest-loads/${id}`)
+}
+
+// POST /api/admin/manifest-loads -- ver `ManifestLoadController::store()`. La
+// respuesta real del backend es `manifestLoad->fresh(['items',
+// 'manifestStatus', 'carrierOrganization:id,legal_name', 'vehicle',
+// 'transportPersonnel'])` -- el caller (formulario de creación, embebido en
+// `TransportScheduleDetailScreen.tsx`) solo necesita `id` para redirigir al
+// detalle (que sí hace un `show()` completo), mismo criterio que
+// `createTransportSchedule()`.
+export async function createManifestLoad(
+  payload: CreateManifestLoadPayload
+): Promise<{ manifest_load: { id: number; manifest_number: string } }> {
+  return apiFetch('/api/admin/manifest-loads', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// POST .../generate -- Draft -> Generated (rol LOGÍSTICA, lado transportador).
+export async function generateManifestLoad(id: number | string): Promise<{ manifest_load: { id: number } }> {
+  return apiFetch(`/api/admin/manifest-loads/${id}/generate`, { method: 'POST' })
+}
+
+// POST .../sign -- ver `ManifestLoadController::sign()`. Recalcula el estado
+// automáticamente (Generated/PartiallySigned/Signed según cuántas firmas
+// haya) -- el caller siempre recarga el detalle completo después.
+export async function signManifestLoad(
+  id: number | string,
+  payload: SignManifestLoadPayload
+): Promise<{ manifest_load: { id: number } }> {
+  return apiFetch(`/api/admin/manifest-loads/${id}/sign`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// POST .../start-transit -- Signed -> InTransit. RN-193 (ya gateada
+// server-side): rechaza con 422 si falta alguna firma.
+export async function startManifestLoadTransit(id: number | string): Promise<{ manifest_load: { id: number } }> {
+  return apiFetch(`/api/admin/manifest-loads/${id}/start-transit`, { method: 'POST' })
+}
+
+// POST .../cancel -- -> Cancelled, alcanzable SOLO desde Generated/
+// PartiallySigned (ver docblock de `ManifestLoadController::cancel()`).
+export async function cancelManifestLoad(id: number | string): Promise<{ manifest_load: { id: number } }> {
+  return apiFetch(`/api/admin/manifest-loads/${id}/cancel`, { method: 'POST' })
 }
 
 export type * from './types'
