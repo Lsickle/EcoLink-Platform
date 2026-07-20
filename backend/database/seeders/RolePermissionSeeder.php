@@ -56,6 +56,9 @@ class RolePermissionSeeder extends Seeder
         'transport_personnel.read', 'transport_personnel.create', 'transport_personnel.update',
         'transport_routes.read', 'transport_routes.create',
         'manifest_loads.read', 'manifest_loads.create', 'manifest_loads.update', 'manifest_loads.sign', 'manifest_loads.cancel',
+        'branch_locations.read', 'branch_locations.create', 'branch_locations.update',
+        'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
+        'plant_reception_schedules.read', 'plant_reception_schedules.manage',
     ];
 
     /**
@@ -103,6 +106,17 @@ class RolePermissionSeeder extends Seeder
      * lado Generador; hasta que se siembre uno, cualquier actor del lado
      * Generador que necesite firmar debe tener asignado ADMINISTRADOR o
      * LOGÍSTICA.
+     *
+     * `unload_requests.*`/`plant_reception_schedules.*` (Fase 4 "Cita de
+     * Recepción en Planta", D-PRG-02/D-PRG-13): acceso COMPLETO, mismo FLAG
+     * documentado arriba para `manifest_loads.sign` -- ambos lados
+     * (transportador Y receptor) usan el MISMO rol de sistema LOGÍSTICA
+     * hasta que existan roles dedicados por lado; la restricción fina de
+     * "qué organización concreta" vive en `UnloadRequestPolicy`/
+     * `PlantReceptionSchedulePolicy` (acceso dual por organización), no en
+     * el catálogo de permisos. `branch_locations.*` NO se asigna a
+     * LOGÍSTICA -- mismo criterio que `branches.*` (gestión de sedes/muelles
+     * queda SOLO en ADMINISTRADOR).
      */
     private const LOGISTICA_PERMISSION_CODES = [
         'vehicles.read',
@@ -110,6 +124,8 @@ class RolePermissionSeeder extends Seeder
         'transport_personnel.read',
         'transport_routes.read', 'transport_routes.create',
         'manifest_loads.read', 'manifest_loads.create', 'manifest_loads.update', 'manifest_loads.sign', 'manifest_loads.cancel',
+        'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
+        'plant_reception_schedules.read', 'plant_reception_schedules.manage',
     ];
 
     public function run(): void

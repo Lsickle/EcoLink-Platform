@@ -162,5 +162,13 @@ class DatabaseSeeder extends Seeder
         // arriba). Sin datos de demo de manifest_loads todavía.
         $this->call(ManifestStatusSeeder::class);
         $this->call(ManifestLoadWorkflowSeeder::class);
+
+        // Módulo Cita de Recepción en Planta, Fase 4: catálogo BASE
+        // "unload_request_statuses" (DRAFT/SUBMITTED/APPROVED/REJECTED) +
+        // workflow BASE "Solicitud de Descargue" (entity_type=TRANSPORT) --
+        // debe correr DESPUÉS de RoleSeeder (rol LOGÍSTICA, ya sembrado
+        // arriba). Sin datos de demo de unload_requests todavía.
+        $this->call(UnloadRequestStatusSeeder::class);
+        $this->call(UnloadRequestWorkflowSeeder::class);
     }
 }

@@ -31,6 +31,7 @@ use Database\Seeders\ServiceItemStatusSeeder;
 use Database\Seeders\ServiceStatusSeeder;
 use Database\Seeders\TransportScheduleWorkflowSeeder;
 use Database\Seeders\TransportStatusSeeder;
+use Database\Seeders\UnloadRequestStatusSeeder;
 
 // Módulo Programación Logística, Fase 2a (D-PRG-01 a D-PRG-14) --
 // TransportScheduleController + TransportScheduleWorkflowService. Mismo
@@ -58,6 +59,11 @@ beforeEach(function () {
     $this->seed(ServiceItemStatusSeeder::class);
     $this->seed(TransportStatusSeeder::class);
     $this->seed(TransportScheduleWorkflowSeeder::class);
+    // Fase 4 "Cita de Recepción en Planta" (D-PRG-13): confirm() ahora
+    // dispara la creación automática de una unload_requests -- necesita el
+    // catálogo de estados sembrado, aunque esta suite no pruebe la Fase 4
+    // directamente (ver UnloadRequestControllerTest para esos casos).
+    $this->seed(UnloadRequestStatusSeeder::class);
 });
 
 /**

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\BranchController;
+use App\Http\Controllers\Api\Admin\BranchLocationController;
 use App\Http\Controllers\Api\Admin\BranchTreatmentController;
 use App\Http\Controllers\Api\Admin\BranchTypeController;
 use App\Http\Controllers\Api\Admin\BusinessRoleController;
@@ -22,6 +23,7 @@ use App\Http\Controllers\Api\Admin\PackagingConditionController;
 use App\Http\Controllers\Api\Admin\PackagingTypeController;
 use App\Http\Controllers\Api\Admin\PermissionController;
 use App\Http\Controllers\Api\Admin\PhysicalStateController;
+use App\Http\Controllers\Api\Admin\PlantReceptionScheduleController;
 use App\Http\Controllers\Api\Admin\PreapprovedWasteController;
 use App\Http\Controllers\Api\Admin\RespelStatusController;
 use App\Http\Controllers\Api\Admin\RoleController;
@@ -31,6 +33,7 @@ use App\Http\Controllers\Api\Admin\TransportRouteController;
 use App\Http\Controllers\Api\Admin\TransportScheduleController;
 use App\Http\Controllers\Api\Admin\TreatmentController;
 use App\Http\Controllers\Api\Admin\UnCodeController;
+use App\Http\Controllers\Api\Admin\UnloadRequestController;
 use App\Http\Controllers\Api\Admin\UserManagementController;
 use App\Http\Controllers\Api\Admin\VehicleController;
 use App\Http\Controllers\Api\Admin\VehicleTypeController;
@@ -520,6 +523,34 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('manifest-loads/{manifestLoad}/sign', [ManifestLoadController::class, 'sign'])->name('manifest-loads.sign');
         Route::post('manifest-loads/{manifestLoad}/start-transit', [ManifestLoadController::class, 'startTransit'])->name('manifest-loads.start-transit');
         Route::post('manifest-loads/{manifestLoad}/cancel', [ManifestLoadController::class, 'cancel'])->name('manifest-loads.cancel');
+
+        // Fase 4 "Cita de Recepción en Planta (bilateral)" -- CRUD mínimo de
+        // Muelles (`branch_locations`), ver docblock de BranchLocationController.
+        Route::get('branch-locations', [BranchLocationController::class, 'index'])->name('branch-locations.index');
+        Route::post('branch-locations', [BranchLocationController::class, 'store'])->name('branch-locations.store');
+        Route::get('branch-locations/{branchLocation}', [BranchLocationController::class, 'show'])->name('branch-locations.show');
+        Route::put('branch-locations/{branchLocation}', [BranchLocationController::class, 'update'])->name('branch-locations.update');
+
+        // Fase 4 -- `unload_requests` (Draft->Submitted->Approved/Rejected).
+        // La mayoría nace automáticamente al confirmar una transport_schedule
+        // (D-PRG-13, ver TransportScheduleController::confirm()); store() cubre
+        // el caso "anticipada" (D-RCP). Ver docblock de UnloadRequestController.
+        Route::get('unload-requests', [UnloadRequestController::class, 'index'])->name('unload-requests.index');
+        Route::post('unload-requests', [UnloadRequestController::class, 'store'])->name('unload-requests.store');
+        Route::get('unload-requests/{unloadRequest}', [UnloadRequestController::class, 'show'])->name('unload-requests.show');
+        Route::post('unload-requests/{unloadRequest}/submit', [UnloadRequestController::class, 'submit'])->name('unload-requests.submit');
+        Route::post('unload-requests/{unloadRequest}/approve', [UnloadRequestController::class, 'approve'])->name('unload-requests.approve');
+        Route::post('unload-requests/{unloadRequest}/reject', [UnloadRequestController::class, 'reject'])->name('unload-requests.reject');
+
+        // Fase 4 -- `plant_reception_schedules` (propose/counterPropose/
+        // confirm/reschedule), expuesta sobre un unload_request ya Aprobado.
+        // Capa de servicio propia (PlantReceptionScheduleService), NO el motor
+        // de Workflow genérico -- ver docblock de PlantReceptionScheduleController.
+        Route::get('unload-requests/{unloadRequest}/reception-schedule', [PlantReceptionScheduleController::class, 'show'])->name('unload-requests.reception-schedule.show');
+        Route::post('unload-requests/{unloadRequest}/reception-schedule', [PlantReceptionScheduleController::class, 'propose'])->name('unload-requests.reception-schedule.propose');
+        Route::post('plant-reception-schedules/{schedule}/counter-propose', [PlantReceptionScheduleController::class, 'counterPropose'])->name('plant-reception-schedules.counter-propose');
+        Route::post('plant-reception-schedules/{schedule}/confirm', [PlantReceptionScheduleController::class, 'confirm'])->name('plant-reception-schedules.confirm');
+        Route::post('plant-reception-schedules/{schedule}/reschedule', [PlantReceptionScheduleController::class, 'reschedule'])->name('plant-reception-schedules.reschedule');
 
         // Subsistema TRANSVERSAL de archivos (esquema-bd: `files`). La
         // autorización real vive SIEMPRE en la entidad dueña (Policy

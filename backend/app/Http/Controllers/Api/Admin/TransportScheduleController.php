@@ -18,6 +18,7 @@ use App\Models\WasteServiceRequestItem;
 use App\Policies\TransportSchedulePolicy;
 use App\Models\User;
 use App\Services\TransportScheduleWorkflowService;
+use App\Services\UnloadRequestAutomationService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -367,7 +368,28 @@ class TransportScheduleController extends Controller
             ['transport_schedule_id' => $schedule->id, 'organization_id' => $schedule->organization_id],
         );
 
-        return response()->json(['transport_schedule' => $schedule->fresh(['transportStatus'])]);
+        // D-PRG-13 (Fase 4, "Cita de Recepción en Planta"): al confirmar la
+        // programación, dispara la creación automática de una
+        // `unload_requests` derivada -- implementación DIRECTA en código de
+        // aplicación (NO el motor genérico de acciones automáticas,
+        // diferido explícitamente por falta de un segundo caso de uso real,
+        // ver docblock de `UnloadRequestAutomationService`). El
+        // `plant_reception_schedule` inicial NO se crea aquí todavía -- eso
+        // requiere que la `unload_request` esté `Approved` primero
+        // (RN-RCP-015), disparado a mano vía
+        // `PlantReceptionScheduleController::propose()`.
+        $unloadRequest = UnloadRequestAutomationService::createFromConfirmedSchedule($schedule, $actor);
+
+        $this->logSecurityEvent(
+            $request, 'UNLOAD_REQUEST_CREATED', 'SUCCESS',
+            "Solicitud de descargue '{$unloadRequest->request_number}' creada automáticamente al confirmar la programación de transporte '{$schedule->schedule_number}'.", $actor,
+            ['unload_request_id' => $unloadRequest->id, 'transport_schedule_id' => $schedule->id],
+        );
+
+        return response()->json([
+            'transport_schedule' => $schedule->fresh(['transportStatus']),
+            'unload_request' => $unloadRequest->fresh(['unloadRequestStatus']),
+        ]);
     }
 
     /**
