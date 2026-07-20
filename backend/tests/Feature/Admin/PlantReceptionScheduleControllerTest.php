@@ -389,3 +389,186 @@ test('show(): una organización ajena a ambos lados recibe 403 (IDOR)', function
 
     $this->actingAs($foreignActor)->getJson("/api/admin/unload-requests/{$unloadRequest->id}/reception-schedule")->assertForbidden();
 });
+
+// ---- index(): agenda general por sede receptora ----
+
+test('index() requiere receiving_branch_id (422 si falta)', function () {
+    $actor = prsActor(['plant_reception_schedules.read'], Organization::factory()->create()->id);
+
+    $this->actingAs($actor)->getJson('/api/admin/plant-reception-schedules')
+        ->assertUnprocessable()->assertJsonValidationErrors('receiving_branch_id');
+});
+
+test('index() lista las franjas de la sede para el actor del lado RECEPTOR', function () {
+    [$unloadRequest, , $receiver, , $receiverActor] = prsApprovedRequestFixture();
+
+    $this->actingAs($receiverActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/reception-schedule", prsSlotPayload())->assertCreated();
+
+    $response = $this->actingAs($receiverActor)->getJson('/api/admin/plant-reception-schedules?receiving_branch_id='.$unloadRequest->receiving_branch_id)
+        ->assertOk();
+
+    expect($response->json('data'))->toHaveCount(1)
+        ->and($response->json('data.0.unload_request_id'))->toBe($unloadRequest->id);
+});
+
+test('index() lista las franjas de la sede para el actor del lado TRANSPORTADOR (carrier)', function () {
+    [$unloadRequest, , , $carrierActor, $receiverActor] = prsApprovedRequestFixture();
+
+    $this->actingAs($receiverActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/reception-schedule", prsSlotPayload())->assertCreated();
+
+    $this->actingAs($carrierActor)->getJson('/api/admin/plant-reception-schedules?receiving_branch_id='.$unloadRequest->receiving_branch_id)
+        ->assertOk()
+        ->assertJsonCount(1, 'data');
+});
+
+test('index() NO devuelve franjas de una tercera organización ajena a ambos lados (IDOR)', function () {
+    [$unloadRequest, , , , $receiverActor] = prsApprovedRequestFixture();
+
+    $this->actingAs($receiverActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/reception-schedule", prsSlotPayload())->assertCreated();
+
+    $foreignActor = prsActor(['plant_reception_schedules.read'], Organization::factory()->create()->id);
+
+    $this->actingAs($foreignActor)->getJson('/api/admin/plant-reception-schedules?receiving_branch_id='.$unloadRequest->receiving_branch_id)
+        ->assertOk()
+        ->assertJsonCount(0, 'data');
+});
+
+test('index() sin el permiso plant_reception_schedules.read recibe 403', function () {
+    $actor = User::factory()->create(['tenant_organization_id' => Organization::factory()->create()->id]);
+    $branch = Branch::factory()->create();
+
+    $this->actingAs($actor)->getJson('/api/admin/plant-reception-schedules?receiving_branch_id='.$branch->id)
+        ->assertForbidden();
+});
+
+test('index() filtra por rango de fechas sobre scheduled_date', function () {
+    [$unloadRequest, , , , $receiverActor] = prsApprovedRequestFixture();
+
+    $this->actingAs($receiverActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/reception-schedule", prsSlotPayload())->assertCreated();
+
+    $inRangeFrom = now()->addDay()->toDateString();
+    $inRangeTo = now()->addDays(3)->toDateString();
+    $outOfRangeFrom = now()->addDays(10)->toDateString();
+    $outOfRangeTo = now()->addDays(20)->toDateString();
+
+    $this->actingAs($receiverActor)->getJson("/api/admin/plant-reception-schedules?receiving_branch_id={$unloadRequest->receiving_branch_id}&date_from={$inRangeFrom}&date_to={$inRangeTo}")
+        ->assertOk()->assertJsonCount(1, 'data');
+
+    $this->actingAs($receiverActor)->getJson("/api/admin/plant-reception-schedules?receiving_branch_id={$unloadRequest->receiving_branch_id}&date_from={$outOfRangeFrom}&date_to={$outOfRangeTo}")
+        ->assertOk()->assertJsonCount(0, 'data');
+});
+
+test('index() filtra por status', function () {
+    [$unloadRequest, , , $carrierActor, $receiverActor] = prsApprovedRequestFixture();
+
+    $this->actingAs($receiverActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/reception-schedule", prsSlotPayload())->assertCreated();
+
+    $this->actingAs($receiverActor)->getJson('/api/admin/plant-reception-schedules?receiving_branch_id='.$unloadRequest->receiving_branch_id.'&status=PROPOSED')
+        ->assertOk()->assertJsonCount(1, 'data');
+
+    $this->actingAs($receiverActor)->getJson('/api/admin/plant-reception-schedules?receiving_branch_id='.$unloadRequest->receiving_branch_id.'&status=CONFIRMED')
+        ->assertOk()->assertJsonCount(0, 'data');
+});
+
+// ---- index(): anti-fuga cross-tenant, actor con tenant_organization_id=NULL (hallazgo ALTO, especialista-seguridad, 2026-07-20) ----
+
+/**
+ * `unload_requests.carrier_organization_id` es NULLABLE (D-PRG-02, caso
+ * "anticipada"/autotransporte sin transportador asignado). Antes del fix,
+ * `orWhereHas('unloadRequest', fn ($query) => $query->where('carrier_organization_id',
+ * $actor->tenant_organization_id))` con `$actor->tenant_organization_id ===
+ * null` se traducía a `carrier_organization_id IS NULL`, exponiendo franjas
+ * de CUALQUIER organización cuya `unload_request` tuviera ese campo en NULL
+ * a un actor sin tenant asignado (estado legítimo, ver
+ * `ServiceRequestPolicy::view()`). El fix fuerza lista vacía en ese caso.
+ */
+test('index() devuelve lista VACÍA para un actor con tenant_organization_id=NULL, aunque exista una franja cuya unload_request tenga carrier_organization_id=NULL de OTRA organización', function () {
+    $foreignReceiver = Organization::factory()->create();
+    $foreignBranch = Branch::factory()->create(['organization_id' => $foreignReceiver->id]);
+
+    $foreignUnloadRequest = UnloadRequest::factory()->create([
+        'tenant_organization_id' => $foreignReceiver->id,
+        'receiving_branch_id' => $foreignBranch->id,
+        'carrier_organization_id' => null,
+    ]);
+
+    PlantReceptionSchedule::factory()->create([
+        'tenant_organization_id' => $foreignReceiver->id,
+        'unload_request_id' => $foreignUnloadRequest->id,
+        'receiving_branch_id' => $foreignBranch->id,
+    ]);
+
+    $actorWithoutTenant = prsActor(['plant_reception_schedules.read']);
+
+    $response = $this->actingAs($actorWithoutTenant)->getJson('/api/admin/plant-reception-schedules?receiving_branch_id='.$foreignBranch->id)
+        ->assertOk();
+
+    expect($response->json('data'))->toBeEmpty();
+});
+
+// ---- index(): gap de cobertura (especialista-seguridad, 2026-07-20) -- misma sede, 2 transportadores distintos ----
+
+/**
+ * Gap de cobertura señalado por `especialista-seguridad` (no una
+ * vulnerabilidad -- el aislamiento por fila ya lo aplica el `whereHas`
+ * existente): 2 `unload_requests` sobre la MISMA `receiving_branch_id` pero
+ * con `carrier_organization_id` DISTINTOS (Transportador A y B). Un actor de
+ * A debe ver SOLO su propia franja, nunca la de B, aunque ambas compartan
+ * sede receptora.
+ */
+test('index() sobre la MISMA sede receptora: un actor del transportador A ve SOLO su franja, no la del transportador B', function () {
+    $receiver = Organization::factory()->create();
+    $receivingBranch = Branch::factory()->create(['organization_id' => $receiver->id]);
+    $waste = Waste::factory()->create();
+
+    $carrierA = Organization::factory()->create();
+    $carrierB = Organization::factory()->create();
+
+    $carrierAActor = prsActor(['unload_requests.create', 'unload_requests.update', 'plant_reception_schedules.manage', 'plant_reception_schedules.read'], $carrierA->id);
+    $carrierBActor = prsActor(['unload_requests.create', 'unload_requests.update', 'plant_reception_schedules.manage', 'plant_reception_schedules.read'], $carrierB->id);
+    $receiverActor = prsActor(['unload_requests.decide', 'plant_reception_schedules.manage'], $receiver->id);
+
+    $responseA = test()->actingAs($carrierAActor)->postJson('/api/admin/unload-requests', [
+        'receiving_branch_id' => $receivingBranch->id,
+        'items' => [['waste_id' => $waste->id, 'requested_quantity' => 100]],
+    ])->assertCreated();
+    $unloadRequestA = UnloadRequest::query()->findOrFail($responseA->json('unload_request.id'));
+    test()->actingAs($carrierAActor)->postJson("/api/admin/unload-requests/{$unloadRequestA->id}/submit")->assertOk();
+    test()->actingAs($receiverActor)->postJson("/api/admin/unload-requests/{$unloadRequestA->id}/approve")->assertOk();
+    test()->actingAs($receiverActor)->postJson("/api/admin/unload-requests/{$unloadRequestA->id}/reception-schedule", prsSlotPayload())->assertCreated();
+
+    $responseB = test()->actingAs($carrierBActor)->postJson('/api/admin/unload-requests', [
+        'receiving_branch_id' => $receivingBranch->id,
+        'items' => [['waste_id' => $waste->id, 'requested_quantity' => 100]],
+    ])->assertCreated();
+    $unloadRequestB = UnloadRequest::query()->findOrFail($responseB->json('unload_request.id'));
+    test()->actingAs($carrierBActor)->postJson("/api/admin/unload-requests/{$unloadRequestB->id}/submit")->assertOk();
+    test()->actingAs($receiverActor)->postJson("/api/admin/unload-requests/{$unloadRequestB->id}/approve")->assertOk();
+    test()->actingAs($receiverActor)->postJson("/api/admin/unload-requests/{$unloadRequestB->id}/reception-schedule", prsSlotPayload())->assertCreated();
+
+    $viewA = $this->actingAs($carrierAActor)->getJson('/api/admin/plant-reception-schedules?receiving_branch_id='.$receivingBranch->id)->assertOk();
+    expect($viewA->json('data'))->toHaveCount(1)
+        ->and($viewA->json('data.0.unload_request_id'))->toBe($unloadRequestA->id);
+
+    $viewB = $this->actingAs($carrierBActor)->getJson('/api/admin/plant-reception-schedules?receiving_branch_id='.$receivingBranch->id)->assertOk();
+    expect($viewB->json('data'))->toHaveCount(1)
+        ->and($viewB->json('data.0.unload_request_id'))->toBe($unloadRequestB->id);
+});
+
+test('index() incluye counterProposedByUser cargado cuando existe contrapropuesta', function () {
+    [$unloadRequest, , , $carrierActor, $receiverActor] = prsApprovedRequestFixture();
+
+    $proposeResponse = $this->actingAs($receiverActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/reception-schedule", prsSlotPayload())->assertCreated();
+    $scheduleId = $proposeResponse->json('plant_reception_schedule.id');
+
+    $this->actingAs($carrierActor)->postJson("/api/admin/plant-reception-schedules/{$scheduleId}/counter-propose", [
+        'counter_proposed_date' => now()->addDays(3)->toDateString(),
+        'counter_proposed_start_at' => now()->addDays(3)->setTime(9, 0)->toIso8601String(),
+        'counter_proposed_end_at' => now()->addDays(3)->setTime(11, 0)->toIso8601String(),
+    ])->assertOk();
+
+    $response = $this->actingAs($receiverActor)->getJson('/api/admin/plant-reception-schedules?receiving_branch_id='.$unloadRequest->receiving_branch_id.'&status=COUNTER_PROPOSED')
+        ->assertOk();
+
+    expect($response->json('data.0.counter_proposed_by_user.id'))->toBe($carrierActor->id);
+});

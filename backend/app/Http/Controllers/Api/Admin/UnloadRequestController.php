@@ -46,14 +46,32 @@ class UnloadRequestController extends Controller
 
         $search = $request->input('search');
         $statusCode = $request->input('status');
+        $receivingBranchId = $request->input('receiving_branch_id');
 
         $unloadRequests = UnloadRequest::query()
             ->when(! $actor->isPlatformStaff(), function ($query) use ($actor) {
+                // Hallazgo ALTO (especialista-seguridad, 2026-07-20): sin este guard,
+                // un actor con `tenant_organization_id=NULL` (estado legítimo, ver
+                // `ServiceRequestPolicy::view()` -- "usuarios sin tenant asignado
+                // forman su propio grupo") produce `where('carrier_organization_id',
+                // null)`, que Eloquent traduce a `IS NULL`. Como
+                // `carrier_organization_id` es NULLABLE (caso autotransporte/
+                // anticipada sin transportador asignado, D-PRG-02), ese actor vería
+                // TODAS las filas de CUALQUIER organización con ese campo en NULL --
+                // fuga cross-tenant real. Se fuerza lista vacía en vez de comparar
+                // contra NULL.
+                if ($actor->tenant_organization_id === null) {
+                    $query->whereRaw('1 = 0');
+
+                    return;
+                }
+
                 $query->where(function ($query) use ($actor) {
                     $query->where('carrier_organization_id', $actor->tenant_organization_id)
                         ->orWhereHas('receivingBranch', fn ($query) => $query->where('organization_id', $actor->tenant_organization_id));
                 });
             })
+            ->when($receivingBranchId, fn ($query) => $query->where('receiving_branch_id', $receivingBranchId))
             ->when($search, fn ($query) => $query->where('request_number', 'ILIKE', "%{$search}%"))
             ->when($statusCode, function ($query) use ($statusCode) {
                 $query->whereHas('unloadRequestStatus', fn ($query) => $query->where('code', $statusCode));

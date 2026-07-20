@@ -16,6 +16,17 @@ use App\Models\User;
  */
 class PlantReceptionSchedulePolicy
 {
+    /**
+     * Chequeo GRUESO para `index()` (agenda general) -- el filtrado FINO por
+     * fila (qué franjas concretas puede ver el actor dentro de la sede
+     * consultada) vive en el controller, mismo patrón que
+     * `UnloadRequestPolicy::viewAny()`/`TransportSchedulePolicy::viewAny()`.
+     */
+    public function viewAny(User $actor): bool
+    {
+        return $actor->hasPermission('plant_reception_schedules.read');
+    }
+
     public function view(User $actor, PlantReceptionSchedule $schedule): bool
     {
         return $actor->hasPermission('plant_reception_schedules.read') && $schedule->isAccessibleBy($actor);

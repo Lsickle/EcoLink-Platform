@@ -524,3 +524,34 @@ test('show(): una organización ajena a ambos lados recibe 403 (IDOR)', function
 
     $this->actingAs($foreignActor)->getJson("/api/admin/unload-requests/{$unloadRequest->id}")->assertForbidden();
 });
+
+// ---- index(): anti-fuga cross-tenant, actor con tenant_organization_id=NULL (hallazgo ALTO, especialista-seguridad, 2026-07-20) ----
+
+/**
+ * `carrier_organization_id` es NULLABLE (D-PRG-02, caso "anticipada"/
+ * autotransporte sin transportador asignado). Antes del fix,
+ * `where('carrier_organization_id', $actor->tenant_organization_id)` con
+ * `$actor->tenant_organization_id === null` se traducía a
+ * `carrier_organization_id IS NULL`, exponiendo filas de CUALQUIER
+ * organización con ese campo en NULL a un actor sin tenant asignado (estado
+ * legítimo, ver `ServiceRequestPolicy::view()`, "usuarios sin tenant asignado
+ * forman su propio grupo"). El fix fuerza lista vacía en ese caso.
+ */
+test('index() devuelve lista VACÍA para un actor con tenant_organization_id=NULL, aunque exista una unload_request de OTRA organización con carrier_organization_id=NULL', function () {
+    $foreignReceiver = urGestorOrganization();
+    $foreignBranch = Branch::factory()->create(['organization_id' => $foreignReceiver->id]);
+
+    // carrier_organization_id NULL por defecto de fábrica -- exactamente el
+    // escenario NULLABLE explotable (D-PRG-02).
+    UnloadRequest::factory()->create([
+        'tenant_organization_id' => $foreignReceiver->id,
+        'receiving_branch_id' => $foreignBranch->id,
+        'carrier_organization_id' => null,
+    ]);
+
+    $actorWithoutTenant = urActor(['unload_requests.read']);
+
+    $response = $this->actingAs($actorWithoutTenant)->getJson('/api/admin/unload-requests')->assertOk();
+
+    expect($response->json('total'))->toBe(0);
+});

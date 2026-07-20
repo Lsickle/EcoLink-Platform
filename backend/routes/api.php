@@ -556,6 +556,11 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         // confirm/reschedule), expuesta sobre un unload_request ya Aprobado.
         // Capa de servicio propia (PlantReceptionScheduleService), NO el motor
         // de Workflow genérico -- ver docblock de PlantReceptionScheduleController.
+        // Índice GENERAL (agenda por sede receptora, PlantReceptionAgendaScreen
+        // del frontend) -- declarado ANTES de la ruta anidada de abajo para no
+        // competir con ella (prefijos de URL distintos, sin riesgo real de
+        // colisión, pero se mantiene el orden por legibilidad).
+        Route::get('plant-reception-schedules', [PlantReceptionScheduleController::class, 'index'])->name('plant-reception-schedules.index');
         Route::get('unload-requests/{unloadRequest}/reception-schedule', [PlantReceptionScheduleController::class, 'show'])->name('unload-requests.reception-schedule.show');
         Route::post('unload-requests/{unloadRequest}/reception-schedule', [PlantReceptionScheduleController::class, 'propose'])->name('unload-requests.reception-schedule.propose');
         Route::post('plant-reception-schedules/{schedule}/counter-propose', [PlantReceptionScheduleController::class, 'counterPropose'])->name('plant-reception-schedules.counter-propose');

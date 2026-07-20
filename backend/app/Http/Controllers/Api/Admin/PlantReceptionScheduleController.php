@@ -24,6 +24,78 @@ class PlantReceptionScheduleController extends Controller
     use LogsSecurityEvents;
 
     /**
+     * Índice GENERAL (no anidado bajo una `unload_request`) -- agenda de
+     * citas de recepción por sede, para `PlantReceptionAgendaScreen` en el
+     * frontend. `receiving_branch_id` es OBLIGATORIO: sin él, la consulta
+     * recorrería la tabla completa (todas las sedes de todas las
+     * organizaciones), un volumen que no tiene sentido de negocio -- la
+     * agenda siempre se consulta desde el contexto de UNA planta.
+     *
+     * Aislamiento anti-IDOR: mismo criterio DUAL que
+     * `UnloadRequestController::index()` -- el actor ve las franjas de la
+     * sede consultada si (a) pertenece a la organización dueña de esa sede
+     * (lado receptor, ve TODAS las franjas de su planta), o (b) es el lado
+     * transportador de la `unload_request` dueña de cada franja (solo ve
+     * las suyas), o (c) es platform staff (sin restricción). Ninguna de las
+     * 2 condiciones -> lista vacía, no 403 -- mismo criterio que el índice
+     * general de `UnloadRequestController` (permiso grueso vía
+     * `viewAny()`, filtrado fino por fila vía scope de query).
+     */
+    public function index(Request $request)
+    {
+        $actor = $request->user();
+        abort_unless((new PlantReceptionSchedulePolicy)->viewAny($actor), 403, 'No tiene permiso para consultar la agenda de citas de recepción.');
+
+        $data = $request->validate([
+            'receiving_branch_id' => ['required', 'integer', 'exists:branches,id'],
+            'date_from' => ['sometimes', 'nullable', 'date'],
+            'date_to' => ['sometimes', 'nullable', 'date', 'after_or_equal:date_from'],
+            'status' => ['sometimes', 'nullable', 'string', 'in:'.implode(',', [
+                PlantReceptionSchedule::STATUS_PROPOSED,
+                PlantReceptionSchedule::STATUS_COUNTER_PROPOSED,
+                PlantReceptionSchedule::STATUS_CONFIRMED,
+                PlantReceptionSchedule::STATUS_SUPERSEDED,
+            ])],
+        ]);
+
+        $schedules = PlantReceptionSchedule::query()
+            ->where('receiving_branch_id', $data['receiving_branch_id'])
+            ->when(! $actor->isPlatformStaff(), function ($query) use ($actor) {
+                // Hallazgo ALTO (especialista-seguridad, 2026-07-20), mismo criterio
+                // que `UnloadRequestController::index()`: un actor con
+                // `tenant_organization_id=NULL` (estado legítimo, ver
+                // `ServiceRequestPolicy::view()`) produce `where('organization_id'/
+                // 'carrier_organization_id', null)`, que Eloquent traduce a `IS
+                // NULL`. Como `unload_requests.carrier_organization_id` es NULLABLE
+                // (D-PRG-02), ese actor vería franjas de CUALQUIER organización con
+                // ese campo en NULL -- fuga cross-tenant real. Se fuerza lista
+                // vacía en vez de comparar contra NULL.
+                if ($actor->tenant_organization_id === null) {
+                    $query->whereRaw('1 = 0');
+
+                    return;
+                }
+
+                $query->where(function ($query) use ($actor) {
+                    $query->whereHas('receivingBranch', fn ($query) => $query->where('organization_id', $actor->tenant_organization_id))
+                        ->orWhereHas('unloadRequest', fn ($query) => $query->where('carrier_organization_id', $actor->tenant_organization_id));
+                });
+            })
+            ->when($data['date_from'] ?? null, fn ($query, $dateFrom) => $query->whereDate('scheduled_date', '>=', $dateFrom))
+            ->when($data['date_to'] ?? null, fn ($query, $dateTo) => $query->whereDate('scheduled_date', '<=', $dateTo))
+            ->when($data['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
+            ->with([
+                'dockLocation', 'proposedByUser:id,username', 'counterProposedByUser:id,username', 'confirmedByUser:id,username',
+                'unloadRequest:id,request_number,receiving_branch_id,carrier_organization_id',
+            ])
+            ->orderBy('scheduled_date')
+            ->orderBy('scheduled_start_at')
+            ->paginate($request->integer('per_page', 15));
+
+        return response()->json($schedules);
+    }
+
+    /**
      * Muestra la franja VIGENTE (activa) de una solicitud, si existe.
      */
     public function show(Request $request, UnloadRequest $unloadRequest)
@@ -31,7 +103,7 @@ class PlantReceptionScheduleController extends Controller
         $actor = $request->user();
         abort_unless($unloadRequest->isAccessibleBy($actor) && $actor->hasPermission('plant_reception_schedules.read'), 403, 'No tiene acceso a la cita de recepción de esta solicitud.');
 
-        $schedule = $unloadRequest->activeReceptionSchedule()->with(['dockLocation', 'proposedByUser:id,username'])->first();
+        $schedule = $unloadRequest->activeReceptionSchedule()->with(['dockLocation', 'proposedByUser:id,username', 'counterProposedByUser:id,username'])->first();
 
         return response()->json(['plant_reception_schedule' => $schedule]);
     }
