@@ -13,7 +13,9 @@ use App\Models\OrganizationContact;
 use App\Models\OrganizationStatus;
 use App\Models\Person;
 use App\Models\SecurityLog;
+use App\Models\TransportSchedule;
 use App\Models\User;
+use App\Policies\TransportSchedulePolicy;
 use Database\Seeders\PlatformOrganizationSeeder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
@@ -611,12 +613,66 @@ class OrganizationController extends Controller
      * tener varios vínculos (N:N, distintas organizaciones/sedes, cada uno
      * con su propio `position_title`), así que el valor mostrado es
      * SIEMPRE el del vínculo específico resuelto así:
-     * - Actor NO platform staff: el vínculo con la organización del actor
-     *   (única organización visible para él, ya acotada arriba).
-     * - Platform staff (sin organización de referencia): el vínculo activo
-     *   más reciente entre todas las organizaciones de la persona
-     *   (`is_active` desc, `is_primary` desc, `created_at` desc) -- criterio
-     *   razonable sin sobre-ingeniería, ya soportado por el modelo.
+     * - Actor NO platform staff, sin `transport_schedule_id`: el vínculo con
+     *   la organización del actor (única organización visible para él).
+     * - Con `transport_schedule_id` (ver abajo): el vínculo con la
+     *   organización Generadora resuelta, para CUALQUIER actor (incluido
+     *   platform staff).
+     * - Platform staff sin `transport_schedule_id` (sin organización de
+     *   referencia): el vínculo activo más reciente entre todas las
+     *   organizaciones de la persona (`is_active` desc, `is_primary` desc,
+     *   `created_at` desc) -- criterio razonable sin sobre-ingeniería, ya
+     *   soportado por el modelo.
+     *
+     * `transport_schedule_id` (opcional, Manifiesto de Cargue/CU de
+     * transporte): permite que el actor del Gestor/Transportador
+     * (`transport_schedules.organization_id`, quien programó el transporte)
+     * busque contactos de la organización GENERADORA real de esa
+     * programación -- caso de uso real de `generator_signer_person_id` al
+     * crear un manifiesto, donde Gestor != Generador y el actor NUNCA
+     * pertenece al tenant del Generador. Deliberadamente ACOTADO a esta
+     * única relación (no es un endpoint genérico de "buscar contactos de
+     * cualquier organización", eso sería una superficie de IDOR mucho más
+     * amplia):
+     * 1. Se valida que el actor pueda OPERAR esa programación --
+     *    {@see \App\Policies\TransportSchedulePolicy::view()} (platform
+     *    staff O dueño de `transport_schedules.organization_id`, el Gestor
+     *    que la programó, Y con permiso `transport_schedules.read` --
+     *    hallazgo Media de `especialista-seguridad`, 2026-07-19: antes se
+     *    llamaba directamente a {@see TransportSchedule::isAccessibleBy()},
+     *    sin pasar por la Policy, lo que omitía el chequeo de
+     *    `transport_schedules.read`). Si no, 403.
+     * 2. La organización Generadora real se resuelve vía
+     *    `transport_schedule->sourceBranch->organization_id` (la sede de
+     *    origen/recolección pertenece SIEMPRE al Generador, a diferencia de
+     *    `transport_schedules.organization_id`, que es quien PROGRAMA --
+     *    Gestor/Subgestor en Modalidad 1, D-PRG-01) -- NO
+     *    `wasteServiceRequest->organization_id` (mismo valor en la práctica,
+     *    pero `sourceBranch` es la fuente de verdad más directa del lugar
+     *    físico de recolección).
+     * 3. La búsqueda se acota a ESA organización Generadora, reemplazando la
+     *    acotación por defecto (organización del actor / sin acotar para
+     *    platform staff).
+     * Sin `transport_schedule_id`, el comportamiento es EXACTAMENTE el
+     * anterior -- no rompe `OrganizationContactsPanel` ni los formularios de
+     * Área Organizacional.
+     *
+     * Hallazgo Alta (`especialista-seguridad`, 2026-07-19, sobre-exposición
+     * de PII): con `transport_schedule_id` presente, el propósito es elegir
+     * UN firmante puntual del Generador -- no descargar su directorio
+     * completo de contactos (nombre/cédula/email/cargo, paginable sin
+     * límite, incluyendo vínculos `is_active=false` ya revocados). Por eso,
+     * en ese modo:
+     * (a) `q` pasa a ser OBLIGATORIO y no vacío (422 si falta) -- evita el
+     *     "listado completo" por paginación silenciosa sin término de
+     *     búsqueda.
+     * (b) el filtro de acotación por organización exige
+     *     `organization_contacts.is_active = true` (antes solo se aplicaba
+     *     en la subquery de `position_title`, no en el `whereHas()`
+     *     principal -- un ex-contacto revocado igual aparecía en los
+     *     resultados).
+     * Sin `transport_schedule_id`, `q` sigue siendo opcional -- caso de uso
+     * distinto (el actor ya conoce/gestiona sus propios contactos).
      */
     public function searchContacts(Request $request)
     {
@@ -626,14 +682,33 @@ class OrganizationController extends Controller
         $data = $request->validate([
             'q' => ['nullable', 'string'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:20'],
+            'transport_schedule_id' => ['nullable', 'integer'],
         ]);
+
+        $scopedOrganizationId = $actor->isPlatformStaff() ? null : $actor->tenant_organization_id;
+        $requireActiveLink = false;
+
+        if ($data['transport_schedule_id'] ?? null) {
+            if (trim($data['q'] ?? '') === '') {
+                throw ValidationException::withMessages([
+                    'q' => ['Debe indicar un término de búsqueda (q) para buscar contactos de la organización Generadora.'],
+                ]);
+            }
+
+            $transportSchedule = TransportSchedule::query()->find($data['transport_schedule_id']);
+            abort_if($transportSchedule === null, 404, 'La programación de transporte indicada no existe.');
+            abort_unless((new TransportSchedulePolicy)->view($actor, $transportSchedule), 403, 'No tiene acceso a esta programación de transporte.');
+
+            $scopedOrganizationId = $transportSchedule->sourceBranch()->withTrashed()->value('organization_id');
+            $requireActiveLink = true;
+        }
 
         $positionTitleSubquery = OrganizationContact::query()
             ->select('position_title')
             ->whereColumn('organization_contacts.contact_id', 'people.id')
             ->when(
-                ! $actor->isPlatformStaff(),
-                fn ($query) => $query->where('organization_id', $actor->tenant_organization_id),
+                $scopedOrganizationId !== null,
+                fn ($query) => $query->where('organization_id', $scopedOrganizationId),
             )
             ->orderByDesc('is_active')
             ->orderByDesc('is_primary')
@@ -644,10 +719,11 @@ class OrganizationController extends Controller
             ->select(['id', 'first_name', 'last_name', 'document_number', 'email'])
             ->addSelect(['position_title' => $positionTitleSubquery])
             ->when(
-                ! $actor->isPlatformStaff(),
+                $scopedOrganizationId !== null,
                 fn ($query) => $query->whereHas(
                     'organizationLinks',
-                    fn ($query) => $query->where('organization_id', $actor->tenant_organization_id),
+                    fn ($query) => $query->where('organization_id', $scopedOrganizationId)
+                        ->when($requireActiveLink, fn ($query) => $query->where('is_active', true)),
                 ),
             )
             ->when($data['q'] ?? null, function ($query) use ($data) {

@@ -8,6 +8,7 @@ use App\Models\Person;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\SecurityLog;
+use App\Models\TransportSchedule;
 use App\Models\User;
 use App\Models\UserRole;
 use Illuminate\Database\QueryException;
@@ -380,6 +381,165 @@ test('searchContacts incluye el position_title DEL VÍNCULO con la organización
     $row = collect($response->json('data'))->firstWhere('id', $person->id);
     expect($row)->not->toBeNull()
         ->and($row['position_title'])->toBe('Conductor');
+});
+
+// ---- searchContacts() con transport_schedule_id (Manifiesto de Cargue, actor Gestor buscando contactos del Generador) ----
+
+test('searchContacts con transport_schedule_id permite al actor del Gestor (carrier_organization_id/organization_id de la programación) ver contactos de la organización GENERADORA real (branch de origen)', function () {
+    $carrierOrganization = Organization::factory()->create();
+    $generatorOrganization = Organization::factory()->create();
+    $sourceBranch = Branch::factory()->create(['organization_id' => $generatorOrganization->id]);
+
+    $schedule = TransportSchedule::factory()->create([
+        'organization_id' => $carrierOrganization->id,
+        'source_branch_id' => $sourceBranch->id,
+    ]);
+
+    $generatorContact = Person::factory()->create(['first_name' => 'Firmante', 'last_name' => 'Generador']);
+    OrganizationContact::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'contact_id' => $generatorContact->id,
+        'position_title' => 'Coordinador Ambiental',
+    ]);
+
+    // Contacto del propio Gestor -- NO debe aparecer, el selector busca
+    // contactos del Generador, no del actor.
+    $carrierContact = Person::factory()->create(['first_name' => 'Firmante', 'last_name' => 'DelGestor']);
+    OrganizationContact::factory()->create(['organization_id' => $carrierOrganization->id, 'contact_id' => $carrierContact->id]);
+
+    $actor = contactActor(['contacts.read', 'transport_schedules.read'], $carrierOrganization->id);
+
+    $response = $this->actingAs($actor)
+        ->getJson("/api/admin/organizations/contacts/search?q=Firmante&transport_schedule_id={$schedule->id}")
+        ->assertOk();
+
+    $ids = collect($response->json('data'))->pluck('id');
+    expect($ids)->toContain($generatorContact->id)->not->toContain($carrierContact->id);
+
+    $row = collect($response->json('data'))->firstWhere('id', $generatorContact->id);
+    expect($row['position_title'])->toBe('Coordinador Ambiental');
+});
+
+test('searchContacts con transport_schedule_id devuelve 403 si el actor no opera esa programación (ni es el Gestor ni el Generador)', function () {
+    $carrierOrganization = Organization::factory()->create();
+    $generatorOrganization = Organization::factory()->create();
+    $unrelatedOrganization = Organization::factory()->create();
+    $sourceBranch = Branch::factory()->create(['organization_id' => $generatorOrganization->id]);
+
+    $schedule = TransportSchedule::factory()->create([
+        'organization_id' => $carrierOrganization->id,
+        'source_branch_id' => $sourceBranch->id,
+    ]);
+
+    $actor = contactActor(['contacts.read', 'transport_schedules.read'], $unrelatedOrganization->id);
+
+    $this->actingAs($actor)
+        ->getJson("/api/admin/organizations/contacts/search?q=Firmante&transport_schedule_id={$schedule->id}")
+        ->assertForbidden();
+});
+
+test('searchContacts SIN transport_schedule_id preserva el comportamiento actual (acotado a la organización del actor, no a la del Generador)', function () {
+    $carrierOrganization = Organization::factory()->create();
+    $generatorOrganization = Organization::factory()->create();
+    $sourceBranch = Branch::factory()->create(['organization_id' => $generatorOrganization->id]);
+
+    TransportSchedule::factory()->create([
+        'organization_id' => $carrierOrganization->id,
+        'source_branch_id' => $sourceBranch->id,
+    ]);
+
+    $generatorContact = Person::factory()->create(['first_name' => 'SinPrograma', 'last_name' => 'Generador']);
+    OrganizationContact::factory()->create(['organization_id' => $generatorOrganization->id, 'contact_id' => $generatorContact->id]);
+
+    $carrierContact = Person::factory()->create(['first_name' => 'SinPrograma', 'last_name' => 'DelGestor']);
+    OrganizationContact::factory()->create(['organization_id' => $carrierOrganization->id, 'contact_id' => $carrierContact->id]);
+
+    $actor = contactActor(['contacts.read'], $carrierOrganization->id);
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/organizations/contacts/search?q=SinPrograma')->assertOk();
+
+    $ids = collect($response->json('data'))->pluck('id');
+    expect($ids)->toContain($carrierContact->id)->not->toContain($generatorContact->id);
+});
+
+// ---- Hallazgos especialista-seguridad, 2026-07-19 (F1 sobre-exposición de PII, F2 falta de chequeo vía Policy) ----
+
+test('searchContacts con transport_schedule_id SIN q devuelve 422 (evita el directorio COMPLETO del Generador por paginación silenciosa)', function () {
+    $carrierOrganization = Organization::factory()->create();
+    $generatorOrganization = Organization::factory()->create();
+    $sourceBranch = Branch::factory()->create(['organization_id' => $generatorOrganization->id]);
+
+    $schedule = TransportSchedule::factory()->create([
+        'organization_id' => $carrierOrganization->id,
+        'source_branch_id' => $sourceBranch->id,
+    ]);
+
+    $actor = contactActor(['contacts.read', 'transport_schedules.read'], $carrierOrganization->id);
+
+    $response = $this->actingAs($actor)
+        ->getJson("/api/admin/organizations/contacts/search?transport_schedule_id={$schedule->id}")
+        ->assertStatus(422);
+
+    expect($response->json('errors.q'))->not->toBeNull();
+
+    // Mismo resultado con q vacío/en blanco -- no basta con omitir el parámetro.
+    $this->actingAs($actor)
+        ->getJson("/api/admin/organizations/contacts/search?q=&transport_schedule_id={$schedule->id}")
+        ->assertStatus(422);
+});
+
+test('searchContacts con transport_schedule_id NO devuelve contactos con organization_contacts.is_active=false (ex-contactos revocados) del Generador', function () {
+    $carrierOrganization = Organization::factory()->create();
+    $generatorOrganization = Organization::factory()->create();
+    $sourceBranch = Branch::factory()->create(['organization_id' => $generatorOrganization->id]);
+
+    $schedule = TransportSchedule::factory()->create([
+        'organization_id' => $carrierOrganization->id,
+        'source_branch_id' => $sourceBranch->id,
+    ]);
+
+    $activeContact = Person::factory()->create(['first_name' => 'Revocado', 'last_name' => 'Activo']);
+    OrganizationContact::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'contact_id' => $activeContact->id,
+        'is_active' => true,
+    ]);
+
+    $revokedContact = Person::factory()->create(['first_name' => 'Revocado', 'last_name' => 'ExContacto']);
+    OrganizationContact::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'contact_id' => $revokedContact->id,
+        'is_active' => false,
+    ]);
+
+    $actor = contactActor(['contacts.read', 'transport_schedules.read'], $carrierOrganization->id);
+
+    $response = $this->actingAs($actor)
+        ->getJson("/api/admin/organizations/contacts/search?q=Revocado&transport_schedule_id={$schedule->id}")
+        ->assertOk();
+
+    $ids = collect($response->json('data'))->pluck('id');
+    expect($ids)->toContain($activeContact->id)->not->toContain($revokedContact->id);
+});
+
+test('searchContacts con transport_schedule_id devuelve 403 si el actor no tiene transport_schedules.read (aunque isAccessibleBy() sea true)', function () {
+    $carrierOrganization = Organization::factory()->create();
+    $generatorOrganization = Organization::factory()->create();
+    $sourceBranch = Branch::factory()->create(['organization_id' => $generatorOrganization->id]);
+
+    $schedule = TransportSchedule::factory()->create([
+        'organization_id' => $carrierOrganization->id,
+        'source_branch_id' => $sourceBranch->id,
+    ]);
+
+    // El actor SÍ es dueño de la programación (isAccessibleBy() true) pero
+    // carece del permiso transport_schedules.read -- debe seguir siendo 403
+    // vía TransportSchedulePolicy::view(), que exige AMBAS condiciones.
+    $actor = contactActor(['contacts.read'], $carrierOrganization->id);
+
+    $this->actingAs($actor)
+        ->getJson("/api/admin/organizations/contacts/search?q=Firmante&transport_schedule_id={$schedule->id}")
+        ->assertForbidden();
 });
 
 // ---- Índice único (Postgres, índices parciales) ----
