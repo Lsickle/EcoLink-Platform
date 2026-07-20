@@ -73,7 +73,9 @@ use Database\Seeders\RoleSeeder;
 // Planta (bilateral)" (2026-07-21, mismo GAP): crece a 113 permisos con
 // `branch_locations.read`/`.create`/`.update`, `unload_requests.read`/
 // `.create`/`.update`/`.decide` y `plant_reception_schedules.read`/`.manage`.
-// ADMINISTRADOR queda con los 113 permisos del catálogo completo.
+// "Modalidad 3" (revisión especialista-seguridad, 2026-07-21, mismo GAP):
+// crece a 116 permisos con `gestor_carrier_authorizations.read`/`.create`/
+// `.revoke`. ADMINISTRADOR queda con los 116 permisos del catálogo completo.
 
 beforeEach(function () {
     $this->seed(PermissionSeeder::class);
@@ -81,8 +83,8 @@ beforeEach(function () {
     $this->seed(RolePermissionSeeder::class);
 });
 
-test('siembra exactamente 113 permisos con los códigos exactos del catálogo', function () {
-    expect(Permission::query()->count())->toBe(113);
+test('siembra exactamente 116 permisos con los códigos exactos del catálogo', function () {
+    expect(Permission::query()->count())->toBe(116);
 
     $expectedCodes = [
         'users.create', 'users.read', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.reset-password',
@@ -122,6 +124,7 @@ test('siembra exactamente 113 permisos con los códigos exactos del catálogo', 
         'branch_locations.read', 'branch_locations.create', 'branch_locations.update',
         'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
+        'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
     ];
 
     expect(Permission::query()->pluck('code')->sort()->values()->all())
@@ -195,6 +198,7 @@ test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, A
         'branch_locations.read', 'branch_locations.create', 'branch_locations.update',
         'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
+        'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
     ])->sort()->values()->all();
 
     expect($codes)->toBe($expected);
@@ -226,6 +230,7 @@ test('LOGÍSTICA queda con vehicles.read + transport_personnel.read (solo lectur
         'manifest_loads.read', 'manifest_loads.create', 'manifest_loads.update', 'manifest_loads.sign', 'manifest_loads.cancel',
         'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
+        'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
     ])->sort()->values()->all());
 });
 
@@ -250,7 +255,7 @@ test('marca is_critical=true solo en los 5 permisos confirmados por el usuario (
     expect(Permission::query()->where('is_critical', true)->pluck('code')->sort()->values()->all())
         ->toBe(collect($expectedCritical)->sort()->values()->all());
 
-    expect(Permission::query()->where('is_critical', false)->count())->toBe(113 - count($expectedCritical));
+    expect(Permission::query()->where('is_critical', false)->count())->toBe(116 - count($expectedCritical));
 });
 
 test('los seeders son idempotentes (correr dos veces no duplica filas)', function () {
@@ -258,8 +263,8 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
     $this->seed(RoleSeeder::class);
     $this->seed(RolePermissionSeeder::class);
 
-    expect(Permission::query()->count())->toBe(113)
+    expect(Permission::query()->count())->toBe(116)
         ->and(Role::query()->count())->toBe(2)
-        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(113)
-        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(19);
+        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(116)
+        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(22);
 });

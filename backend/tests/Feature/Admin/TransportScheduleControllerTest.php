@@ -2,6 +2,7 @@
 
 use App\Models\Branch;
 use App\Models\BusinessRole;
+use App\Models\GestorCarrierAuthorization;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
 use App\Models\Role;
@@ -139,6 +140,28 @@ function tsGestorOrganization(): Organization
 }
 
 /**
+ * TRANSPORTER: organización dedicada EXCLUSIVAMENTE al transporte, distinta
+ * del Gestor -- "Modalidad 3" (revisión especialista-seguridad): un
+ * Transportador INDEPENDIENTE contratado por un Gestor, ver
+ * GestorCarrierAuthorizationControllerTest para el CRUD de la autorización
+ * misma.
+ */
+function tsCarrierOrganization(): Organization
+{
+    $organization = Organization::factory()->create();
+    $transporter = BusinessRole::query()->where('code', 'TRANSPORTER')->firstOrFail();
+
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id,
+        'business_role_id' => $transporter->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    return $organization->fresh();
+}
+
+/**
  * Construye un `waste_service_request_item` YA ACEPTADO (`item_status=ACCEPTED`)
  * cuya `waste_treatment_approval` pertenece a `$gestor` -- building block
  * reutilizado por casi todos los tests. `$branch` es la sede del Generador,
@@ -236,6 +259,104 @@ test('store rechaza un ítem cuya aprobación pertenece a OTRO Gestor (anti-IDOR
         ->assertJsonValidationErrors('items.0.waste_service_request_item_id');
 
     expect(TransportSchedule::query()->count())->toBe(0);
+});
+
+// ---- "Modalidad 3" (revisión especialista-seguridad): GestorCarrierAuthorization ----
+
+/**
+ * (a) Regresión explícita: un Transportador INDEPENDIENTE (organización
+ * TRANSPORTER, NO el Gestor) SIN ninguna `GestorCarrierAuthorization`
+ * vigente sigue bloqueado -- mismo comportamiento 422 que existía ANTES de
+ * este lote (ver también el test de anti-IDOR contra otro Gestor, arriba).
+ */
+test('store (Modalidad 3, a): un Transportador independiente SIN autorización vigente NO puede programar ítems del Gestor', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $carrier = tsCarrierOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $vehicle = Vehicle::factory()->create(['organization_id' => $carrier->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $carrier->id]);
+    $actor = tsActor(['transport_schedules.create'], $carrier->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/transport-schedules', tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('items.0.waste_service_request_item_id');
+
+    expect(TransportSchedule::query()->count())->toBe(0);
+});
+
+/**
+ * (b) Con una `GestorCarrierAuthorization` VIGENTE otorgada por el Gestor
+ * dueño del ítem, el Transportador independiente SÍ puede programar.
+ */
+test('store (Modalidad 3, b): un Transportador independiente CON autorización vigente SÍ puede programar ítems del Gestor', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $carrier = tsCarrierOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    GestorCarrierAuthorization::factory()->create([
+        'gestor_organization_id' => $gestor->id,
+        'carrier_organization_id' => $carrier->id,
+        'is_active' => true,
+    ]);
+
+    $vehicle = Vehicle::factory()->create(['organization_id' => $carrier->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $carrier->id]);
+    $actor = tsActor(['transport_schedules.create'], $carrier->id);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/transport-schedules', tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch))
+        ->assertCreated();
+
+    $response->assertJsonPath('transport_schedule.organization_id', $carrier->id);
+    expect(TransportSchedule::query()->count())->toBe(1);
+});
+
+/**
+ * (c) Revocar la autorización (`is_active=false`) bloquea programaciones
+ * NUEVAS a partir de la revocación, pero NO afecta las programaciones YA
+ * CREADAS bajo esa autorización (siguen existiendo y su ciclo de vida
+ * continúa normalmente) -- decisión de este lote, mismo criterio simple ya
+ * usado por `organization_cartera_statuses` (D-S12): la revocación es hacia
+ * adelante, no retroactiva.
+ */
+test('store (Modalidad 3, c): revocar la autorización bloquea programaciones NUEVAS pero NO afecta las YA creadas', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $carrier = tsCarrierOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequestA, $itemA] = tsAcceptedItemFixture($generator, $gestor, $branch);
+    [$serviceRequestB, $itemB] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $authorization = GestorCarrierAuthorization::factory()->create([
+        'gestor_organization_id' => $gestor->id,
+        'carrier_organization_id' => $carrier->id,
+        'is_active' => true,
+    ]);
+
+    $vehicleA = Vehicle::factory()->create(['organization_id' => $carrier->id]);
+    $personnelA = TransportPersonnel::factory()->create(['organization_id' => $carrier->id]);
+    $actor = tsActor(['transport_schedules.create'], $carrier->id);
+
+    $responseA = $this->actingAs($actor)->postJson('/api/admin/transport-schedules', tsStorePayload($serviceRequestA, $itemA, $vehicleA, $personnelA, $branch))
+        ->assertCreated();
+
+    // Revoca la autorización (in-place, sin borrar el registro).
+    $authorization->forceFill(['is_active' => false, 'revoked_at' => now()])->save();
+
+    $vehicleB = Vehicle::factory()->create(['organization_id' => $carrier->id]);
+    $personnelB = TransportPersonnel::factory()->create(['organization_id' => $carrier->id]);
+
+    $this->actingAs($actor)->postJson('/api/admin/transport-schedules', tsStorePayload($serviceRequestB, $itemB, $vehicleB, $personnelB, $branch))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('items.0.waste_service_request_item_id');
+
+    // La programación creada ANTES de revocar sigue existiendo y accesible.
+    expect(TransportSchedule::query()->count())->toBe(1);
+    expect(TransportSchedule::query()->find($responseA->json('transport_schedule.id')))->not->toBeNull();
 });
 
 test('store rechaza un ítem que NO está en estado ACCEPTED', function () {

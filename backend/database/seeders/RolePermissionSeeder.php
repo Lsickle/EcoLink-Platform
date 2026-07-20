@@ -59,6 +59,7 @@ class RolePermissionSeeder extends Seeder
         'branch_locations.read', 'branch_locations.create', 'branch_locations.update',
         'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
+        'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
     ];
 
     /**
@@ -117,6 +118,11 @@ class RolePermissionSeeder extends Seeder
      * el catálogo de permisos. `branch_locations.*` NO se asigna a
      * LOGÍSTICA -- mismo criterio que `branches.*` (gestión de sedes/muelles
      * queda SOLO en ADMINISTRADOR).
+     *
+     * `gestor_carrier_authorizations.*` (revisión especialista-seguridad,
+     * "Modalidad 3"): acceso COMPLETO -- LOGÍSTICA ya gestiona toda la
+     * relación de transporte (`transport_schedules.*`), autorizar/revocar un
+     * transportador independiente es parte de la misma coordinación.
      */
     private const LOGISTICA_PERMISSION_CODES = [
         'vehicles.read',
@@ -126,6 +132,7 @@ class RolePermissionSeeder extends Seeder
         'manifest_loads.read', 'manifest_loads.create', 'manifest_loads.update', 'manifest_loads.sign', 'manifest_loads.cancel',
         'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
+        'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
     ];
 
     public function run(): void

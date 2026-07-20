@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
+use App\Models\GestorCarrierAuthorization;
 use App\Models\Organization;
 use App\Models\TransportPersonnel;
 use App\Models\TransportRoute;
@@ -76,6 +77,18 @@ use Illuminate\Validation\ValidationException;
  * literalmente tal como lo pide la tarea, sin inventar una excepción de
  * modalidad no especificada -- si Modalidad 2 requiere una regla distinta,
  * es una decisión de negocio pendiente, no de este lote.
+ *
+ * "Modalidad 3" (revisión especialista-seguridad, Fase 4, hallazgo de
+ * negocio real CONFIRMADO por el usuario): el criterio (b) de arriba
+ * ("$organizationId === $gestorOrganizationId") era DEMASIADO estricto --
+ * bloqueaba el escenario real de un Transportador INDEPENDIENTE (organización
+ * propia, no el Gestor) contratado para mover residuos de un Gestor.
+ * `resolveAndValidateItems()` ahora acepta el ítem si la organización actora
+ * ES el Gestor (comportamiento ORIGINAL, sin cambios) O si existe un
+ * `GestorCarrierAuthorization` VIGENTE (`is_active=true`) que autorice
+ * explícitamente a la organización actora como transportador de ESE Gestor
+ * -- ver docblock de `GestorCarrierAuthorizationController` para el diseño
+ * completo de esa tabla nueva.
  *
  * Transiciones `CONF->EJEC`/`EJEC->FIN` (placeholder `ADMINISTRADOR`, ver
  * `TransportScheduleWorkflowSeeder`) NO se exponen aquí -- mismo criterio
@@ -478,7 +491,9 @@ class TransportScheduleController extends Controller
 
             $gestorOrganizationId = $item->wasteTreatmentApproval?->organization_id;
 
-            if ($gestorOrganizationId === null || (int) $gestorOrganizationId !== $organizationId) {
+            if ($gestorOrganizationId === null
+                || ((int) $gestorOrganizationId !== $organizationId && ! $this->isAuthorizedCarrierFor($organizationId, (int) $gestorOrganizationId))
+            ) {
                 throw ValidationException::withMessages([
                     "items.{$index}.waste_service_request_item_id" => ['El ítem indicado no pertenece a su organización.'],
                 ]);
@@ -500,6 +515,21 @@ class TransportScheduleController extends Controller
         }
 
         return $resolved;
+    }
+
+    /**
+     * "Modalidad 3": true si `$carrierOrganizationId` (la organización
+     * actora que programa) tiene una `GestorCarrierAuthorization` VIGENTE
+     * (`is_active=true`) otorgada por `$gestorOrganizationId` -- ver
+     * docblock de la clase y de `GestorCarrierAuthorizationController`.
+     */
+    private function isAuthorizedCarrierFor(int $carrierOrganizationId, int $gestorOrganizationId): bool
+    {
+        return GestorCarrierAuthorization::query()
+            ->where('gestor_organization_id', $gestorOrganizationId)
+            ->where('carrier_organization_id', $carrierOrganizationId)
+            ->where('is_active', true)
+            ->exists();
     }
 
     /**

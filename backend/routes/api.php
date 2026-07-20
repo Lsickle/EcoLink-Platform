@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Admin\CountryController;
 use App\Http\Controllers\Api\Admin\DepartmentController;
 use App\Http\Controllers\Api\Admin\FileController;
 use App\Http\Controllers\Api\Admin\GenerationFrequencyController;
+use App\Http\Controllers\Api\Admin\GestorCarrierAuthorizationController;
 use App\Http\Controllers\Api\Admin\HazardCharacteristicController;
 use App\Http\Controllers\Api\Admin\LocalityController;
 use App\Http\Controllers\Api\Admin\ManifestLoadController;
@@ -491,6 +492,15 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('transport-schedules/{schedule}/confirm', [TransportScheduleController::class, 'confirm'])->name('transport-schedules.confirm');
         Route::post('transport-schedules/{schedule}/cancel', [TransportScheduleController::class, 'cancel'])->name('transport-schedules.cancel');
         Route::post('transport-schedules/{schedule}/route', [TransportScheduleController::class, 'assignToRoute'])->name('transport-schedules.assign-route');
+
+        // "Modalidad 3" (revisión especialista-seguridad, Fase 4) --
+        // `gestor_carrier_authorizations`: un Gestor autoriza explícitamente
+        // a una organización Transportadora INDEPENDIENTE. Ver docblock de
+        // GestorCarrierAuthorizationController.
+        Route::get('gestor-carrier-authorizations', [GestorCarrierAuthorizationController::class, 'index'])->name('gestor-carrier-authorizations.index');
+        Route::post('gestor-carrier-authorizations', [GestorCarrierAuthorizationController::class, 'store'])->name('gestor-carrier-authorizations.store');
+        Route::get('gestor-carrier-authorizations/{authorization}', [GestorCarrierAuthorizationController::class, 'show'])->name('gestor-carrier-authorizations.show');
+        Route::post('gestor-carrier-authorizations/{authorization}/revoke', [GestorCarrierAuthorizationController::class, 'revoke'])->name('gestor-carrier-authorizations.revoke');
 
         // CRUD de Conductores (`transport_personnel`, CU-030/D-PRG-03/D-PRG-04)
         // -- gap real: `TransportScheduleController` ya exigía
