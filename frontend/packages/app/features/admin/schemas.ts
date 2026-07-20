@@ -501,3 +501,17 @@ export const createManifestLoadSchema = z.object({
 })
 
 export type CreateManifestLoadFormValues = z.infer<typeof createManifestLoadSchema>
+
+// POST /api/admin/manifest-unloads -- ver `ManifestUnloadController::store()`
+// (Módulo Manifiesto de Descargue, Fase 5). Mismo criterio que
+// `createManifestLoadSchema`, con `receiverPersonId` en vez de
+// `generatorSignerPersonId` -- el resto de los campos se derivan
+// AUTOMÁTICAMENTE server-side de la `unloadRequestId`.
+export const createManifestUnloadSchema = z.object({
+  unloadRequestId: z.number().int().positive(),
+  receiverPersonId: z.number().int().positive('Selecciona el firmante del Receptor.'),
+  unloadDate: z.string().trim().optional().or(z.literal('')),
+  observations: z.string().trim().optional().or(z.literal('')),
+})
+
+export type CreateManifestUnloadFormValues = z.infer<typeof createManifestUnloadSchema>

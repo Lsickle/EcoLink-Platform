@@ -577,6 +577,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::get('manifest-unloads', [ManifestUnloadController::class, 'index'])->name('manifest-unloads.index');
         Route::post('manifest-unloads', [ManifestUnloadController::class, 'store'])->name('manifest-unloads.store');
         Route::get('manifest-unloads/{manifestUnload}', [ManifestUnloadController::class, 'show'])->name('manifest-unloads.show');
+        Route::get('manifest-unloads/{manifestUnload}/files', [ManifestUnloadController::class, 'files'])->name('manifest-unloads.files');
         Route::post('manifest-unloads/{manifestUnload}/inspect-items', [ManifestUnloadController::class, 'inspectItems'])->name('manifest-unloads.inspect-items');
         Route::post('manifest-unloads/{manifestUnload}/generate', [ManifestUnloadController::class, 'generate'])->name('manifest-unloads.generate');
         Route::post('manifest-unloads/{manifestUnload}/sign', [ManifestUnloadController::class, 'sign'])->name('manifest-unloads.sign');

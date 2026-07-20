@@ -19,6 +19,8 @@ import type {
   AdminGestorCarrierAuthorization,
   AdminManifestLoad,
   AdminManifestLoadDetail,
+  AdminManifestUnload,
+  AdminManifestUnloadDetail,
   AdminMunicipality,
   AdminOrganization,
   AdminOrganizationalArea,
@@ -92,6 +94,7 @@ import type {
   CreateServiceRequestPayload,
   CreateHazardCharacteristicPayload,
   CreateManifestLoadPayload,
+  CreateManifestUnloadPayload,
   CreateOrganizationalAreaPayload,
   CreateOrganizationContactPayload,
   CreateOrganizationPayload,
@@ -115,6 +118,7 @@ import type {
   CreateWasteStreamPayload,
   CreateWorkflowTransitionPayload,
   ImportResult,
+  InspectManifestUnloadItemsPayload,
   OrganizationBranch,
   OrganizationContactLink,
   OrganizationKpi,
@@ -133,6 +137,7 @@ import type {
   ReschedulePlantReceptionSchedulePayload,
   RoleActivityEvent,
   SignManifestLoadPayload,
+  SignManifestUnloadPayload,
   TreatmentApprovalCommercialStatus,
   TreatmentApprovalTechnicalStatus,
   UpdateBranchLocationPayload,
@@ -2917,6 +2922,87 @@ export async function reschedulePlantReceptionSchedule(
     method: 'POST',
     body: JSON.stringify(payload),
   })
+}
+
+// ---- Manifiesto de Descargue (/api/admin/manifest-unloads) -----------------
+// Módulo Manifiesto de Descargue, Fase 5 -- ÚLTIMA fase del plan. Ver AVISO
+// completo en `AdminManifestUnload` (types.ts). `index()` acepta
+// `organization_id` (SOLO platform staff, filtra por
+// `receiving_organization_id`) / `search` (por `manifest_number`) / `status`
+// (código de `manifest_statuses`) -- mismo criterio que `fetchManifestLoads()`.
+export async function fetchManifestUnloads(
+  params: { page?: number; perPage?: number; search?: string; organizationId?: number | string; status?: string } = {}
+): Promise<Paginated<AdminManifestUnload>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    organization_id: params.organizationId,
+    status: params.status,
+  })
+  return apiFetch(`/api/admin/manifest-unloads${query}`)
+}
+
+export async function fetchManifestUnload(id: number | string): Promise<{ manifest_unload: AdminManifestUnloadDetail }> {
+  return apiFetch(`/api/admin/manifest-unloads/${id}`)
+}
+
+// POST /api/admin/manifest-unloads -- ver `ManifestUnloadController::store()`.
+// Solo alcanzable sobre una `unload_request` YA Approved con una franja de
+// recepción en planta ya Confirmed -- ver docblock de
+// `assertUnloadRequestReadyForUnload()`.
+export async function createManifestUnload(
+  payload: CreateManifestUnloadPayload
+): Promise<{ manifest_unload: { id: number; manifest_number: string } }> {
+  return apiFetch('/api/admin/manifest-unloads', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// POST .../inspect-items -- ver `ManifestUnloadController::inspectItems()`.
+// SOLO en Draft, exclusivo del lado RECEPTOR (`ManifestUnloadPolicy::manage()`).
+export async function inspectManifestUnloadItems(
+  id: number | string,
+  payload: InspectManifestUnloadItemsPayload
+): Promise<{ manifest_unload: AdminManifestUnloadDetail }> {
+  return apiFetch(`/api/admin/manifest-unloads/${id}/inspect-items`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// POST .../generate -- Draft -> Generated. RN-107/108: el backend rechaza
+// (422, `received_total_weight_kg`) si la inspección todavía no registró los
+// pesos agregados de cabecera.
+export async function generateManifestUnload(id: number | string): Promise<{ manifest_unload: { id: number } }> {
+  return apiFetch(`/api/admin/manifest-unloads/${id}/generate`, { method: 'POST' })
+}
+
+// POST .../sign -- firma bilateral (RECEIVER/DRIVER), recalcula el estado
+// automáticamente (Generated->PartiallySigned->Signed).
+export async function signManifestUnload(
+  id: number | string,
+  payload: SignManifestUnloadPayload
+): Promise<{ manifest_unload: { id: number } }> {
+  return apiFetch(`/api/admin/manifest-unloads/${id}/sign`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// POST .../complete -- Signed -> Closed, cierre del ciclo COMPLETO (último
+// eslabón del plan) -- exige ambas firmas ya registradas.
+export async function completeManifestUnload(id: number | string): Promise<{ manifest_unload: { id: number } }> {
+  return apiFetch(`/api/admin/manifest-unloads/${id}/complete`, { method: 'POST' })
+}
+
+// POST .../cancel -- solo alcanzable desde Generated/PartiallySigned.
+export async function cancelManifestUnload(id: number | string): Promise<{ manifest_unload: { id: number } }> {
+  return apiFetch(`/api/admin/manifest-unloads/${id}/cancel`, { method: 'POST' })
+}
+
+// GET .../files -- listado de evidencias fotográficas (subsistema
+// transversal `files`, `entity_type=MANIFEST_UNLOAD`/`PHOTO_EVIDENCE`).
+// Endpoint agregado en este lote (agente frontend-web) -- mismo patrón que
+// `WasteController::files()`, ver docblock de
+// `ManifestUnloadController::files()`. A diferencia de
+// `fetchPreapprovedWaste()`-style helpers que devuelven agrupado por
+// categoría, aquí SIEMPRE hay una sola categoría real (`PHOTO_EVIDENCE`) --
+// se devuelve el array plano tal cual el backend lo serializa.
+export async function fetchManifestUnloadFiles(id: number | string): Promise<{ files: AdminFile[] }> {
+  return apiFetch(`/api/admin/manifest-unloads/${id}/files`)
 }
 
 // ---- Autorizaciones de Transportador / "Modalidad 3" -----------------------

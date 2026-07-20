@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { PackageSearchIcon } from 'lucide-react'
 import {
   AlertDialog,
@@ -12,18 +13,23 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   ApiValidationError,
   approveUnloadRequest,
+  createManifestUnload,
   fetchUnloadRequest,
   rejectUnloadRequest,
   submitUnloadRequest,
   type AdminUnloadRequestDetail,
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
+import { createManifestUnloadSchema } from 'app/features/admin/schemas'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
+import { ContactSearchSelect } from '../ContactSearchSelect'
 import { PlantReceptionSchedulePanel } from './PlantReceptionSchedulePanel'
 
 function errorMessage(error: unknown, key: string): string {
@@ -64,8 +70,26 @@ const STATUS_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructiv
  * RECEPTOR (dueño de `receiving_branch_id`) decide (`approve`/`reject`).
  * Ambos lados participan en la negociación de franja (delegado a
  * `PlantReceptionSchedulePanel`).
+ *
+ * Punto de entrada de Manifiesto de Descargue, Fase 5 -- ÚLTIMA fase del
+ * plan (2026-07-20, sin frame de Figma confirmado para esta acción propia --
+ * ver resumen del lote): "Generar Manifiesto de Descargue" gateado por
+ * `manifest_unloads.create` + ser dueño de la sede Receptora (mismo criterio
+ * `isReceivingOwner` de abajo) + la solicitud `APPROVED` + la franja de
+ * recepción activa ya `CONFIRMED` (ver
+ * `ManifestUnloadController::assertUnloadRequestReadyForUnload()` -- esta SÍ
+ * es una precondición impuesta por el backend, a diferencia del `CONF` de
+ * "Generar Manifiesto de Cargue" en `TransportScheduleDetailScreen.tsx`, que
+ * era una decisión propia de aquel lote).
+ *
+ * `ContactSearchSelect` se usa SIN `transportScheduleId` -- a diferencia de
+ * Fase 3, aquí el firmante Receptor pertenece a la MISMA organización del
+ * actor que crea el manifiesto (no hace falta acotar la búsqueda a una
+ * organización cruzada), el backend ya auto-limita la búsqueda de contactos
+ * al tenant del actor.
  */
 export function UnloadRequestDetailScreen({ unloadRequestId }: { unloadRequestId: number | string }) {
+  const router = useRouter()
   const { user } = useAuth()
   const { isAuthorized } = useRequireAuth('unload_requests.read')
 
@@ -81,6 +105,14 @@ export function UnloadRequestDetailScreen({ unloadRequestId }: { unloadRequestId
   const [rejectionReason, setRejectionReason] = useState('')
   const [rejectError, setRejectError] = useState<string | null>(null)
   const [isRejecting, setIsRejecting] = useState(false)
+
+  const [manifestDialogOpen, setManifestDialogOpen] = useState(false)
+  const [receiverPersonId, setReceiverPersonId] = useState<number | null>(null)
+  const [receiverPersonLabel, setReceiverPersonLabel] = useState<string | null>(null)
+  const [manifestUnloadDate, setManifestUnloadDate] = useState('')
+  const [manifestObservations, setManifestObservations] = useState('')
+  const [manifestFormError, setManifestFormError] = useState<string | null>(null)
+  const [isCreatingManifest, setIsCreatingManifest] = useState(false)
 
   function reload() {
     return fetchUnloadRequest(unloadRequestId).then((result) => {
@@ -151,6 +183,52 @@ export function UnloadRequestDetailScreen({ unloadRequestId }: { unloadRequestId
     }
   }
 
+  function resetManifestForm() {
+    setReceiverPersonId(null)
+    setReceiverPersonLabel(null)
+    setManifestUnloadDate('')
+    setManifestObservations('')
+    setManifestFormError(null)
+  }
+
+  function handleManifestDialogOpenChange(open: boolean) {
+    setManifestDialogOpen(open)
+    if (!open) resetManifestForm()
+  }
+
+  async function handleCreateManifest(event: React.FormEvent) {
+    event.preventDefault()
+    setManifestFormError(null)
+
+    const parsed = createManifestUnloadSchema.safeParse({
+      unloadRequestId: Number(unloadRequestId),
+      receiverPersonId: receiverPersonId ?? 0,
+      unloadDate: manifestUnloadDate,
+      observations: manifestObservations,
+    })
+
+    if (!parsed.success) {
+      setManifestFormError(parsed.error.issues[0]?.message ?? 'Revisa los datos del formulario.')
+      return
+    }
+
+    setIsCreatingManifest(true)
+    try {
+      const { manifest_unload: created } = await createManifestUnload({
+        unload_request_id: parsed.data.unloadRequestId,
+        receiver_person_id: parsed.data.receiverPersonId,
+        unload_date: parsed.data.unloadDate || undefined,
+        observations: parsed.data.observations || undefined,
+      })
+      handleManifestDialogOpenChange(false)
+      router.push(`/admin/manifest-unloads/${created.id}`)
+    } catch (error) {
+      setManifestFormError(errorMessage(error, 'receiver_person_id'))
+    } finally {
+      setIsCreatingManifest(false)
+    }
+  }
+
   if (!isAuthorized || isLoading) {
     return (
       <p className="text-sm text-muted-foreground" role="status">
@@ -178,6 +256,15 @@ export function UnloadRequestDetailScreen({ unloadRequestId }: { unloadRequestId
 
   const statusBadgeVariant = STATUS_BADGE_VARIANT[statusCode] || 'outline'
   const canManageSchedule = permissions.includes('plant_reception_schedules.manage')
+  // Ver AVISO completo en el docblock del componente -- a diferencia del
+  // `CONF` de "Generar Manifiesto de Cargue" (decisión propia de aquel
+  // lote), esta precondición SÍ la impone el backend
+  // (`assertUnloadRequestReadyForUnload()`).
+  const canCreateManifestUnload =
+    isReceivingOwner &&
+    permissions.includes('manifest_unloads.create') &&
+    statusCode === 'APPROVED' &&
+    detail.active_reception_schedule?.status === 'CONFIRMED'
 
   return (
     <div className="flex flex-col gap-4">
@@ -213,6 +300,66 @@ export function UnloadRequestDetailScreen({ unloadRequestId }: { unloadRequestId
                   Rechazar
                 </Button>
               </>
+            )}
+            {canCreateManifestUnload && (
+              <Dialog open={manifestDialogOpen} onOpenChange={handleManifestDialogOpenChange}>
+                <DialogTrigger render={<Button size="sm" variant="outline">Generar Manifiesto de Descargue</Button>} />
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Generar Manifiesto de Descargue</DialogTitle>
+                  </DialogHeader>
+                  <form onSubmit={handleCreateManifest} className="flex flex-col gap-4" noValidate>
+                    <ContactSearchSelect
+                      label="Firmante del Receptor"
+                      htmlId="manifestUnloadReceiverPersonId"
+                      selectedId={receiverPersonId}
+                      selectedLabel={receiverPersonLabel}
+                      onSelect={(result) => {
+                        setReceiverPersonId(result.id)
+                        setReceiverPersonLabel(`${result.first_name} ${result.last_name} (${result.document_number})`)
+                      }}
+                      onClear={() => {
+                        setReceiverPersonId(null)
+                        setReceiverPersonLabel(null)
+                      }}
+                    />
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="manifestUnloadDate">
+                        Fecha de Descargue <span className="text-muted-foreground">(opcional)</span>
+                      </Label>
+                      <Input
+                        id="manifestUnloadDate"
+                        type="date"
+                        value={manifestUnloadDate}
+                        onChange={(event) => setManifestUnloadDate(event.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="manifestUnloadObservations">
+                        Observaciones <span className="text-muted-foreground">(opcional)</span>
+                      </Label>
+                      <Input
+                        id="manifestUnloadObservations"
+                        value={manifestObservations}
+                        onChange={(event) => setManifestObservations(event.target.value)}
+                      />
+                    </div>
+                    {manifestFormError && (
+                      <p className="text-sm text-destructive" role="alert">
+                        {manifestFormError}
+                      </p>
+                    )}
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => handleManifestDialogOpenChange(false)}>
+                        Cancelar
+                      </Button>
+                      <Button type="submit" disabled={isCreatingManifest}>
+                        {isCreatingManifest ? 'Generando…' : 'Generar Manifiesto'}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
             )}
           </div>
         </CardHeader>

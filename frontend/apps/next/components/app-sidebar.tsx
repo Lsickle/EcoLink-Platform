@@ -16,7 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon, UserRoundIcon, FileSignatureIcon, PackageSearchIcon, CalendarClockIcon, UserCheckIcon } from "lucide-react"
+import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon, UserRoundIcon, FileSignatureIcon, PackageSearchIcon, PackageCheckIcon, CalendarClockIcon, UserCheckIcon } from "lucide-react"
 import { useAuth } from "app/provider/auth"
 
 // Sin módulos de negocio todavía (Residuos, Solicitudes, Manifiestos, etc.)
@@ -287,6 +287,25 @@ const data = {
       url: "/admin/unload-requests/agenda",
       icon: <CalendarClockIcon />,
       permission: "plant_reception_schedules.read",
+    },
+    // Módulo Manifiesto de Descargue, Fase 5 -- ÚLTIMA fase del plan
+    // (2026-07-20, backend cerrado; sin frame de Figma confirmado en esta
+    // sesión -- diseño PROPUESTO, ver docblock de
+    // `ManifestUnloadsListScreen.tsx`). Vive junto a "Solicitudes de
+    // Descargue"/"Agenda de Recepciones" (sus hermanos inmediatos: el
+    // manifiesto de descargue cierra el ciclo que ellos empiezan) y no en
+    // "Administración" -- mismo criterio que sus hermanos de este grupo.
+    // Acceso DUAL NO SIMÉTRICO INVERTIDO respecto a "Manifiestos de Cargue"
+    // (ver `ManifestUnloadPolicy`): el lado RECEPTOR gestiona, el lado
+    // transportador solo lee + firma. `PackageCheckIcon` (nuevo en este
+    // grupo) refleja "descargue verificado/cerrado", sin repetir semántica
+    // con `FileSignatureIcon` (Manifiestos de Cargue) ni `PackageSearchIcon`
+    // (Solicitudes de Descargue).
+    {
+      title: "Manifiestos de Descargue",
+      url: "/admin/manifest-unloads",
+      icon: <PackageCheckIcon />,
+      permission: "manifest_unloads.read",
     },
     // "Modalidad 3" -- gestión de `gestor_carrier_authorizations` (revisión
     // especialista-seguridad). Ruta PROPIA (NO anidada bajo Organizaciones,

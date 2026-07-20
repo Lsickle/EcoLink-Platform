@@ -538,6 +538,52 @@ test('cancel() RECHAZA (422) desde Draft (transición inexistente)', function ()
         ->assertJsonValidationErrors('manifest_status');
 });
 
+// ---- files(): listado de evidencias fotográficas (subsistema `files`, MANIFEST_UNLOAD) ----
+// Cierre de gap (agente frontend-web, Fase 5): mismo patrón que
+// `WasteController::files()`, ver docblock de `ManifestUnloadController::files()`.
+
+test('files(): lista evidencias activas subidas por el receptor, ordenadas más reciente primero', function () {
+    [$manifest, , $receiver] = muGeneratedManifestFixture();
+    $receiverActor = muActor(['manifest_unloads.read', 'manifest_unloads.update'], $receiver->id);
+
+    $older = \App\Models\File::factory()->create([
+        'entity_type' => 'MANIFEST_UNLOAD',
+        'entity_id' => $manifest->id,
+        'file_category' => 'PHOTO_EVIDENCE',
+        'uploaded_at' => now()->subHour(),
+        'is_active' => true,
+    ]);
+    $newer = \App\Models\File::factory()->create([
+        'entity_type' => 'MANIFEST_UNLOAD',
+        'entity_id' => $manifest->id,
+        'file_category' => 'PHOTO_EVIDENCE',
+        'uploaded_at' => now(),
+        'is_active' => true,
+    ]);
+    // Inactivo (soft-eliminado) -- no debe aparecer.
+    \App\Models\File::factory()->create([
+        'entity_type' => 'MANIFEST_UNLOAD',
+        'entity_id' => $manifest->id,
+        'file_category' => 'PHOTO_EVIDENCE',
+        'is_active' => false,
+        'deleted_at' => now(),
+    ]);
+
+    $response = $this->actingAs($receiverActor)->getJson("/api/admin/manifest-unloads/{$manifest->id}/files")
+        ->assertOk();
+
+    expect($response->json('files'))->toHaveCount(2)
+        ->and($response->json('files.0.id'))->toBe($newer->id)
+        ->and($response->json('files.1.id'))->toBe($older->id);
+});
+
+test('files(): una organización ajena recibe 403 (IDOR)', function () {
+    [$manifest] = muGeneratedManifestFixture();
+    $foreignActor = muActor(['manifest_unloads.read'], Organization::factory()->create()->id);
+
+    $this->actingAs($foreignActor)->getJson("/api/admin/manifest-unloads/{$manifest->id}/files")->assertForbidden();
+});
+
 // ---- index()/show(): aislamiento (receptor + transportador + platform staff) ----
 
 test('index(): la organización Receptora y el lado transportador ven el manifiesto; una tercera organización no', function () {

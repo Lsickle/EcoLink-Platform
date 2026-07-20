@@ -1891,15 +1891,24 @@ export type AdminFile = {
 
 export type WasteFilesByCategory = Partial<Record<WasteFileCategory, AdminFile[]>>
 
-// POST /api/admin/files -- multipart, ver `FileController::store()`. SIEMPRE
-// `entity_type='WASTE'` en este lote (único consumidor real).
-export type UploadFilePayload = {
-  file: File
-  entityType: 'WASTE'
-  entityId: number | string
-  fileCategory: WasteFileCategory
-  description?: string
-}
+// Módulo Manifiesto de Descargue, Fase 5 -- categoría real única (evidencia
+// fotográfica de la inspección/descargue en planta, CU-069), ver
+// `FileController::ENTITY_FILE_CATEGORIES['MANIFEST_UNLOAD']`.
+export type ManifestUnloadFileCategory = 'PHOTO_EVIDENCE'
+
+// POST /api/admin/files -- multipart, ver `FileController::store()`. Unión
+// discriminada por `entityType` -- 2 consumidores reales hoy: Residuos
+// (`WASTE`, categorías `WasteFileCategory`) y Manifiesto de Descargue
+// (`MANIFEST_UNLOAD`, única categoría `PHOTO_EVIDENCE`).
+export type UploadFilePayload =
+  | { file: File; entityType: 'WASTE'; entityId: number | string; fileCategory: WasteFileCategory; description?: string }
+  | {
+      file: File
+      entityType: 'MANIFEST_UNLOAD'
+      entityId: number | string
+      fileCategory: ManifestUnloadFileCategory
+      description?: string
+    }
 
 // ---- "Evaluación del Gestor" (/api/admin/treatment-approvals, /api/admin/wastes/{waste}/treatment-approvals) ----
 // waste_treatment_approvals -- acceso CRUZADO controlado (DISTINTO del resto
@@ -3352,6 +3361,190 @@ export type CounterProposePlantReceptionSchedulePayload = {
 // POST .../reschedule -- ver `PlantReceptionScheduleController::reschedule()`.
 export type ReschedulePlantReceptionSchedulePayload = ProposePlantReceptionSchedulePayload & {
   reschedule_reason: string
+}
+
+// ---- Manifiesto de Descargue (/api/admin/manifest-unloads) -----------------
+// Módulo Manifiesto de Descargue, Fase 5 -- ÚLTIMA fase del plan (backend
+// cerrado, ver docblock completo de `ManifestUnloadController`/
+// `ManifestUnloadPolicy`/`ManifestUnloadWorkflowService`/
+// `ManifestUnloadSignatureService`). Acceso DUAL NO SIMÉTRICO INVERTIDO
+// respecto a `AdminManifestLoad` (Fase 3): aquí la organización RECEPTORA
+// (`receiving_organization_id`, dueña de la planta) gestiona/inspecciona/
+// genera/completa/cancela; el lado transportador (derivado de la
+// `unload_request` asociada, `carrier_organization_id` -- cubre
+// autotransporte) solo lee + firma como DRIVER.
+//
+// Grafo (reutiliza el MISMO catálogo `manifest_statuses` de Fase 3, sin
+// catálogo nuevo -- ver `AdminManifestStatus`): Draft->(generate)->Generated
+// ->(sign, automático)->PartiallySigned->(sign, automático)->Signed
+// ->(complete)->Closed. Cancelled alcanzable SOLO desde
+// Generated/PartiallySigned. A diferencia de `manifest_loads` (que se
+// detiene en InTransit): este SÍ cierra el ciclo completo hasta Closed --
+// es el último eslabón (`IN_TRANSIT`/`RECEIVED` del catálogo compartido
+// nunca aparecen en un `manifest_unload`).
+//
+// GAP DE DISEÑO ORIGINAL (declarado explícitamente, ver resumen del agente
+// frontend-web): las specs/Figma originales de este dominio (`VehicleCheckInPage`/
+// `WeightTicketPage`/`ReceptionInspectionPage`/`PartialReceptionPage`/
+// `ReceptionTimelinePage`) asumían entidades separadas
+// (`vehicle_checkins`/`weight_tickets`/`reception_inspections`/
+// `difference_tickets`) que NO se construyeron -- el backend real de esta
+// fase colapsa todo eso en una sola tabla `manifest_unloads` +
+// `manifest_unload_items` (decisión de alcance ya aprobada). El lenguaje
+// visual de este módulo se adapta al contrato real (inspección por ítem +
+// totales agregados de cabecera, sin checkin/ticket de peso/timeline como
+// entidades independientes), en vez de forzar un layout que asuma tablas
+// inexistentes.
+export type AdminManifestUnloadStatus = AdminManifestStatus
+
+// Fila de `GET /api/admin/manifest-unloads` -- ver
+// `ManifestUnloadController::index()`, que eager-carga exactamente estas 5
+// relaciones (columnas mínimas cada una).
+export type AdminManifestUnload = {
+  id: number
+  uuid: string
+  tenant_organization_id: number
+  manifest_number: string
+  manifest_load_id: number | null
+  unload_request_id: number
+  receiving_branch_id: number
+  receiving_organization_id: number
+  vehicle_id: number
+  transport_personnel_id: number
+  unload_date: string
+  unload_started_at: string | null
+  unload_completed_at: string | null
+  received_total_weight_kg: number | string | null
+  rejected_total_weight_kg: number | string | null
+  received_total_volume_m3: number | string | null
+  received_as_expected: boolean | null
+  receiver_person_id: number
+  receiver_signed_at: string | null
+  driver_signer_person_id: number
+  driver_signed_at: string | null
+  pdf_file_id: number | null
+  incidents: string | null
+  observations: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  manifest_status?: AdminManifestUnloadStatus
+  unload_request?: { id: number; request_number: string }
+  receiving_organization?: { id: number; legal_name: string }
+  receiving_branch?: { id: number; name: string; organization_id: number }
+  vehicle?: { id: number; plate_number: string }
+}
+
+// Ítem de descargue (`manifest_unload_items`) -- ver migración
+// `create_manifest_unload_items_table` (esquema-bd). Derivado automáticamente
+// de un `unload_request_item` al crear el manifiesto, con cantidades
+// declaradas en CERO -- editado por `inspectManifestUnloadItems()` (inspección
+// física del receptor, SOLO en Draft, ver docblock de
+// `ManifestUnloadController::inspectItems()`).
+export type AdminManifestUnloadItem = {
+  id: number
+  uuid: string
+  manifest_unload_id: number
+  manifest_load_item_id: number | null
+  unload_request_item_id: number
+  waste_id: number
+  received_quantity: number | string
+  rejected_quantity: number | string
+  unit_of_measure: string
+  received_weight_kg: number | string | null
+  rejected_weight_kg: number | string | null
+  received_volume_m3: number | string | null
+  received_container_quantity: number | null
+  reception_condition: string | null
+  rejection_reason: string | null
+  inspection_approved: boolean
+  storage_location_id: number | null
+  received_at: string | null
+  observations: string | null
+  line_number: number
+  is_active: boolean
+  waste?: { id: number; name: string; code: string | null }
+  storage_location?: { id: number; name: string } | null
+}
+
+// GET /api/admin/manifest-unloads/{id} -- ver `ManifestUnloadController::show()`.
+// A diferencia de la fila de `index()`, TODAS las relaciones vienen SIEMPRE
+// eager-cargadas, incluyendo el receptor/conductor firmantes.
+export type AdminManifestUnloadDetail = Omit<
+  AdminManifestUnload,
+  'manifest_status' | 'unload_request' | 'receiving_organization' | 'receiving_branch' | 'vehicle'
+> & {
+  manifest_status: AdminManifestUnloadStatus
+  manifest_load: { id: number; manifest_number: string } | null
+  unload_request: { id: number; request_number: string; carrier_organization_id: number | null }
+  receiving_branch: { id: number; name: string; organization_id: number }
+  receiving_organization: { id: number; legal_name: string }
+  vehicle: AdminVehicle
+  transport_personnel: {
+    id: number
+    license_number: string | null
+    license_category: string | null
+    has_hazmat_permit: boolean
+    person: { id: number; first_name: string; last_name: string }
+  }
+  receiver_person: { id: number; first_name: string; last_name: string; document_number?: string }
+  driver_signer_person: { id: number; first_name: string; last_name: string; document_number?: string }
+  items: AdminManifestUnloadItem[]
+}
+
+// POST /api/admin/manifest-unloads -- ver `ManifestUnloadController::store()`.
+// El resto de los campos (branch/organización/vehículo/personal/conductor/
+// manifest_load_id) se derivan AUTOMÁTICAMENTE server-side de la
+// `unload_request_id` (que debe estar Approved con una franja de recepción ya
+// Confirmed) -- NO se aceptan independientes en este payload.
+// `receiver_person_id` es la ÚNICA persona que se elige a mano -- debe
+// pertenecer a la organización RECEPTORA (la MISMA organización del actor
+// que crea el manifiesto, a diferencia de `CreateManifestLoadPayload` en
+// Fase 3, que exigía un contacto CRUZADO de la organización Generadora).
+export type CreateManifestUnloadPayload = {
+  unload_request_id: number
+  receiver_person_id: number
+  unload_date?: string
+  observations?: string
+}
+
+// POST .../inspect-items -- ver `ManifestUnloadController::inspectItems()`.
+// SOLO alcanzable en Draft (el receptor registra la inspección física ANTES
+// de poder `generate()`). `received_total_weight_kg` es el único campo de
+// cabecera obligatorio -- RN-107/108 (interpretación de este lote, ver AVISO
+// completo en el docblock de `ManifestUnloadController`: `generate()` exige
+// que este campo ya no sea NULL).
+export type InspectManifestUnloadItemsPayload = {
+  received_total_weight_kg: number
+  rejected_total_weight_kg?: number
+  received_total_volume_m3?: number
+  received_as_expected?: boolean
+  unload_started_at?: string
+  unload_completed_at?: string
+  incidents?: string
+  observations?: string
+  items: Array<{
+    id: number
+    received_quantity: number
+    rejected_quantity?: number
+    received_weight_kg?: number
+    rejected_weight_kg?: number
+    received_volume_m3?: number
+    received_container_quantity?: number
+    reception_condition?: string
+    rejection_reason?: string
+    inspection_approved?: boolean
+    storage_location_id?: number
+    observations?: string
+  }>
+}
+
+// POST .../sign -- ver `ManifestUnloadController::sign()`/
+// `ManifestUnloadSignatureService`. Anti-IDOR fino por tipo de firmante ya
+// resuelto server-side (`assertActorCanSign()`) -- el frontend solo oculta el
+// botón cuyo lado no le corresponde al actor, sin duplicar esa validación.
+export type SignManifestUnloadPayload = {
+  signer_type: 'RECEIVER' | 'DRIVER'
 }
 
 // ---- Autorizaciones de Transportador / "Modalidad 3" -----------------------

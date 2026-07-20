@@ -8,6 +8,9 @@ const approveUnloadRequestMock = vi.fn()
 const rejectUnloadRequestMock = vi.fn()
 const fetchBranchLocationsMock = vi.fn()
 const confirmPlantReceptionScheduleMock = vi.fn()
+const createManifestUnloadMock = vi.fn()
+const searchContactsMock = vi.fn()
+const pushMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('app/features/admin/api')>()
@@ -19,8 +22,14 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     rejectUnloadRequest: (...args: unknown[]) => rejectUnloadRequestMock(...args),
     fetchBranchLocations: (...args: unknown[]) => fetchBranchLocationsMock(...args),
     confirmPlantReceptionSchedule: (...args: unknown[]) => confirmPlantReceptionScheduleMock(...args),
+    createManifestUnload: (...args: unknown[]) => createManifestUnloadMock(...args),
+    searchContacts: (...args: unknown[]) => searchContactsMock(...args),
   }
 })
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: pushMock }),
+}))
 
 let currentUser: { id: number; is_platform_staff: boolean; permissions: string[]; tenant_organization_id: number } | null = null
 
@@ -94,6 +103,9 @@ describe('UnloadRequestDetailScreen', () => {
     rejectUnloadRequestMock.mockReset()
     fetchBranchLocationsMock.mockReset()
     confirmPlantReceptionScheduleMock.mockReset()
+    createManifestUnloadMock.mockReset()
+    searchContactsMock.mockReset()
+    pushMock.mockReset()
   })
 
   test('renders request number, receiving branch, carrier and items', async () => {
@@ -213,5 +225,160 @@ describe('UnloadRequestDetailScreen', () => {
     render(<UnloadRequestDetailScreen unloadRequestId={12} />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('boom')
+  })
+})
+
+describe('UnloadRequestDetailScreen -- Generar Manifiesto de Descargue', () => {
+  const approvedWithConfirmedSchedule = () =>
+    baseUnloadRequest({
+      unload_request_status: { id: 3, code: 'APPROVED', name: 'Aprobada', is_final: false },
+      active_reception_schedule: {
+        id: 200,
+        uuid: 'prs-200',
+        tenant_organization_id: 2,
+        unload_request_id: 12,
+        receiving_branch_id: 3,
+        dock_location_id: null,
+        scheduled_date: '2026-07-22',
+        scheduled_start_at: '2026-07-22T08:00:00Z',
+        scheduled_end_at: '2026-07-22T10:00:00Z',
+        proposed_by_role: 'LOGISTICS_COORDINATOR',
+        proposed_by_user_id: 1,
+        proposed_at: '2026-07-20T00:00:00Z',
+        counter_proposed_date: null,
+        counter_proposed_start_at: null,
+        counter_proposed_end_at: null,
+        counter_proposed_by: null,
+        counter_proposed_at: null,
+        confirmed_by: 2,
+        confirmed_at: '2026-07-20T01:00:00Z',
+        status: 'CONFIRMED',
+        reschedule_reason: null,
+        rejection_reason: null,
+        version_number: 1,
+        parent_schedule_id: null,
+        is_active: true,
+      },
+    })
+
+  beforeEach(() => {
+    fetchUnloadRequestMock.mockResolvedValue({ unload_request: approvedWithConfirmedSchedule() })
+    fetchBranchLocationsMock.mockResolvedValue({ data: [], current_page: 1, last_page: 1, total: 0, per_page: 15 })
+    searchContactsMock.mockResolvedValue({ data: [], current_page: 1, last_page: 1, total: 0, per_page: 10 })
+  })
+
+  test('hides the action without manifest_unloads.create', async () => {
+    currentUser = {
+      id: 2,
+      is_platform_staff: false,
+      permissions: ['unload_requests.read'],
+      tenant_organization_id: 2,
+    }
+    render(<UnloadRequestDetailScreen unloadRequestId={12} />)
+    await screen.findByText('SOL-1-ABCDEFGH')
+
+    expect(screen.queryByRole('button', { name: 'Generar Manifiesto de Descargue' })).not.toBeInTheDocument()
+  })
+
+  test('hides the action for the carrier organization (not the receiving owner)', async () => {
+    currentUser = {
+      id: 1,
+      is_platform_staff: false,
+      permissions: ['unload_requests.read', 'manifest_unloads.create'],
+      tenant_organization_id: 1,
+    }
+    render(<UnloadRequestDetailScreen unloadRequestId={12} />)
+    await screen.findByText('SOL-1-ABCDEFGH')
+
+    expect(screen.queryByRole('button', { name: 'Generar Manifiesto de Descargue' })).not.toBeInTheDocument()
+  })
+
+  test('hides the action when the reception schedule is not CONFIRMED yet', async () => {
+    currentUser = {
+      id: 2,
+      is_platform_staff: false,
+      permissions: ['unload_requests.read', 'manifest_unloads.create'],
+      tenant_organization_id: 2,
+    }
+    fetchUnloadRequestMock.mockResolvedValue({
+      unload_request: baseUnloadRequest({
+        unload_request_status: { id: 3, code: 'APPROVED', name: 'Aprobada', is_final: false },
+        active_reception_schedule: null,
+      }),
+    })
+    render(<UnloadRequestDetailScreen unloadRequestId={12} />)
+    await screen.findByText('SOL-1-ABCDEFGH')
+
+    expect(screen.queryByRole('button', { name: 'Generar Manifiesto de Descargue' })).not.toBeInTheDocument()
+  })
+
+  test('shows the action for the receiving owner once Approved + Confirmed, creates the manifest and redirects', async () => {
+    currentUser = {
+      id: 2,
+      is_platform_staff: false,
+      permissions: ['unload_requests.read', 'manifest_unloads.create'],
+      tenant_organization_id: 2,
+    }
+    createManifestUnloadMock.mockResolvedValue({ manifest_unload: { id: 77, manifest_number: 'MUN-2-ABCDEFGH' } })
+    render(<UnloadRequestDetailScreen unloadRequestId={12} />)
+    await screen.findByText('SOL-1-ABCDEFGH')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar Manifiesto de Descargue' }))
+    expect(await screen.findByRole('heading', { name: 'Generar Manifiesto de Descargue' })).toBeInTheDocument()
+
+    // Sin seleccionar firmante -- debe mostrar el error de validación local.
+    fireEvent.click(screen.getByRole('button', { name: 'Generar Manifiesto' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Selecciona el firmante del Receptor.')
+    expect(createManifestUnloadMock).not.toHaveBeenCalled()
+
+    searchContactsMock.mockResolvedValue({
+      data: [{ id: 90, first_name: 'Ana', last_name: 'Restrepo', document_number: 'CC999', email: null, position_title: 'Jefe de Planta' }],
+      current_page: 1,
+      last_page: 1,
+      total: 1,
+      per_page: 10,
+    })
+    fireEvent.change(screen.getByLabelText('Firmante del Receptor'), { target: { value: 'Ana' } })
+    fireEvent.click(await screen.findByText(/Ana Restrepo/))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar Manifiesto' }))
+
+    await waitFor(() =>
+      expect(createManifestUnloadMock).toHaveBeenCalledWith({
+        unload_request_id: 12,
+        receiver_person_id: 90,
+        unload_date: undefined,
+        observations: undefined,
+      })
+    )
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/admin/manifest-unloads/77'))
+  })
+
+  test('shows the API validation error when creation fails', async () => {
+    currentUser = {
+      id: 2,
+      is_platform_staff: false,
+      permissions: ['unload_requests.read', 'manifest_unloads.create'],
+      tenant_organization_id: 2,
+    }
+    searchContactsMock.mockResolvedValue({
+      data: [{ id: 90, first_name: 'Ana', last_name: 'Restrepo', document_number: 'CC999', email: null, position_title: null }],
+      current_page: 1,
+      last_page: 1,
+      total: 1,
+      per_page: 10,
+    })
+    createManifestUnloadMock.mockRejectedValue(new Error('Ya existe un manifiesto de descargue activo para esta solicitud.'))
+    render(<UnloadRequestDetailScreen unloadRequestId={12} />)
+    await screen.findByText('SOL-1-ABCDEFGH')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generar Manifiesto de Descargue' }))
+    fireEvent.change(await screen.findByLabelText('Firmante del Receptor'), { target: { value: 'Ana' } })
+    fireEvent.click(await screen.findByText(/Ana Restrepo/))
+    fireEvent.click(screen.getByRole('button', { name: 'Generar Manifiesto' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Ya existe un manifiesto de descargue activo para esta solicitud.'
+    )
   })
 })

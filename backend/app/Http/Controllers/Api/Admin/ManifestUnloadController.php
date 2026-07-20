@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
+use App\Models\File;
 use App\Models\ManifestLoad;
 use App\Models\ManifestStatus;
 use App\Models\ManifestUnload;
@@ -114,6 +115,33 @@ class ManifestUnloadController extends Controller
         ]);
 
         return response()->json(['manifest_unload' => $manifestUnload]);
+    }
+
+    /**
+     * GAP de contrato cerrado en este lote (agente frontend-web, Fase 5): el
+     * subsistema transversal `files` (`FileController`) ya soporta
+     * `entity_type=MANIFEST_UNLOAD`/`file_category=PHOTO_EVIDENCE` para
+     * subir/borrar evidencias (ver docblock de `FileController`/`File.php`,
+     * hallazgo de seguridad ya cerrado sobre `ManifestUnloadPolicy::update()`),
+     * pero no existía ningún endpoint para LISTAR las ya subidas -- mismo gap
+     * que `WasteController::files()` ya resuelve para `WASTE`. Se replica el
+     * MISMO patrón exacto: autorización vía `view()` de esta misma Policy (la
+     * que ya usa `show()`), sin capa de autorización paralela ni permiso
+     * nuevo.
+     */
+    public function files(Request $request, ManifestUnload $manifestUnload)
+    {
+        $actor = $request->user();
+        abort_unless((new ManifestUnloadPolicy)->view($actor, $manifestUnload), 403, 'No tiene acceso a este manifiesto de descargue.');
+
+        $files = File::query()
+            ->where('entity_type', 'MANIFEST_UNLOAD')
+            ->where('entity_id', $manifestUnload->id)
+            ->where('is_active', true)
+            ->orderByDesc('uploaded_at')
+            ->get();
+
+        return response()->json(['files' => $files]);
     }
 
     /**
