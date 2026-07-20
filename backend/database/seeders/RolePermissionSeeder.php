@@ -55,6 +55,7 @@ class RolePermissionSeeder extends Seeder
         'transport_schedules.read', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel',
         'transport_personnel.read', 'transport_personnel.create', 'transport_personnel.update',
         'transport_routes.read', 'transport_routes.create',
+        'manifest_loads.read', 'manifest_loads.create', 'manifest_loads.update', 'manifest_loads.sign', 'manifest_loads.cancel',
     ];
 
     /**
@@ -84,12 +85,31 @@ class RolePermissionSeeder extends Seeder
      * de LOGÍSTICA -- mismo criterio que su acceso completo a
      * `transport_schedules.*`, con el que las rutas se usan en conjunto vía
      * `assignToRoute()`.
+     *
+     * `manifest_loads.*` (Módulo Manifiesto de Cargue, Fase 3, 2026-07-20):
+     * acceso COMPLETO (los 5 códigos), mismo criterio que
+     * `transport_schedules.*` -- LOGÍSTICA es el mismo actor que ya crea/
+     * gestiona la programación de transporte de la que se deriva el
+     * manifiesto. `manifest_loads.sign` se incluye a propósito: la
+     * autorización real de "quién puede firmar como generador/conductor" NO
+     * depende del ROL del actor sino de a qué ORGANIZACIÓN pertenece
+     * (`ManifestLoadSignatureService::assertActorCanSign()`, ver su
+     * docblock) -- así que un usuario con rol LOGÍSTICA perteneciente a la
+     * organización Generadora puede firmar como generador, y uno
+     * perteneciente a la Transportadora puede firmar como conductor, con el
+     * MISMO permiso base. FLAG explícito (gap real, no resuelto en este
+     * lote): el catálogo canónico de 9 roles todavía solo tiene 2 sembrados
+     * (ADMINISTRADOR/LOGÍSTICA) -- no existe un rol de sistema dedicado al
+     * lado Generador; hasta que se siembre uno, cualquier actor del lado
+     * Generador que necesite firmar debe tener asignado ADMINISTRADOR o
+     * LOGÍSTICA.
      */
     private const LOGISTICA_PERMISSION_CODES = [
         'vehicles.read',
         'transport_schedules.read', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel',
         'transport_personnel.read',
         'transport_routes.read', 'transport_routes.create',
+        'manifest_loads.read', 'manifest_loads.create', 'manifest_loads.update', 'manifest_loads.sign', 'manifest_loads.cancel',
     ];
 
     public function run(): void

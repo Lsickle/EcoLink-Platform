@@ -154,6 +154,23 @@ use Illuminate\Database\Seeder;
  * contenedor simple sin workflow propio, ver docblock de
  * `TransportRouteController`), solo `.read`/`.create`. Ninguno es
  * `is_critical`.
+ *
+ * `manifest_loads.*` (Módulo Manifiesto de Cargue, Fase 3, 2026-07-20):
+ * mismo GAP ya documentado -- sin fuente confirmada en `Catálogo de
+ * Permisos.md` (el nombre de tabla real es `manifest_loads`, se sigue esa
+ * convención de nombrar el permiso como la tabla, igual que
+ * `transport_schedules`/`service_requests`). 5 códigos, mismo criterio
+ * granular que `service_requests.*`: `.create` cubre `store()` (creación +
+ * derivación automática de branch/carrier/vehicle/personnel/items desde el
+ * `transport_schedule_id`); `.update` cubre las transiciones humanas del
+ * workflow que opera el mismo actor Gestor/Logística (`generate()`/
+ * `startTransit()`, mismo criterio que `transport_schedules.update` cubre
+ * `submit()`/`confirm()`); `.sign` se separa aparte -- acción de mayor
+ * sensibilidad legal (firma de un documento regulatorio), potencialmente
+ * ejercida por un cargo/actor distinto al que crea/gestiona la programación
+ * (incluye al lado Generador, que NO tiene ningún otro permiso de este
+ * módulo salvo `.read`/`.sign`); `.cancel` aparte, mismo criterio que
+ * `transport_schedules.cancel`. Ninguno es `is_critical`.
  */
 class PermissionSeeder extends Seeder
 {
@@ -167,8 +184,8 @@ class PermissionSeeder extends Seeder
 
     /** @var array<int, list<string>> */
     private const PRIORITY_LEVELS = [
-        1 => ['users.read', 'roles.read', 'permissions.read', 'audit.read', 'waste_streams.read', 'un_codes.read', 'geography.read', 'branch_types.read', 'organizational_areas.read', 'hazard_characteristics.read', 'waste_categories.read', 'physical_states.read', 'packaging_types.read', 'packaging_conditions.read', 'vehicle_types.read', 'contacts.read', 'branches.read', 'vehicles.read', 'treatments.read', 'branch_treatments.read', 'waste_types.read', 'measurement_units.read', 'generation_frequencies.read', 'waste_operational_statuses.read', 'wastes.read', 'treatment_approvals.read', 'preapproved_wastes.read', 'service_requests.read', 'transport_schedules.read', 'transport_personnel.read', 'transport_routes.read'],
-        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate', 'waste_types.manage', 'measurement_units.manage', 'generation_frequencies.manage', 'waste_operational_statuses.manage', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate', 'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'preapproved_wastes.manage', 'workflows.manage', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel', 'transport_personnel.create', 'transport_personnel.update', 'transport_routes.create'],
+        1 => ['users.read', 'roles.read', 'permissions.read', 'audit.read', 'waste_streams.read', 'un_codes.read', 'geography.read', 'branch_types.read', 'organizational_areas.read', 'hazard_characteristics.read', 'waste_categories.read', 'physical_states.read', 'packaging_types.read', 'packaging_conditions.read', 'vehicle_types.read', 'contacts.read', 'branches.read', 'vehicles.read', 'treatments.read', 'branch_treatments.read', 'waste_types.read', 'measurement_units.read', 'generation_frequencies.read', 'waste_operational_statuses.read', 'wastes.read', 'treatment_approvals.read', 'preapproved_wastes.read', 'service_requests.read', 'transport_schedules.read', 'transport_personnel.read', 'transport_routes.read', 'manifest_loads.read'],
+        2 => ['users.create', 'users.update', 'users.activate', 'users.deactivate', 'roles.create', 'roles.update', 'audit.export', 'waste_streams.manage', 'un_codes.manage', 'geography.manage', 'branch_types.manage', 'organizational_areas.manage', 'hazard_characteristics.manage', 'waste_categories.manage', 'physical_states.manage', 'packaging_types.manage', 'packaging_conditions.manage', 'vehicle_types.manage', 'contacts.create', 'contacts.update', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate', 'vehicles.create', 'vehicles.update', 'vehicles.activate', 'vehicles.deactivate', 'treatments.create', 'treatments.update', 'treatments.activate', 'treatments.deactivate', 'branch_treatments.create', 'branch_treatments.update', 'branch_treatments.activate', 'branch_treatments.deactivate', 'waste_types.manage', 'measurement_units.manage', 'generation_frequencies.manage', 'waste_operational_statuses.manage', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate', 'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'preapproved_wastes.manage', 'workflows.manage', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel', 'transport_personnel.create', 'transport_personnel.update', 'transport_routes.create', 'manifest_loads.create', 'manifest_loads.update', 'manifest_loads.sign', 'manifest_loads.cancel'],
         3 => ['users.reset-password', 'roles.assign', 'permissions.assign'],
         4 => ['users.delete', 'roles.delete'],
     ];
@@ -333,6 +350,14 @@ class PermissionSeeder extends Seeder
 
             ['code' => 'transport_routes.read', 'name' => 'Consultar rutas de transporte', 'module' => 'transport_routes', 'action' => 'read'],
             ['code' => 'transport_routes.create', 'name' => 'Crear rutas de transporte', 'module' => 'transport_routes', 'action' => 'create'],
+
+            // Módulo Manifiesto de Cargue, Fase 3 -- ver aviso de GAP en el
+            // docblock de esta clase.
+            ['code' => 'manifest_loads.read', 'name' => 'Consultar manifiestos de cargue', 'module' => 'manifest_loads', 'action' => 'read'],
+            ['code' => 'manifest_loads.create', 'name' => 'Crear manifiestos de cargue', 'module' => 'manifest_loads', 'action' => 'create'],
+            ['code' => 'manifest_loads.update', 'name' => 'Generar/iniciar tránsito de manifiestos de cargue', 'module' => 'manifest_loads', 'action' => 'update'],
+            ['code' => 'manifest_loads.sign', 'name' => 'Firmar manifiestos de cargue (generador/conductor)', 'module' => 'manifest_loads', 'action' => 'sign'],
+            ['code' => 'manifest_loads.cancel', 'name' => 'Cancelar manifiestos de cargue', 'module' => 'manifest_loads', 'action' => 'cancel'],
         ];
 
         foreach ($permissions as $permission) {

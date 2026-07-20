@@ -153,5 +153,14 @@ class DatabaseSeeder extends Seeder
         // catálogo + workflow, sin controller/policies (próxima tarea).
         $this->call(TransportStatusSeeder::class);
         $this->call(TransportScheduleWorkflowSeeder::class);
+
+        // Módulo Manifiesto de Cargue, Fase 3: catálogo BASE
+        // "manifest_statuses" (8 filas, bajo la organización PLATAFORMA --
+        // debe correr DESPUÉS de PlatformOrganizationSeeder, ya sembrado
+        // arriba) + workflow BASE "Manifiesto de Cargue" (entity_type=MANIFEST)
+        // -- debe correr DESPUÉS de RoleSeeder (rol LOGÍSTICA, ya sembrado
+        // arriba). Sin datos de demo de manifest_loads todavía.
+        $this->call(ManifestStatusSeeder::class);
+        $this->call(ManifestLoadWorkflowSeeder::class);
     }
 }

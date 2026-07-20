@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\Admin\FileController;
 use App\Http\Controllers\Api\Admin\GenerationFrequencyController;
 use App\Http\Controllers\Api\Admin\HazardCharacteristicController;
 use App\Http\Controllers\Api\Admin\LocalityController;
+use App\Http\Controllers\Api\Admin\ManifestLoadController;
 use App\Http\Controllers\Api\Admin\MeasurementUnitController;
 use App\Http\Controllers\Api\Admin\MunicipalityController;
 use App\Http\Controllers\Api\Admin\OrganizationalAreaController;
@@ -505,6 +506,20 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::get('transport-routes', [TransportRouteController::class, 'index'])->name('transport-routes.index');
         Route::post('transport-routes', [TransportRouteController::class, 'store'])->name('transport-routes.store');
         Route::get('transport-routes/{route}', [TransportRouteController::class, 'show'])->name('transport-routes.show');
+
+        // Módulo Manifiesto de Cargue, Fase 3 -- documento/registro firmado en
+        // la planta del Generador ANTES de que el vehículo transporte los
+        // residuos hacia el Gestor. Ciclo cubierto: Draft->Generated
+        // (generate)->PartiallySigned/Signed (sign, automático)->InTransit
+        // (startTransit). Cancelled alcanzable solo desde Generated/
+        // PartiallySigned. Ver docblock de ManifestLoadController.
+        Route::get('manifest-loads', [ManifestLoadController::class, 'index'])->name('manifest-loads.index');
+        Route::post('manifest-loads', [ManifestLoadController::class, 'store'])->name('manifest-loads.store');
+        Route::get('manifest-loads/{manifestLoad}', [ManifestLoadController::class, 'show'])->name('manifest-loads.show');
+        Route::post('manifest-loads/{manifestLoad}/generate', [ManifestLoadController::class, 'generate'])->name('manifest-loads.generate');
+        Route::post('manifest-loads/{manifestLoad}/sign', [ManifestLoadController::class, 'sign'])->name('manifest-loads.sign');
+        Route::post('manifest-loads/{manifestLoad}/start-transit', [ManifestLoadController::class, 'startTransit'])->name('manifest-loads.start-transit');
+        Route::post('manifest-loads/{manifestLoad}/cancel', [ManifestLoadController::class, 'cancel'])->name('manifest-loads.cancel');
 
         // Subsistema TRANSVERSAL de archivos (esquema-bd: `files`). La
         // autorización real vive SIEMPRE en la entidad dueña (Policy
