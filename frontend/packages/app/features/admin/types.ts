@@ -3104,3 +3104,250 @@ export type CreateManifestLoadPayload = {
 export type SignManifestLoadPayload = {
   signer_type: 'GENERATOR' | 'DRIVER'
 }
+
+// ---- Muelles (/api/admin/branch-locations) --------------------------------
+// Fase 4 "Cita de Recepción en Planta (bilateral)" -- CRUD MÍNIMO de
+// "muelles" de una sede (ver docblock de la migración
+// create_branch_locations_table: acotado a este subconjunto, el resto del
+// DDL de canvas 2D de `esquema-bd` -- coordenadas/capacidad/riesgo/EPP -- se
+// difiere a una feature futura con react-konva, NO se construye aquí).
+export type AdminBranchLocation = {
+  id: number
+  uuid: string
+  tenant_organization_id: number | null
+  branch_id: number
+  code: string
+  name: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  branch?: { id: number; name: string; organization_id: number }
+}
+
+// GET /api/admin/branch-locations/{id} -- ver `BranchLocationController::show()`.
+export type AdminBranchLocationDetail = Omit<AdminBranchLocation, 'branch'> & {
+  branch: { id: number; name: string; organization_id: number }
+  created_by: AdminActorRef | null
+  updated_by: AdminActorRef | null
+}
+
+export type CreateBranchLocationPayload = {
+  branch_id: number
+  code: string
+  name: string
+}
+
+// `branch_id` deliberadamente ausente -- NO editable tras creación (ver
+// docblock de `BranchLocationController::update()`).
+export type UpdateBranchLocationPayload = {
+  code?: string
+  name?: string
+  is_active?: boolean
+}
+
+// ---- Solicitudes de Descargue (/api/admin/unload-requests) ----------------
+// Fase 4 "Cita de Recepción en Planta (bilateral)" -- ver docblock completo
+// de `UnloadRequestController`. Acceso DUAL NO SIMÉTRICO: el lado
+// TRANSPORTADOR (`carrier_organization_id`) crea/envía; el lado RECEPTOR
+// (dueño de `receiving_branch_id`) aprueba/rechaza. Grafo de 4 estados
+// (`unload_request_statuses`, sin agregado por ítems): Draft->(submit)->
+// Submitted->(approve)->Approved / ->(reject)->Rejected.
+export type AdminUnloadRequestStatus = {
+  id: number
+  code: 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED'
+  name: string
+  sort_order: number
+  is_initial: boolean
+  is_final: boolean
+  is_active: boolean
+}
+
+// Fila de `GET /api/admin/unload-requests` -- ver `UnloadRequestController::index()`,
+// que eager-carga exactamente estas 4 relaciones (columnas mínimas cada una).
+export type AdminUnloadRequest = {
+  id: number
+  uuid: string
+  tenant_organization_id: number
+  request_number: string
+  receiving_branch_id: number
+  manifest_load_id: number | null
+  transport_schedule_id: number | null
+  origin_branch_id: number | null
+  carrier_organization_id: number | null
+  vehicle_id: number | null
+  transport_personnel_id: number | null
+  service_modality: 'COLLECTION' | 'SELF_TRANSPORT'
+  estimated_arrival_at: string | null
+  priority: string
+  rejection_reason: string | null
+  transport_discrepancy_notes: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  unload_request_status?: AdminUnloadRequestStatus
+  receiving_branch?: { id: number; name: string; organization_id: number }
+  carrier_organization?: { id: number; legal_name: string } | null
+  transport_schedule?: { id: number; schedule_number: string } | null
+}
+
+// Ítem de descargue (`unload_request_items`) -- ver migración
+// create_unload_request_items_table (esquema-bd).
+export type AdminUnloadRequestItem = {
+  id: number
+  uuid: string
+  unload_request_id: number
+  manifest_load_item_id: number | null
+  waste_id: number
+  requested_quantity: number | string
+  unit_of_measure: string
+  packaging_type: string | null
+  line_number: number
+  is_active: boolean
+  waste?: { id: number; name: string; code: string | null }
+}
+
+// `plant_reception_schedules` -- ver docblock completo de
+// `PlantReceptionScheduleService`. `status` VARCHAR libre (NO motor de
+// Workflow genérico): PROPOSED -> (counterPropose, repetible) ->
+// COUNTER_PROPOSED -> (confirm, por el lado CONTRARIO al último
+// proponente) -> CONFIRMED -> (reschedule) -> SUPERSEDED + fila nueva
+// PROPOSED con `parent_schedule_id` apuntando a esta.
+export type AdminPlantReceptionSchedule = {
+  id: number
+  uuid: string
+  tenant_organization_id: number
+  unload_request_id: number
+  receiving_branch_id: number
+  dock_location_id: number | null
+  scheduled_date: string
+  scheduled_start_at: string
+  scheduled_end_at: string
+  proposed_by_role: 'LOGISTICS_COORDINATOR' | 'GENERATOR' | 'RECEPTION_COORDINATOR'
+  proposed_by_user_id: number
+  proposed_at: string
+  counter_proposed_date: string | null
+  counter_proposed_start_at: string | null
+  counter_proposed_end_at: string | null
+  counter_proposed_by: number | null
+  counter_proposed_at: string | null
+  confirmed_by: number | null
+  confirmed_at: string | null
+  status: 'PROPOSED' | 'COUNTER_PROPOSED' | 'CONFIRMED' | 'SUPERSEDED'
+  reschedule_reason: string | null
+  rejection_reason: string | null
+  version_number: number
+  parent_schedule_id: number | null
+  is_active: boolean
+  // Solo presente cuando el endpoint que la devuelve la eager-carga
+  // explícitamente (`show()` la trae siempre; `propose()` solo trae
+  // `dock_location`; `counterPropose()`/`confirm()`/`reschedule()` no traen
+  // ninguna) -- el caller no debe asumir que siempre viene poblada.
+  dock_location?: { id: number; code: string; name: string } | null
+  proposed_by_user?: { id: number; username: string } | null
+}
+
+// GET /api/admin/unload-requests/{id} -- ver `UnloadRequestController::show()`.
+// A diferencia de la fila de `index()`, TODAS las relaciones vienen SIEMPRE
+// eager-cargadas.
+export type AdminUnloadRequestDetail = Omit<
+  AdminUnloadRequest,
+  'unload_request_status' | 'receiving_branch' | 'carrier_organization' | 'transport_schedule'
+> & {
+  unload_request_status: AdminUnloadRequestStatus
+  receiving_branch: { id: number; name: string; organization_id: number }
+  manifest_load: { id: number; manifest_number: string } | null
+  transport_schedule: { id: number; schedule_number: string; organization_id: number } | null
+  origin_branch: { id: number; name: string; organization_id: number } | null
+  carrier_organization: { id: number; legal_name: string } | null
+  vehicle: { id: number; plate_number: string } | null
+  transport_personnel: { id: number; person: { id: number; first_name: string; last_name: string } } | null
+  items: AdminUnloadRequestItem[]
+  // "Vigente" -- ver `UnloadRequest::activeReceptionSchedule()`. NULL si
+  // todavía no se ha propuesto ninguna franja para esta solicitud.
+  active_reception_schedule: AdminPlantReceptionSchedule | null
+}
+
+// POST /api/admin/unload-requests -- creación MANUAL, caso "anticipada"
+// (D-RCP: `manifest_load_id`/`transport_schedule_id` NUNCA se aceptan del
+// payload, ver docblock de `UnloadRequestController::store()`). La INMENSA
+// mayoría de las filas nacen automáticamente al confirmar una
+// `transport_schedule` (D-PRG-13) -- este payload cubre solo el caso
+// excepcional.
+export type CreateUnloadRequestPayload = {
+  receiving_branch_id: number
+  origin_branch_id?: number
+  vehicle_id?: number
+  transport_personnel_id?: number
+  service_modality?: 'COLLECTION' | 'SELF_TRANSPORT'
+  estimated_arrival_at?: string
+  priority?: string
+  carrier_organization_id?: number
+  items: Array<{
+    waste_id: number
+    requested_quantity: number
+    unit_of_measure?: string
+    packaging_type?: string
+  }>
+}
+
+export type RejectUnloadRequestPayload = {
+  rejection_reason: string
+}
+
+// POST .../reception-schedule -- ver `PlantReceptionScheduleController::propose()`.
+// Solo estos 4 campos (`slotValidationRules()`) -- el Figma de referencia
+// (node 991:14338) muestra campos adicionales (Operador Responsable, Equipos
+// de Seguridad, Instrucciones Especiales, notificación automática) que el
+// backend real de este lote NO acepta -- se omiten a propósito (ver resumen
+// del agente frontend-web), no se inventan.
+export type ProposePlantReceptionSchedulePayload = {
+  dock_location_id?: number
+  scheduled_date: string
+  scheduled_start_at: string
+  scheduled_end_at: string
+}
+
+// POST .../counter-propose -- ver `PlantReceptionScheduleController::counterPropose()`.
+// EXTENSIÓN PROPIA de este lote (sin frame de Figma -- el frame de
+// referencia solo cubre el lado propuesta/confirmación, ver resumen del
+// agente frontend-web): mismo lenguaje visual que `ProposePlantReceptionSchedulePayload`.
+export type CounterProposePlantReceptionSchedulePayload = {
+  counter_proposed_date: string
+  counter_proposed_start_at: string
+  counter_proposed_end_at: string
+}
+
+// POST .../reschedule -- ver `PlantReceptionScheduleController::reschedule()`.
+export type ReschedulePlantReceptionSchedulePayload = ProposePlantReceptionSchedulePayload & {
+  reschedule_reason: string
+}
+
+// ---- Autorizaciones de Transportador / "Modalidad 3" -----------------------
+// (/api/admin/gestor-carrier-authorizations) -- ver docblock completo de
+// `GestorCarrierAuthorizationController`. Relación BILATERAL (gestor,
+// transportador), un solo registro VIGENTE por par, sin borrado físico
+// (`revoke()` solo marca `is_active=false`).
+export type AdminGestorCarrierAuthorization = {
+  id: number
+  uuid: string
+  gestor_organization_id: number
+  carrier_organization_id: number
+  authorized_by: number | null
+  authorized_at: string | null
+  revoked_by: number | null
+  revoked_at: string | null
+  observations: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  gestor_organization?: { id: number; legal_name: string }
+  carrier_organization?: { id: number; legal_name: string }
+}
+
+export type CreateGestorCarrierAuthorizationPayload = {
+  carrier_organization_id: number
+  observations?: string
+  // Solo platform staff -- un tenant admin SIEMPRE autoriza desde SU PROPIA
+  // organización (anti-role-smuggling, ver docblock del controller).
+  gestor_organization_id?: number
+}

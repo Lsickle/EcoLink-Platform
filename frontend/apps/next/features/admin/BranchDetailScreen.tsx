@@ -38,6 +38,7 @@ import {
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
 import { useRequireAuth } from 'app/provider/auth'
+import { BranchLocationsPanel } from './BranchLocationsPanel'
 import { OrganizationContactsPanel } from './OrganizationContactsPanel'
 
 const BRANCH_STATUSES: BranchStatus[] = ['ACTIVE', 'INACTIVE', 'SUSPENDED']
@@ -89,7 +90,13 @@ function MetricTile({ label, value }: { label: string; value: string }) {
 // -- `xLoaded` se lee pero deliberadamente se omite de las dependencias del
 // efecto).
 export function BranchDetailScreen({ branchId }: { branchId: number | string }) {
-  const { isAuthorized } = useRequireAuth('branches.read')
+  const { isAuthorized, user } = useRequireAuth('branches.read')
+  // Tab "Muelles" (`branch_locations`, Fase 4 "Cita de Recepción en Planta")
+  // -- gateado por su propio permiso, mismo criterio que el resto de
+  // tabs/pestañas de este proyecto que agregan un dominio hermano (ver
+  // AppSidebar) en vez de asumir que quien administra Sedes también
+  // administra Muelles.
+  const canManageBranchLocations = Boolean(user?.permissions?.includes('branch_locations.read'))
   const [branch, setBranch] = useState<AdminBranchDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -127,7 +134,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
   const [isTogglingActive, setIsTogglingActive] = useState(false)
   const [toggleError, setToggleError] = useState<string | null>(null)
 
-  const [activeTab, setActiveTab] = useState<'usuarios' | 'contactos' | 'auditoria'>('usuarios')
+  const [activeTab, setActiveTab] = useState<'usuarios' | 'contactos' | 'muelles' | 'auditoria'>('usuarios')
 
   const [users, setUsers] = useState<AdminUser[]>([])
   const [usersLoaded, setUsersLoaded] = useState(false)
@@ -693,6 +700,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
                 <TabsList>
                   <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
                   <TabsTrigger value="contactos">Contactos</TabsTrigger>
+                  {canManageBranchLocations && <TabsTrigger value="muelles">Muelles</TabsTrigger>}
                   <TabsTrigger value="auditoria">Actividad</TabsTrigger>
                 </TabsList>
 
@@ -752,6 +760,12 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
                     onChanged={loadContacts}
                   />
                 </TabsContent>
+
+                {canManageBranchLocations && (
+                  <TabsContent value="muelles" className="pt-4">
+                    <BranchLocationsPanel branchId={branch.id} />
+                  </TabsContent>
+                )}
 
                 <TabsContent value="auditoria" className="flex flex-col gap-3 pt-4">
                   {activityError && (

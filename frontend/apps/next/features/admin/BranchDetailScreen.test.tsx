@@ -14,6 +14,7 @@ const deactivateBranchMock = vi.fn()
 const fetchBranchUsersMock = vi.fn()
 const fetchBranchContactsMock = vi.fn()
 const fetchBranchActivityMock = vi.fn()
+const fetchBranchLocationsMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('app/features/admin/api')>()
@@ -31,6 +32,7 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     fetchBranchUsers: (...args: unknown[]) => fetchBranchUsersMock(...args),
     fetchBranchContacts: (...args: unknown[]) => fetchBranchContactsMock(...args),
     fetchBranchActivity: (...args: unknown[]) => fetchBranchActivityMock(...args),
+    fetchBranchLocations: (...args: unknown[]) => fetchBranchLocationsMock(...args),
   }
 })
 
@@ -38,6 +40,10 @@ const useRequireAuthMock = vi.fn((_permission?: string) => ({ user: { id: 1 }, i
 
 vi.mock('app/provider/auth', () => ({
   useRequireAuth: (permission?: string) => useRequireAuthMock(permission),
+  // `BranchLocationsPanel` (tab "Muelles") usa `useAuth()` directamente para
+  // gatear sus propios controles de escritura -- se deriva del mismo mock de
+  // `useRequireAuth` para no duplicar el estado de `user` en 2 mocks.
+  useAuth: () => useRequireAuthMock(),
 }))
 
 const emptyPage = { data: [], current_page: 1, last_page: 1, total: 0, per_page: 15 }
@@ -93,6 +99,7 @@ describe('BranchDetailScreen', () => {
     fetchBranchUsersMock.mockResolvedValue(emptyPage)
     fetchBranchContactsMock.mockResolvedValue(emptyPage)
     fetchBranchActivityMock.mockResolvedValue(emptyPage)
+    fetchBranchLocationsMock.mockResolvedValue(emptyPage)
   })
 
   afterEach(() => {
@@ -108,6 +115,7 @@ describe('BranchDetailScreen', () => {
     fetchBranchUsersMock.mockReset()
     fetchBranchContactsMock.mockReset()
     fetchBranchActivityMock.mockReset()
+    fetchBranchLocationsMock.mockReset()
     useRequireAuthMock.mockClear()
   })
 
@@ -185,5 +193,32 @@ describe('BranchDetailScreen', () => {
 
     await screen.findByText('Cambios guardados.')
     expect(updateBranchMock).toHaveBeenCalledWith(10, expect.objectContaining({ name: 'Planta Norte Actualizada' }))
+  })
+
+  test('hides the "Muelles" tab without branch_locations.read', async () => {
+    render(<BranchDetailScreen branchId={10} />)
+    await screen.findByText('Planta Norte')
+
+    expect(screen.queryByRole('tab', { name: 'Muelles' })).not.toBeInTheDocument()
+  })
+
+  test('shows the "Muelles" tab and lists its docks when the actor has branch_locations.read', async () => {
+    useRequireAuthMock.mockImplementation(() => ({
+      user: { id: 1, permissions: ['branches.read', 'branch_locations.read'] },
+      isLoading: false,
+      isAuthorized: true,
+    }))
+    fetchBranchLocationsMock.mockResolvedValue({
+      ...emptyPage,
+      data: [{ id: 8, uuid: 'bl-8', tenant_organization_id: 1, branch_id: 10, code: 'M1', name: 'Muelle 1', is_active: true, created_at: '', updated_at: '' }],
+    })
+    render(<BranchDetailScreen branchId={10} />)
+    await screen.findByText('Planta Norte')
+
+    const tabs = screen.getByRole('tablist')
+    fireEvent.click(within(tabs).getByRole('tab', { name: 'Muelles' }))
+
+    expect(await screen.findByText('M1')).toBeInTheDocument()
+    expect(fetchBranchLocationsMock).toHaveBeenCalledWith(expect.objectContaining({ branchId: 10 }))
   })
 })

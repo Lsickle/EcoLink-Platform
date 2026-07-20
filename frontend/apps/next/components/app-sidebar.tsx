@@ -16,7 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon, UserRoundIcon, FileSignatureIcon } from "lucide-react"
+import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon, UserRoundIcon, FileSignatureIcon, PackageSearchIcon, CalendarClockIcon, UserCheckIcon } from "lucide-react"
 import { useAuth } from "app/provider/auth"
 
 // Sin módulos de negocio todavía (Residuos, Solicitudes, Manifiestos, etc.)
@@ -257,6 +257,47 @@ const data = {
       url: "/admin/manifest-loads",
       icon: <FileSignatureIcon />,
       permission: "manifest_loads.read",
+    },
+    // Módulo Programación Logística, Fase 4 "Cita de Recepción en Planta
+    // (bilateral)" (D-PRG-02, backend cerrado -- 1319 tests Pest). Vive junto
+    // a "Manifiestos de Cargue" (su dominio hermano inmediato: una solicitud
+    // de descargue nace de un manifiesto/programación ya confirmados) y no
+    // en "Administración" -- mismo criterio que sus hermanos de este grupo.
+    // Acceso DUAL NO SIMÉTRICO (ver `UnloadRequestPolicy`): el lado
+    // transportador crea/envía, el lado receptor aprueba/rechaza.
+    // `PackageSearchIcon` (nuevo en este grupo) refleja "revisar una
+    // solicitud de descargue", sin repetir semántica con `FileSignatureIcon`
+    // (Manifiestos) ni `TruckIcon` (Programación de Recolección).
+    {
+      title: "Solicitudes de Descargue",
+      url: "/admin/unload-requests",
+      icon: <PackageSearchIcon />,
+      permission: "unload_requests.read",
+    },
+    // "Agenda de Recepciones en Planta" (Figma node 991:14128, fileKey
+    // pX6vqXxnJ66YSIYpE7v9pV) -- gateada por `plant_reception_schedules.read`,
+    // un permiso DISTINTO de `unload_requests.read` (mismo criterio que
+    // "Rutas de Transporte" vs. "Programación de Recolección" arriba). Ver
+    // docblock de `PlantReceptionAgendaScreen.tsx` para la simplificación
+    // aplicada (lista agrupada por día, no el calendario semanal
+    // pixel-perfect del frame -- gap de contrato del backend, no solo de
+    // tiempo).
+    {
+      title: "Agenda de Recepciones",
+      url: "/admin/unload-requests/agenda",
+      icon: <CalendarClockIcon />,
+      permission: "plant_reception_schedules.read",
+    },
+    // "Modalidad 3" -- gestión de `gestor_carrier_authorizations` (revisión
+    // especialista-seguridad). Ruta PROPIA (NO anidada bajo Organizaciones,
+    // ver docblock de `GestorCarrierAuthorizationsListScreen.tsx`: el backend
+    // no soporta filtrar por organización, embeberla en el detalle de una
+    // sola organización daría una falsa impresión de estar acotada).
+    {
+      title: "Autorizaciones de Transportador",
+      url: "/admin/gestor-carrier-authorizations",
+      icon: <UserCheckIcon />,
+      permission: "gestor_carrier_authorizations.read",
     },
     {
       title: "Corrientes Y/A",

@@ -14,6 +14,9 @@ import type {
   AdminHazardCharacteristic,
   AdminInvitationRequest,
   AdminLocality,
+  AdminBranchLocation,
+  AdminBranchLocationDetail,
+  AdminGestorCarrierAuthorization,
   AdminManifestLoad,
   AdminManifestLoadDetail,
   AdminMunicipality,
@@ -27,6 +30,7 @@ import type {
   AdminPermission,
   AdminPermissionDetail,
   AdminPhysicalState,
+  AdminPlantReceptionSchedule,
   AdminPreapprovedWaste,
   AdminPreapprovedWasteDetail,
   AdminRespelStatus,
@@ -45,6 +49,8 @@ import type {
   AdminTreatmentDetail,
   AdminUnCode,
   AdminUnCodeDetail,
+  AdminUnloadRequest,
+  AdminUnloadRequestDetail,
   AdminServiceRequest,
   AdminServiceRequestDetail,
   AdminFile,
@@ -76,9 +82,12 @@ import type {
   BranchTreatmentKpis,
   CancelServiceRequestPayload,
   ContactSearchResult,
+  CounterProposePlantReceptionSchedulePayload,
+  CreateBranchLocationPayload,
   CreateBranchPayload,
   CreateBranchTreatmentPayload,
   CreateBranchTypePayload,
+  CreateGestorCarrierAuthorizationPayload,
   CreateServiceRequestPayload,
   CreateHazardCharacteristicPayload,
   CreateManifestLoadPayload,
@@ -96,6 +105,7 @@ import type {
   CreateTreatmentApprovalRequestPayload,
   CreateTreatmentPayload,
   CreateUnCodePayload,
+  CreateUnloadRequestPayload,
   CreateUserPayload,
   CreateVehiclePayload,
   CreateVehicleTypePayload,
@@ -112,15 +122,19 @@ import type {
   PermissionActivityEvent,
   PermissionMatrixByModule,
   PreapprovedTreatmentMatch,
+  ProposePlantReceptionSchedulePayload,
   RejectInvitationRequestPayload,
   RejectServiceRequestItemPayload,
   RejectTreatmentApprovalCommercialPayload,
   RejectTreatmentApprovalTechnicalPayload,
+  RejectUnloadRequestPayload,
   RejectWastePayload,
+  ReschedulePlantReceptionSchedulePayload,
   RoleActivityEvent,
   SignManifestLoadPayload,
   TreatmentApprovalCommercialStatus,
   TreatmentApprovalTechnicalStatus,
+  UpdateBranchLocationPayload,
   UpdateBranchPayload,
   UpdateBranchTreatmentPayload,
   UpdateBranchTypePayload,
@@ -2717,6 +2731,194 @@ export async function startManifestLoadTransit(id: number | string): Promise<{ m
 // PartiallySigned (ver docblock de `ManifestLoadController::cancel()`).
 export async function cancelManifestLoad(id: number | string): Promise<{ manifest_load: { id: number } }> {
   return apiFetch(`/api/admin/manifest-loads/${id}/cancel`, { method: 'POST' })
+}
+
+// ---- Muelles (/api/admin/branch-locations) --------------------------------
+// Fase 4 "Cita de Recepción en Planta (bilateral)" -- ver AVISO en
+// `AdminBranchLocation` (types.ts).
+export async function fetchBranchLocations(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    branchId?: number | string
+    isActive?: boolean
+  } = {}
+): Promise<Paginated<AdminBranchLocation>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    branch_id: params.branchId,
+    is_active: params.isActive === undefined ? undefined : params.isActive ? 1 : 0,
+  })
+  return apiFetch(`/api/admin/branch-locations${query}`)
+}
+
+export async function fetchBranchLocation(id: number | string): Promise<{ branch_location: AdminBranchLocationDetail }> {
+  return apiFetch(`/api/admin/branch-locations/${id}`)
+}
+
+export async function createBranchLocation(
+  payload: CreateBranchLocationPayload
+): Promise<{ branch_location: AdminBranchLocation }> {
+  return apiFetch('/api/admin/branch-locations', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export async function updateBranchLocation(
+  id: number | string,
+  payload: UpdateBranchLocationPayload
+): Promise<{ branch_location: AdminBranchLocation }> {
+  return apiFetch(`/api/admin/branch-locations/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+// ---- Solicitudes de Descargue (/api/admin/unload-requests) ----------------
+// Fase 4 "Cita de Recepción en Planta (bilateral)" -- ver AVISO en
+// `AdminUnloadRequest`/`AdminUnloadRequestDetail` (types.ts). `index()` solo
+// acepta `search`/`status` como filtros (sin `organization_id` -- el backend
+// ya resuelve el acceso DUAL por `carrier_organization_id`/
+// `receivingBranch.organization_id` del propio actor, ver
+// `UnloadRequestController::index()`).
+export async function fetchUnloadRequests(
+  params: {
+    page?: number
+    perPage?: number
+    search?: string
+    status?: string
+  } = {}
+): Promise<Paginated<AdminUnloadRequest>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    search: params.search,
+    status: params.status,
+  })
+  return apiFetch(`/api/admin/unload-requests${query}`)
+}
+
+export async function fetchUnloadRequest(id: number | string): Promise<{ unload_request: AdminUnloadRequestDetail }> {
+  return apiFetch(`/api/admin/unload-requests/${id}`)
+}
+
+// POST /api/admin/unload-requests -- creación MANUAL, caso "anticipada"
+// (D-RCP). Nace en Draft, requiere `submitUnloadRequest()` explícito.
+export async function createUnloadRequest(
+  payload: CreateUnloadRequestPayload
+): Promise<{ unload_request: AdminUnloadRequest }> {
+  return apiFetch('/api/admin/unload-requests', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// POST .../submit -- Draft -> Submitted (lado transportador).
+export async function submitUnloadRequest(id: number | string): Promise<{ unload_request: { id: number } }> {
+  return apiFetch(`/api/admin/unload-requests/${id}/submit`, { method: 'POST' })
+}
+
+// POST .../approve -- Submitted -> Approved (lado receptor).
+export async function approveUnloadRequest(id: number | string): Promise<{ unload_request: { id: number } }> {
+  return apiFetch(`/api/admin/unload-requests/${id}/approve`, { method: 'POST' })
+}
+
+// POST .../reject -- Submitted -> Rejected (lado receptor).
+export async function rejectUnloadRequest(
+  id: number | string,
+  payload: RejectUnloadRequestPayload
+): Promise<{ unload_request: { id: number } }> {
+  return apiFetch(`/api/admin/unload-requests/${id}/reject`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// ---- Cita de Recepción en Planta (/api/admin/unload-requests/{id}/reception-schedule,
+// /api/admin/plant-reception-schedules) -------------------------------------
+// Ver docblock completo de `PlantReceptionScheduleService`.
+export async function fetchPlantReceptionSchedule(
+  unloadRequestId: number | string
+): Promise<{ plant_reception_schedule: AdminPlantReceptionSchedule | null }> {
+  return apiFetch(`/api/admin/unload-requests/${unloadRequestId}/reception-schedule`)
+}
+
+// POST .../reception-schedule -- PRIMERA propuesta (solo sobre una solicitud
+// Approved, sin franja vigente todavía).
+export async function proposePlantReceptionSchedule(
+  unloadRequestId: number | string,
+  payload: ProposePlantReceptionSchedulePayload
+): Promise<{ plant_reception_schedule: AdminPlantReceptionSchedule }> {
+  return apiFetch(`/api/admin/unload-requests/${unloadRequestId}/reception-schedule`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+// POST .../counter-propose -- EXTENSIÓN PROPIA de este lote (sin frame de
+// Figma, ver AVISO en `CounterProposePlantReceptionSchedulePayload`).
+export async function counterProposePlantReceptionSchedule(
+  scheduleId: number | string,
+  payload: CounterProposePlantReceptionSchedulePayload
+): Promise<{ plant_reception_schedule: AdminPlantReceptionSchedule }> {
+  return apiFetch(`/api/admin/plant-reception-schedules/${scheduleId}/counter-propose`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+// POST .../confirm -- cualquiera de las 2 partes ACCESIBLES puede invocarlo;
+// el backend rechaza con 422 si el actor pertenece al mismo lado que hizo la
+// última propuesta/contrapropuesta vigente (hallazgo de seguridad
+// 2026-07-19) -- el caller debe mostrar ese mensaje de validación tal cual,
+// sin intentar adivinar de antemano si el botón debe ocultarse (la
+// información necesaria -- organización de quien propuso -- no viaja en la
+// respuesta de `show()`, ver AVISO en `AdminPlantReceptionSchedule`).
+export async function confirmPlantReceptionSchedule(
+  scheduleId: number | string
+): Promise<{ plant_reception_schedule: AdminPlantReceptionSchedule }> {
+  return apiFetch(`/api/admin/plant-reception-schedules/${scheduleId}/confirm`, { method: 'POST' })
+}
+
+// POST .../reschedule -- solo sobre una franja ya Confirmed.
+export async function reschedulePlantReceptionSchedule(
+  scheduleId: number | string,
+  payload: ReschedulePlantReceptionSchedulePayload
+): Promise<{ plant_reception_schedule: AdminPlantReceptionSchedule }> {
+  return apiFetch(`/api/admin/plant-reception-schedules/${scheduleId}/reschedule`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+// ---- Autorizaciones de Transportador / "Modalidad 3" -----------------------
+// (/api/admin/gestor-carrier-authorizations) -- ver AVISO en
+// `AdminGestorCarrierAuthorization` (types.ts). `index()` NO acepta un filtro
+// `organization_id` (a diferencia de `fetchBranchLocations()`) -- el backend
+// ya resuelve el acceso DUAL por `gestor_organization_id`/
+// `carrier_organization_id` del propio actor; platform staff ve TODAS sin
+// filtro adicional. Por eso esta pantalla vive como ruta propia en el
+// sidebar (gateada por `gestor_carrier_authorizations.read`) y no embebida
+// en `OrganizationDetailScreen` -- ver resumen del agente frontend-web.
+export async function fetchGestorCarrierAuthorizations(
+  params: {
+    page?: number
+    perPage?: number
+    activeOnly?: boolean
+  } = {}
+): Promise<Paginated<AdminGestorCarrierAuthorization>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    active_only: params.activeOnly ? 1 : undefined,
+  })
+  return apiFetch(`/api/admin/gestor-carrier-authorizations${query}`)
+}
+
+export async function createGestorCarrierAuthorization(
+  payload: CreateGestorCarrierAuthorizationPayload
+): Promise<{ gestor_carrier_authorization: AdminGestorCarrierAuthorization }> {
+  return apiFetch('/api/admin/gestor-carrier-authorizations', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// POST .../revoke -- NO borra el registro, solo `is_active=false` (ver
+// docblock del controller).
+export async function revokeGestorCarrierAuthorization(
+  id: number | string
+): Promise<{ gestor_carrier_authorization: AdminGestorCarrierAuthorization }> {
+  return apiFetch(`/api/admin/gestor-carrier-authorizations/${id}/revoke`, { method: 'POST' })
 }
 
 export type * from './types'
