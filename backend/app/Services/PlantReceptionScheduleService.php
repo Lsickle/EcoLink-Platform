@@ -124,8 +124,11 @@ class PlantReceptionScheduleService
      * podía confirmarla él mismo -- una "confirmación" unilateral, pese a
      * que el `WorkflowLog` afirmaba literalmente "confirmada por ambas
      * partes" (un registro de auditoría falso). `assertActorIsOppositeSideOfLastProposal()`
-     * exige que el actor pertenezca a la organización CONTRARIA a la de
-     * quien hizo la última propuesta/contrapropuesta vigente.
+     * exige que el actor sea una "parte distinta" de quien hizo la última
+     * propuesta/contrapropuesta vigente -- ver el docblock de ese método para
+     * el criterio exacto (por organización o por usuario, según el caso; el
+     * criterio cambió el 2026-07-20 tras un deadlock real en Modalidad 1
+     * reproducido en verificación E2E manual).
      */
     public static function confirm(PlantReceptionSchedule $schedule, User $actor): PlantReceptionSchedule
     {
@@ -259,18 +262,39 @@ class PlantReceptionScheduleService
     }
 
     /**
-     * Anti-auto-confirmación (hallazgo Alto, 2026-07-19): platform staff
-     * SIEMPRE pasa -- mismo criterio ya usado en
-     * `ManifestLoadSignatureService::assertActorCanSign()`/
+     * Anti-auto-confirmación (hallazgo Alto, 2026-07-19; corregido
+     * 2026-07-20 tras un deadlock real reproducido en verificación E2E
+     * manual, ver más abajo). Platform staff SIEMPRE pasa -- mismo criterio
+     * ya usado en `ManifestLoadSignatureService::assertActorCanSign()`/
      * `resolveActorRole()` de esta misma clase (un actor de plataforma no
      * tiene "lado organizacional" propio que pueda entrar en conflicto, actúa
-     * como override universal). Para el resto, se resuelve la organización de
-     * quien hizo la última propuesta/contrapropuesta VIGENTE
-     * (`lastProposingOrganizationId()`) y se exige que el actor pertenezca a
-     * la organización CONTRARIA -- si `$lastProposingOrganizationId` no se
-     * pudo resolver (usuario proponente ya no existe/sin organización), se
-     * omite el chequeo en vez de bloquear una confirmación legítima sin
-     * evidencia real de auto-confirmación.
+     * como override universal).
+     *
+     * Para el resto, el criterio de "parte distinta" depende de si
+     * `carrier_organization_id` y la organización receptora
+     * (`receivingOrganizationId()`) de la `unload_request` asociada son la
+     * MISMA organización o no:
+     *
+     * - Organizaciones DISTINTAS (negociación bilateral real entre 2
+     *   empresas): la protección es por ORGANIZACIÓN -- ningún actor de la
+     *   organización que hizo la última propuesta/contrapropuesta puede
+     *   confirmar, debe ser alguien de la organización contraria. Criterio
+     *   original, sin cambios.
+     * - MISMA organización en ambos lados (Modalidad 1 / D-PRG-01 -- el
+     *   Gestor recoge con su propia flota y entrega en su propia planta, el
+     *   escenario MÁS COMÚN del negocio): comparar por organización deja
+     *   SIN NINGÚN usuario posible que pueda confirmar jamás -- deadlock
+     *   permanente, reproducido en vivo en la verificación E2E de esta
+     *   sesión. Aquí la protección real es por USUARIO -- segregación de
+     *   funciones dentro de la misma organización (p.ej. el Coordinador
+     *   Logístico propone, el Coordinador de Recepción de la misma empresa
+     *   confirma): un usuario DISTINTO al que propuso/contrapropuso sí puede
+     *   confirmar, el mismo usuario no.
+     *
+     * En ambos casos, si el proponente/contraproponente vigente no se pudo
+     * resolver (usuario ya no existe), se omite el chequeo en vez de
+     * bloquear una confirmación legítima sin evidencia real de
+     * auto-confirmación.
      */
     private static function assertActorIsOppositeSideOfLastProposal(PlantReceptionSchedule $schedule, User $actor): void
     {
@@ -278,7 +302,23 @@ class PlantReceptionScheduleService
             return;
         }
 
-        $lastProposingOrganizationId = self::lastProposingOrganizationId($schedule);
+        $lastProposerUserId = self::lastProposingUserId($schedule);
+
+        if ($lastProposerUserId === null) {
+            return;
+        }
+
+        if (self::isSameOrganizationOnBothSides($schedule)) {
+            if ($actor->id === $lastProposerUserId) {
+                throw ValidationException::withMessages([
+                    'confirmed_by' => ['No puede confirmar esta franja: es el mismo usuario que realizó la última propuesta o contrapropuesta vigente. Debe confirmarla otro usuario de la organización (segregación de funciones).'],
+                ]);
+            }
+
+            return;
+        }
+
+        $lastProposingOrganizationId = User::query()->find($lastProposerUserId)?->tenant_organization_id;
 
         if ($lastProposingOrganizationId !== null && $lastProposingOrganizationId === $actor->tenant_organization_id) {
             throw ValidationException::withMessages([
@@ -288,25 +328,30 @@ class PlantReceptionScheduleService
     }
 
     /**
-     * Organización de quien hizo la última propuesta VIGENTE -- si la franja
-     * está `COUNTER_PROPOSED`, es la organización de `counter_proposed_by`;
-     * en cualquier otro caso alcanzable aquí (`PROPOSED`), es la de
-     * `proposed_by_user_id`. Se resuelve por la ORGANIZACIÓN del usuario
-     * proponente, no por el usuario individual -- para no bloquear a otro
-     * miembro del mismo lado organizacional que confirme en nombre de su
-     * propia organización.
+     * Usuario que hizo la última propuesta VIGENTE -- si la franja está
+     * `COUNTER_PROPOSED`, es `counter_proposed_by`; en cualquier otro caso
+     * alcanzable aquí (`PROPOSED`), es `proposed_by_user_id`.
      */
-    private static function lastProposingOrganizationId(PlantReceptionSchedule $schedule): ?int
+    private static function lastProposingUserId(PlantReceptionSchedule $schedule): ?int
     {
-        $lastProposerUserId = $schedule->status === PlantReceptionSchedule::STATUS_COUNTER_PROPOSED
+        return $schedule->status === PlantReceptionSchedule::STATUS_COUNTER_PROPOSED
             ? $schedule->counter_proposed_by
             : $schedule->proposed_by_user_id;
+    }
 
-        if ($lastProposerUserId === null) {
-            return null;
-        }
+    /**
+     * `true` cuando `carrier_organization_id` y la organización receptora de
+     * la `unload_request` asociada son la MISMA -- Modalidad 1 (D-PRG-01).
+     * `carrier_organization_id` es NULLABLE (D-PRG-02, caso "anticipada"): si
+     * es NULL, nunca puede coincidir con la organización receptora, así que
+     * cae naturalmente en el criterio de "organizaciones distintas".
+     */
+    private static function isSameOrganizationOnBothSides(PlantReceptionSchedule $schedule): bool
+    {
+        $unloadRequest = $schedule->unloadRequest()->firstOrFail();
 
-        return User::query()->find($lastProposerUserId)?->tenant_organization_id;
+        return $unloadRequest->carrier_organization_id !== null
+            && $unloadRequest->carrier_organization_id === $unloadRequest->receivingOrganizationId();
     }
 
     /**

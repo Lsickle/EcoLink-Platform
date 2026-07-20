@@ -101,6 +101,39 @@ function prsApprovedRequestFixture(): array
     return [$unloadRequest->fresh(), $carrier, $receiver, $carrierActor, $receiverActor];
 }
 
+/**
+ * Modalidad 1 (D-PRG-01) -- escenario MÁS COMÚN del negocio: el Gestor
+ * recoge con su propia flota y entrega en su propia planta, así que
+ * `carrier_organization_id` y la organización dueña de `receiving_branch_id`
+ * son la MISMA (a diferencia de `prsApprovedRequestFixture()`, que siempre
+ * usa 2 organizaciones distintas). Devuelve la solicitud aprobada + la
+ * organización única + 2 actores DISTINTOS de esa misma organización
+ * (segregación de funciones: uno envía, otro aprueba/confirma).
+ *
+ * @return array{0: UnloadRequest, 1: Organization, 2: User, 3: User}
+ */
+function prsSameOrganizationApprovedRequestFixture(): array
+{
+    $organization = Organization::factory()->create();
+    $receivingBranch = Branch::factory()->create(['organization_id' => $organization->id]);
+    $waste = Waste::factory()->create();
+
+    $submitterActor = prsActor(['unload_requests.create', 'unload_requests.update', 'plant_reception_schedules.manage', 'plant_reception_schedules.read'], $organization->id);
+    $approverActor = prsActor(['unload_requests.decide', 'plant_reception_schedules.manage', 'plant_reception_schedules.read'], $organization->id);
+
+    $response = test()->actingAs($submitterActor)->postJson('/api/admin/unload-requests', [
+        'receiving_branch_id' => $receivingBranch->id,
+        'items' => [['waste_id' => $waste->id, 'requested_quantity' => 100]],
+    ])->assertCreated();
+
+    $unloadRequest = UnloadRequest::query()->findOrFail($response->json('unload_request.id'));
+
+    test()->actingAs($submitterActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/submit")->assertOk();
+    test()->actingAs($approverActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/approve")->assertOk();
+
+    return [$unloadRequest->fresh(), $organization, $submitterActor, $approverActor];
+}
+
 function prsSlotPayload(?int $dockLocationId = null): array
 {
     return [
@@ -324,6 +357,56 @@ test('confirm() exitoso escribe un WorkflowLog cuya descripción refleja la orga
 
     expect($log->description)->not->toContain('ambas partes')
         ->and($log->description)->toContain($carrierActor->tenantOrganization->legal_name);
+});
+
+// ---- confirm(): Modalidad 1 (D-PRG-01), carrier_organization_id === organización receptora ----
+// Bug crítico encontrado en la verificación E2E manual de esta sesión:
+// `assertActorIsOppositeSideOfLastProposal()` comparaba por ORGANIZACIÓN, lo
+// que en Modalidad 1 (única organización en ambos lados) producía un
+// deadlock permanente -- NINGÚN usuario de esa organización podía confirmar
+// jamás. Ver docblock de `PlantReceptionScheduleService::assertActorIsOppositeSideOfLastProposal()`.
+
+test('confirm() rechaza (422) en Modalidad 1 cuando el actor es el MISMO usuario que hizo la última propuesta', function () {
+    [$unloadRequest, , $submitterActor] = prsSameOrganizationApprovedRequestFixture();
+
+    $proposeResponse = $this->actingAs($submitterActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/reception-schedule", prsSlotPayload())->assertCreated();
+    $scheduleId = $proposeResponse->json('plant_reception_schedule.id');
+
+    $this->actingAs($submitterActor)->postJson("/api/admin/plant-reception-schedules/{$scheduleId}/confirm")
+        ->assertUnprocessable()->assertJsonValidationErrors('confirmed_by');
+
+    expect(PlantReceptionSchedule::query()->findOrFail($scheduleId)->status)->toBe('PROPOSED');
+});
+
+test('confirm() permite (200) en Modalidad 1 que un usuario DISTINTO de la MISMA organización confirme (fix del deadlock de la verificación E2E)', function () {
+    [$unloadRequest, , $submitterActor, $approverActor] = prsSameOrganizationApprovedRequestFixture();
+
+    $proposeResponse = $this->actingAs($submitterActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/reception-schedule", prsSlotPayload())->assertCreated();
+    $scheduleId = $proposeResponse->json('plant_reception_schedule.id');
+
+    $this->actingAs($approverActor)->postJson("/api/admin/plant-reception-schedules/{$scheduleId}/confirm")
+        ->assertOk()
+        ->assertJsonPath('plant_reception_schedule.status', 'CONFIRMED');
+
+    expect(PlantReceptionSchedule::query()->findOrFail($scheduleId)->confirmed_by)->toBe($approverActor->id);
+});
+
+test('confirm() rechaza (422) en Modalidad 1 cuando el actor es el MISMO usuario que hizo la última CONTRApropuesta', function () {
+    [$unloadRequest, , $submitterActor, $approverActor] = prsSameOrganizationApprovedRequestFixture();
+
+    $proposeResponse = $this->actingAs($submitterActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/reception-schedule", prsSlotPayload())->assertCreated();
+    $scheduleId = $proposeResponse->json('plant_reception_schedule.id');
+
+    $this->actingAs($approverActor)->postJson("/api/admin/plant-reception-schedules/{$scheduleId}/counter-propose", [
+        'counter_proposed_date' => now()->addDays(3)->toDateString(),
+        'counter_proposed_start_at' => now()->addDays(3)->setTime(9, 0)->toIso8601String(),
+        'counter_proposed_end_at' => now()->addDays(3)->setTime(11, 0)->toIso8601String(),
+    ])->assertOk();
+
+    $this->actingAs($approverActor)->postJson("/api/admin/plant-reception-schedules/{$scheduleId}/confirm")
+        ->assertUnprocessable()->assertJsonValidationErrors('confirmed_by');
+
+    expect(PlantReceptionSchedule::query()->findOrFail($scheduleId)->status)->toBe('COUNTER_PROPOSED');
 });
 
 // ---- reschedule(): solo sobre franja ya CONFIRMED ----
