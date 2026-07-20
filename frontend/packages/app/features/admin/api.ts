@@ -31,6 +31,7 @@ import type {
   AdminPermissionDetail,
   AdminPhysicalState,
   AdminPlantReceptionSchedule,
+  AdminPlantReceptionScheduleAgendaRow,
   AdminPreapprovedWaste,
   AdminPreapprovedWasteDetail,
   AdminRespelStatus,
@@ -2774,17 +2775,21 @@ export async function updateBranchLocation(
 
 // ---- Solicitudes de Descargue (/api/admin/unload-requests) ----------------
 // Fase 4 "Cita de Recepción en Planta (bilateral)" -- ver AVISO en
-// `AdminUnloadRequest`/`AdminUnloadRequestDetail` (types.ts). `index()` solo
-// acepta `search`/`status` como filtros (sin `organization_id` -- el backend
-// ya resuelve el acceso DUAL por `carrier_organization_id`/
+// `AdminUnloadRequest`/`AdminUnloadRequestDetail` (types.ts). `index()` acepta
+// `search`/`status`/`receiving_branch_id` (sin `organization_id` -- el
+// backend ya resuelve el acceso DUAL por `carrier_organization_id`/
 // `receivingBranch.organization_id` del propio actor, ver
-// `UnloadRequestController::index()`).
+// `UnloadRequestController::index()`). `receivingBranchId` (cierre del gap
+// N+1 de `PlantReceptionAgendaScreen.tsx`, 2026-07-20): el backend lo ignora
+// en silencio si no se manda (sin filtro por sede), mismo criterio que el
+// resto de filtros opcionales de este archivo.
 export async function fetchUnloadRequests(
   params: {
     page?: number
     perPage?: number
     search?: string
     status?: string
+    receivingBranchId?: number | string
   } = {}
 ): Promise<Paginated<AdminUnloadRequest>> {
   const query = buildQuery({
@@ -2792,6 +2797,7 @@ export async function fetchUnloadRequests(
     per_page: params.perPage,
     search: params.search,
     status: params.status,
+    receiving_branch_id: params.receivingBranchId,
   })
   return apiFetch(`/api/admin/unload-requests${query}`)
 }
@@ -2829,6 +2835,36 @@ export async function rejectUnloadRequest(
 // ---- Cita de Recepción en Planta (/api/admin/unload-requests/{id}/reception-schedule,
 // /api/admin/plant-reception-schedules) -------------------------------------
 // Ver docblock completo de `PlantReceptionScheduleService`.
+
+// GET /api/admin/plant-reception-schedules -- índice GENERAL por sede
+// receptora (`PlantReceptionScheduleController::index()`), consumido por
+// `PlantReceptionAgendaScreen` (cierre del gap N+1 documentado en su
+// docblock hasta 2026-07-20 -- antes de este endpoint, la agenda hacía 1
+// fetch de `fetchPlantReceptionSchedule()` POR CADA solicitud Aprobada
+// visible). `receivingBranchId` es OBLIGATORIO -- el backend responde 422
+// sin él (ver AVISO en el controller sobre por qué: sin ese filtro la
+// consulta recorrería la tabla completa de todas las sedes).
+export async function fetchPlantReceptionSchedules(
+  params: {
+    receivingBranchId: number | string
+    dateFrom?: string
+    dateTo?: string
+    status?: 'PROPOSED' | 'COUNTER_PROPOSED' | 'CONFIRMED' | 'SUPERSEDED'
+    page?: number
+    perPage?: number
+  }
+): Promise<Paginated<AdminPlantReceptionScheduleAgendaRow>> {
+  const query = buildQuery({
+    receiving_branch_id: params.receivingBranchId,
+    date_from: params.dateFrom,
+    date_to: params.dateTo,
+    status: params.status,
+    page: params.page,
+    per_page: params.perPage,
+  })
+  return apiFetch(`/api/admin/plant-reception-schedules${query}`)
+}
+
 export async function fetchPlantReceptionSchedule(
   unloadRequestId: number | string
 ): Promise<{ plant_reception_schedule: AdminPlantReceptionSchedule | null }> {

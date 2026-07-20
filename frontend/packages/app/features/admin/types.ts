@@ -3241,9 +3241,41 @@ export type AdminPlantReceptionSchedule = {
   // Solo presente cuando el endpoint que la devuelve la eager-carga
   // explícitamente (`show()` la trae siempre; `propose()` solo trae
   // `dock_location`; `counterPropose()`/`confirm()`/`reschedule()` no traen
-  // ninguna) -- el caller no debe asumir que siempre viene poblada.
+  // ninguna; el índice general `GET /api/admin/plant-reception-schedules` --
+  // ver `AdminPlantReceptionScheduleAgendaRow` -- SIEMPRE trae las 4) -- el
+  // caller no debe asumir que siempre vienen pobladas.
   dock_location?: { id: number; code: string; name: string } | null
   proposed_by_user?: { id: number; username: string } | null
+  counter_proposed_by_user?: { id: number; username: string } | null
+  confirmed_by_user?: { id: number; username: string } | null
+}
+
+// GET /api/admin/plant-reception-schedules?receiving_branch_id=&date_from=&date_to=&status=
+// -- índice GENERAL por sede receptora (`PlantReceptionScheduleController::
+// index()`), NO anidado bajo una `unload_request` puntual -- cierre del gap
+// N+1 que documentaba el docblock de `PlantReceptionAgendaScreen.tsx` hasta
+// 2026-07-20 (ese docblock ya NO aplica, ver el actual). `receiving_branch_id`
+// es OBLIGATORIO en el query (ver AVISO en el controller sobre por qué). A
+// diferencia de `AdminPlantReceptionSchedule` base (fila devuelta por los
+// endpoints anidados, donde `dock_location`/`proposed_by_user` son
+// opcionales según el endpoint), esta fila SIEMPRE trae las 4 relaciones
+// eager-cargadas (aunque cualquiera puede ser `null` si esa etapa no
+// aplicó) + `unload_request` anidado en su forma MÍNIMA ({id,
+// request_number, receiving_branch_id, carrier_organization_id}) -- SIN
+// `carrier_organization.legal_name`; el caller que necesite el nombre del
+// transportador debe cruzar por `unload_request_id` con
+// `fetchUnloadRequests()` (ver `PlantReceptionAgendaScreen.tsx`).
+export type AdminPlantReceptionScheduleAgendaRow = AdminPlantReceptionSchedule & {
+  dock_location: { id: number; code: string; name: string } | null
+  proposed_by_user: { id: number; username: string } | null
+  counter_proposed_by_user: { id: number; username: string } | null
+  confirmed_by_user: { id: number; username: string } | null
+  unload_request: {
+    id: number
+    request_number: string
+    receiving_branch_id: number
+    carrier_organization_id: number | null
+  }
 }
 
 // GET /api/admin/unload-requests/{id} -- ver `UnloadRequestController::show()`.
