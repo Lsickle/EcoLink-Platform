@@ -222,13 +222,14 @@ test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, A
  * mismo lote que resuelve el gap real de contrato señalado por el agente de
  * frontend -- ver docblock de `RolePermissionSeeder::LOGISTICA_PERMISSION_CODES`.
  */
-test('LOGÍSTICA queda con vehicles.read + transport_personnel.read (solo lectura) + transport_schedules.*/transport_routes.*/manifest_loads.*/unload_requests.*/plant_reception_schedules.*/manifest_unloads.* completos', function () {
+test('LOGÍSTICA queda con vehicles.read + contacts.read + transport_personnel.read (solo lectura) + transport_schedules.*/transport_routes.*/manifest_loads.*/unload_requests.*/plant_reception_schedules.*/manifest_unloads.* completos', function () {
     $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
 
     $codes = $logistica->permissions()->pluck('code')->sort()->values()->all();
 
     expect($codes)->toBe(collect([
         'vehicles.read',
+        'contacts.read',
         'transport_schedules.read', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel',
         'transport_personnel.read',
         'transport_routes.read', 'transport_routes.create',
@@ -272,5 +273,5 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
     expect(Permission::query()->count())->toBe(121)
         ->and(Role::query()->count())->toBe(2)
         ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(121)
-        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(27);
+        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(28);
 });

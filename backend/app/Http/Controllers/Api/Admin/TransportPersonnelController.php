@@ -182,17 +182,31 @@ class TransportPersonnelController extends Controller
     /**
      * Anti-IDOR (mismo criterio EXACTO que
      * `TransportScheduleController::assertBranchBelongsToOrganization()`):
-     * `people.organization_id` es hoy la columna real de pertenencia (el
-     * pivote N:N `organization_contacts` sigue siendo la relación de
-     * CONTACTO, no de "persona empleada por" -- fuera de alcance de esta
-     * tarea). `withTrashed()` -- una persona soft-eliminada de OTRA
+     * CORREGIDO (verificación E2E, 2026-07-20): la versión original comparaba
+     * contra `people.organization_id` -- columna LEGACY que queda `NULL` para
+     * todo contacto creado por el flujo real vigente (`organization_contacts`,
+     * D-P02/L-08), lo que rechazaba a CUALQUIER contacto real como conductor
+     * ("La persona indicada no pertenece a la organización.", reproducido en
+     * vivo con un contacto de demo). Mismo criterio ya usado y correcto en
+     * `OrganizationController::searchContacts()`: pertenencia vía
+     * `organizationLinks()` (pivote `organization_contacts`) con vínculo
+     * ACTIVO. `withTrashed()` -- una persona soft-eliminada de OTRA
      * organización no debe pasar silenciosamente el chequeo.
      */
     private function assertPersonBelongsToOrganization(int $personId, ?int $organizationId): void
     {
         $person = Person::withTrashed()->find($personId);
 
-        if ($person && (int) $person->organization_id !== (int) $organizationId) {
+        if (! $person) {
+            return;
+        }
+
+        $belongs = $person->organizationLinks()
+            ->where('organization_id', $organizationId)
+            ->where('is_active', true)
+            ->exists();
+
+        if (! $belongs) {
             throw ValidationException::withMessages([
                 'person_id' => ['La persona indicada no pertenece a la organización.'],
             ]);

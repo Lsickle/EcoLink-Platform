@@ -310,16 +310,33 @@ class ManifestLoadController extends Controller
      * Anti-IDOR: `generator_signer_person_id` debe pertenecer a la
      * organización GENERADORA (dueña de `source_branch_id`), NO a la
      * organización actora que está creando el manifiesto (que es el
-     * Gestor/carrier) -- mismo criterio EXACTO que
-     * `TransportPersonnelController::assertPersonBelongsToOrganization()`,
-     * adaptado. `withTrashed()` -- una persona soft-eliminada de OTRA
+     * Gestor/carrier).
+     *
+     * CORREGIDO (verificación E2E, 2026-07-20): la versión original comparaba
+     * contra `people.organization_id` -- columna LEGACY que queda `NULL` para
+     * todo contacto creado por el flujo real vigente (`organization_contacts`,
+     * D-P02/L-08), lo que rechazaba a CUALQUIER contacto real como firmante.
+     * Mismo criterio ya corregido en
+     * `TransportPersonnelController::assertPersonBelongsToOrganization()` y
+     * ya usado en `OrganizationController::searchContacts()`: pertenencia vía
+     * `organizationLinks()` (pivote `organization_contacts`) con vínculo
+     * ACTIVO. `withTrashed()` -- una persona soft-eliminada de OTRA
      * organización no debe pasar silenciosamente el chequeo.
      */
     private function assertPersonBelongsToOrganization(int $personId, ?int $organizationId): void
     {
         $person = Person::withTrashed()->find($personId);
 
-        if ($person && (int) $person->organization_id !== (int) $organizationId) {
+        if (! $person) {
+            return;
+        }
+
+        $belongs = $person->organizationLinks()
+            ->where('organization_id', $organizationId)
+            ->where('is_active', true)
+            ->exists();
+
+        if (! $belongs) {
             throw ValidationException::withMessages([
                 'generator_signer_person_id' => ['La persona indicada no pertenece a la organización Generadora de la sede de cargue.'],
             ]);

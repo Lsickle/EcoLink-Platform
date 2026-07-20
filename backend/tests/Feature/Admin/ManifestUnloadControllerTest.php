@@ -4,6 +4,7 @@ use App\Models\Branch;
 use App\Models\ManifestLoad;
 use App\Models\ManifestUnload;
 use App\Models\Organization;
+use App\Models\OrganizationContact;
 use App\Models\Person;
 use App\Models\PlantReceptionSchedule;
 use App\Models\Role;
@@ -80,6 +81,26 @@ function muPlatformStaffActor(array $codes = []): User
     return muActor($codes, $platform->id);
 }
 
+// CORREGIDO (verificación E2E, 2026-07-20): el anti-IDOR de
+// `assertPersonBelongsToOrganization()` pasó a validar pertenencia vía el
+// pivote real `organization_contacts` (antes usaba la columna legacy
+// `people.organization_id`, que queda NULL para contactos creados por el
+// flujo vigente -- bug real reproducido en vivo). Este helper crea el
+// vínculo real en vez de solo setear `Person.organization_id` -- mismo
+// patrón que `tpPersonInOrganization()` en `TransportPersonnelControllerTest`.
+function muPersonInOrganization(int $organizationId): Person
+{
+    $person = Person::factory()->create(['organization_id' => $organizationId]);
+
+    OrganizationContact::factory()->create([
+        'contact_id' => $person->id,
+        'organization_id' => $organizationId,
+        'is_active' => true,
+    ]);
+
+    return $person;
+}
+
 /**
  * Construye (vía HTTP real: store->submit->approve->propose->confirm) una
  * `unload_requests` YA `Approved` con una `plant_reception_schedules` activa
@@ -146,7 +167,7 @@ function muInspectPayload(array $itemIds, array $overrides = []): array
 
 test('store crea la cabecera en DRAFT + items derivados de la unload_request', function () {
     [$unloadRequest, $carrier, $receiver, , $receiverActor, $waste] = muApprovedUnloadRequestFixture();
-    $receiverPerson = Person::factory()->create(['organization_id' => $receiver->id]);
+    $receiverPerson = muPersonInOrganization($receiver->id);
 
     $requestItem = $unloadRequest->items->first();
 
@@ -204,7 +225,7 @@ test('store propaga manifest_load_id automáticamente cuando existe un manifiest
         'is_active' => true,
     ]);
 
-    $receiverPerson = Person::factory()->create(['organization_id' => $receiver->id]);
+    $receiverPerson = muPersonInOrganization($receiver->id);
     $receiverActor = muActor(['manifest_unloads.create'], $receiver->id);
 
     $response = $this->actingAs($receiverActor)->postJson('/api/admin/manifest-unloads', [
@@ -230,7 +251,10 @@ test('store rechaza (403) un actor que NO pertenece a la organización Receptora
 
 test('store rechaza un receiver_person_id que NO pertenece a la organización Receptora', function () {
     [$unloadRequest, $carrier, , , $receiverActor] = muApprovedUnloadRequestFixture();
-    $foreignPerson = Person::factory()->create(['organization_id' => $carrier->id]);
+    // El foreignPerson SÍ es contacto real de $carrier (organización distinta
+    // a la Receptora exigida) -- escenario más representativo que una
+    // persona sin ningún vínculo.
+    $foreignPerson = muPersonInOrganization($carrier->id);
 
     $this->actingAs($receiverActor)->postJson('/api/admin/manifest-unloads', [
         'unload_request_id' => $unloadRequest->id,
@@ -248,7 +272,7 @@ test('store rechaza (422) una unload_request que NO está Aprobada', function ()
 
     $carrierActor = muActor(['unload_requests.create'], $carrier->id);
     $receiverActor = muActor(['manifest_unloads.create'], $receiver->id);
-    $receiverPerson = Person::factory()->create(['organization_id' => $receiver->id]);
+    $receiverPerson = muPersonInOrganization($receiver->id);
 
     $response = $this->actingAs($carrierActor)->postJson('/api/admin/unload-requests', [
         'receiving_branch_id' => $receivingBranch->id,
@@ -273,7 +297,7 @@ test('store rechaza (422) una unload_request Aprobada pero SIN una plant_recepti
 
     $carrierActor = muActor(['unload_requests.create', 'unload_requests.update'], $carrier->id);
     $receiverActor = muActor(['unload_requests.decide', 'manifest_unloads.create'], $receiver->id);
-    $receiverPerson = Person::factory()->create(['organization_id' => $receiver->id]);
+    $receiverPerson = muPersonInOrganization($receiver->id);
 
     $response = $this->actingAs($carrierActor)->postJson('/api/admin/unload-requests', [
         'receiving_branch_id' => $receivingBranch->id,
@@ -295,7 +319,7 @@ test('store rechaza (422) una unload_request Aprobada pero SIN una plant_recepti
 
 test('store() rechaza (422) un segundo manifiesto para la misma unload_request mientras exista uno ACTIVO', function () {
     [$unloadRequest, , $receiver, , $receiverActor] = muApprovedUnloadRequestFixture();
-    $receiverPerson = Person::factory()->create(['organization_id' => $receiver->id]);
+    $receiverPerson = muPersonInOrganization($receiver->id);
 
     $this->actingAs($receiverActor)->postJson('/api/admin/manifest-unloads', [
         'unload_request_id' => $unloadRequest->id,
@@ -314,7 +338,7 @@ test('store() rechaza (422) un segundo manifiesto para la misma unload_request m
 
 test('generate() rechaza (422) mientras la inspección no haya registrado los pesos recibidos/rechazados (RN-107/108)', function () {
     [$unloadRequest, , $receiver, , $receiverActor] = muApprovedUnloadRequestFixture();
-    $receiverPerson = Person::factory()->create(['organization_id' => $receiver->id]);
+    $receiverPerson = muPersonInOrganization($receiver->id);
 
     $storeResponse = $this->actingAs($receiverActor)->postJson('/api/admin/manifest-unloads', [
         'unload_request_id' => $unloadRequest->id,
@@ -330,7 +354,7 @@ test('generate() rechaza (422) mientras la inspección no haya registrado los pe
 
 test('inspectItems() registra cantidades/pesos por línea + totales de cabecera; generate() luego SÍ transiciona a GENERATED', function () {
     [$unloadRequest, , $receiver, , $receiverActor] = muApprovedUnloadRequestFixture();
-    $receiverPerson = Person::factory()->create(['organization_id' => $receiver->id]);
+    $receiverPerson = muPersonInOrganization($receiver->id);
 
     $storeResponse = $this->actingAs($receiverActor)->postJson('/api/admin/manifest-unloads', [
         'unload_request_id' => $unloadRequest->id,
@@ -359,7 +383,7 @@ test('inspectItems() registra cantidades/pesos por línea + totales de cabecera;
 function muGeneratedManifestFixture(): array
 {
     [$unloadRequest, $carrier, $receiver, , $receiverActor] = muApprovedUnloadRequestFixture();
-    $receiverPerson = Person::factory()->create(['organization_id' => $receiver->id]);
+    $receiverPerson = muPersonInOrganization($receiver->id);
 
     $storeResponse = test()->actingAs($receiverActor)->postJson('/api/admin/manifest-unloads', [
         'unload_request_id' => $unloadRequest->id,
@@ -523,7 +547,7 @@ test('cancel() RECHAZA (403) desde Closed -- ManifestUnloadPolicy::cancel() ya b
 
 test('cancel() RECHAZA (422) desde Draft (transición inexistente)', function () {
     [$unloadRequest, , $receiver, , $receiverActor] = muApprovedUnloadRequestFixture();
-    $receiverPerson = Person::factory()->create(['organization_id' => $receiver->id]);
+    $receiverPerson = muPersonInOrganization($receiver->id);
 
     $storeResponse = $this->actingAs($receiverActor)->postJson('/api/admin/manifest-unloads', [
         'unload_request_id' => $unloadRequest->id,
@@ -626,7 +650,7 @@ test('show(): el lado transportador (solo lectura) SÍ puede ver el manifiesto p
 
 test('un actor con SOLO el rol LOGÍSTICA real completa store->inspect->generate->sign(driver)->sign(receiver)->complete', function () {
     [$unloadRequest, $carrier, $receiver] = muApprovedUnloadRequestFixture();
-    $receiverPerson = Person::factory()->create(['organization_id' => $receiver->id]);
+    $receiverPerson = muPersonInOrganization($receiver->id);
 
     $receiverActor = muActor(['manifest_unloads.create'], $receiver->id);
     $driverActor = muActor(['manifest_unloads.sign'], $carrier->id);

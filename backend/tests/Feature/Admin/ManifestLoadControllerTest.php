@@ -5,6 +5,7 @@ use App\Models\BusinessRole;
 use App\Models\ManifestLoad;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
+use App\Models\OrganizationContact;
 use App\Models\Person;
 use App\Models\Role;
 use App\Models\ServiceItemStatus;
@@ -105,6 +106,26 @@ function mlGestorOrganization(): Organization
     return $organization->fresh();
 }
 
+// CORREGIDO (verificación E2E, 2026-07-20): el anti-IDOR de
+// `assertPersonBelongsToOrganization()` pasó a validar pertenencia vía el
+// pivote real `organization_contacts` (antes usaba la columna legacy
+// `people.organization_id`, que queda NULL para contactos creados por el
+// flujo vigente -- bug real reproducido en vivo). Este helper crea el
+// vínculo real en vez de solo setear `Person.organization_id` -- mismo
+// patrón que `tpPersonInOrganization()` en `TransportPersonnelControllerTest`.
+function mlPersonInOrganization(int $organizationId): Person
+{
+    $person = Person::factory()->create(['organization_id' => $organizationId]);
+
+    OrganizationContact::factory()->create([
+        'contact_id' => $person->id,
+        'organization_id' => $organizationId,
+        'is_active' => true,
+    ]);
+
+    return $person;
+}
+
 /**
  * Construye una `TransportSchedule` CONFIRMADA (irrelevante para el
  * manifiesto qué `transport_status` tenga -- ManifestLoadController no lo
@@ -170,7 +191,7 @@ test('store crea la cabecera en DRAFT + items derivados del transport_schedule',
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     [$schedule, $item, $personnel] = mlScheduleFixture($generator, $gestor, $branch);
 
-    $generatorSigner = Person::factory()->create(['organization_id' => $generator->id]);
+    $generatorSigner = mlPersonInOrganization($generator->id);
     $actor = mlActor(['manifest_loads.create'], $gestor->id);
 
     $response = $this->actingAs($actor)->postJson('/api/admin/manifest-loads', [
@@ -195,7 +216,10 @@ test('store rechaza un generator_signer_person_id que NO pertenece a la organiza
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     [$schedule] = mlScheduleFixture($generator, $gestor, $branch);
 
-    $foreignPerson = Person::factory()->create(['organization_id' => $gestor->id]);
+    // El foreignPerson SÍ es contacto real de $gestor (organización distinta
+    // a $generator, la dueña de la sede de cargue) -- escenario más
+    // representativo que una persona sin ningún vínculo.
+    $foreignPerson = mlPersonInOrganization($gestor->id);
     $actor = mlActor(['manifest_loads.create'], $gestor->id);
 
     $this->actingAs($actor)->postJson('/api/admin/manifest-loads', [
@@ -213,7 +237,7 @@ test('store rechaza un actor que NO pertenece a la organización dueña del tran
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     [$schedule] = mlScheduleFixture($generator, $gestor, $branch);
 
-    $generatorSigner = Person::factory()->create(['organization_id' => $generator->id]);
+    $generatorSigner = mlPersonInOrganization($generator->id);
     $actor = mlActor(['manifest_loads.create'], $foreignGestor->id);
 
     $this->actingAs($actor)->postJson('/api/admin/manifest-loads', [
@@ -231,7 +255,7 @@ test('generate() transiciona DRAFT->GENERATED y escribe un WorkflowLog', functio
     $gestor = mlGestorOrganization();
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     [$schedule] = mlScheduleFixture($generator, $gestor, $branch);
-    $generatorSigner = Person::factory()->create(['organization_id' => $generator->id]);
+    $generatorSigner = mlPersonInOrganization($generator->id);
     $actor = mlActor(['manifest_loads.create', 'manifest_loads.update'], $gestor->id);
 
     $response = $this->actingAs($actor)->postJson('/api/admin/manifest-loads', [
@@ -261,7 +285,7 @@ test('generate() rechaza generar un manifiesto que ya está Generado', function 
     $gestor = mlGestorOrganization();
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     [$schedule] = mlScheduleFixture($generator, $gestor, $branch);
-    $generatorSigner = Person::factory()->create(['organization_id' => $generator->id]);
+    $generatorSigner = mlPersonInOrganization($generator->id);
     $actor = mlActor(['manifest_loads.create', 'manifest_loads.update'], $gestor->id);
 
     $response = $this->actingAs($actor)->postJson('/api/admin/manifest-loads', [
@@ -288,7 +312,7 @@ function mlGeneratedManifestFixture(): array
     $gestor = mlGestorOrganization();
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     [$schedule] = mlScheduleFixture($generator, $gestor, $branch);
-    $generatorSigner = Person::factory()->create(['organization_id' => $generator->id]);
+    $generatorSigner = mlPersonInOrganization($generator->id);
     $actor = mlActor(['manifest_loads.create', 'manifest_loads.update'], $gestor->id);
 
     $response = test()->actingAs($actor)->postJson('/api/admin/manifest-loads', [
@@ -360,7 +384,7 @@ test('sign() rechaza firmar un manifiesto todavía en DRAFT (no generado)', func
     $gestor = mlGestorOrganization();
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     [$schedule] = mlScheduleFixture($generator, $gestor, $branch);
-    $generatorSigner = Person::factory()->create(['organization_id' => $generator->id]);
+    $generatorSigner = mlPersonInOrganization($generator->id);
     $actor = mlActor(['manifest_loads.create', 'manifest_loads.sign'], $gestor->id);
 
     $response = $this->actingAs($actor)->postJson('/api/admin/manifest-loads', [
@@ -450,7 +474,7 @@ test('cancel() RECHAZA (422) desde Draft (transición inexistente, RN de esta ta
     $gestor = mlGestorOrganization();
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     [$schedule] = mlScheduleFixture($generator, $gestor, $branch);
-    $generatorSigner = Person::factory()->create(['organization_id' => $generator->id]);
+    $generatorSigner = mlPersonInOrganization($generator->id);
     $actor = mlActor(['manifest_loads.create', 'manifest_loads.cancel'], $gestor->id);
 
     $response = $this->actingAs($actor)->postJson('/api/admin/manifest-loads', [
@@ -472,7 +496,7 @@ test('store() rechaza (422) un segundo manifiesto para el mismo transport_schedu
     $gestor = mlGestorOrganization();
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     [$schedule] = mlScheduleFixture($generator, $gestor, $branch);
-    $generatorSigner = Person::factory()->create(['organization_id' => $generator->id]);
+    $generatorSigner = mlPersonInOrganization($generator->id);
     $actor = mlActor(['manifest_loads.create'], $gestor->id);
 
     $this->actingAs($actor)->postJson('/api/admin/manifest-loads', [
@@ -495,7 +519,7 @@ test('store() SÍ permite crear un manifiesto de reemplazo si el anterior para l
     $gestor = mlGestorOrganization();
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     [$schedule] = mlScheduleFixture($generator, $gestor, $branch);
-    $generatorSigner = Person::factory()->create(['organization_id' => $generator->id]);
+    $generatorSigner = mlPersonInOrganization($generator->id);
     $actor = mlActor(['manifest_loads.create', 'manifest_loads.update', 'manifest_loads.cancel'], $gestor->id);
 
     $first = $this->actingAs($actor)->postJson('/api/admin/manifest-loads', [
@@ -565,7 +589,7 @@ test('un actor con SOLO el rol LOGÍSTICA real completa store->generate->sign(dr
     $gestor = mlGestorOrganization();
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     [$schedule] = mlScheduleFixture($generator, $gestor, $branch);
-    $generatorSigner = Person::factory()->create(['organization_id' => $generator->id]);
+    $generatorSigner = mlPersonInOrganization($generator->id);
 
     $carrierActor = mlActor(['manifest_loads.create'], $gestor->id);
     $generatorActor = mlActor(['manifest_loads.sign'], $generator->id);

@@ -3,6 +3,7 @@
 use App\Models\BusinessRole;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
+use App\Models\OrganizationContact;
 use App\Models\Person;
 use App\Models\Role;
 use App\Models\TransportPersonnel;
@@ -63,6 +64,25 @@ function tpPlatformStaffActor(): User
     return tpAdminActor($platform->id);
 }
 
+// CORREGIDO (verificación E2E, 2026-07-20): el anti-IDOR de
+// `assertPersonBelongsToOrganization()` pasó a validar pertenencia vía el
+// pivote real `organization_contacts` (antes usaba la columna legacy
+// `people.organization_id`, que queda NULL para contactos creados por el
+// flujo vigente -- bug real reproducido en vivo). Este helper crea el
+// vínculo real en vez de solo setear `Person.organization_id`.
+function tpPersonInOrganization(int $organizationId): Person
+{
+    $person = Person::factory()->create(['organization_id' => $organizationId]);
+
+    OrganizationContact::factory()->create([
+        'contact_id' => $person->id,
+        'organization_id' => $organizationId,
+        'is_active' => true,
+    ]);
+
+    return $person;
+}
+
 function tpGestorOrganization(): Organization
 {
     $organization = Organization::factory()->create();
@@ -82,7 +102,7 @@ function tpGestorOrganization(): Organization
 
 test('store crea un conductor en la organización actora', function () {
     $gestor = tpGestorOrganization();
-    $person = Person::factory()->create(['organization_id' => $gestor->id]);
+    $person = tpPersonInOrganization($gestor->id);
     $actor = tpAdminActor($gestor->id);
 
     $response = $this->actingAs($actor)->postJson('/api/admin/transport-personnel', [
@@ -135,7 +155,7 @@ test('store rechaza un person_id que pertenece a OTRA organización (anti-IDOR)'
 
 test('store rechaza un person_id ya registrado como conductor (unicidad 1:1)', function () {
     $gestor = tpGestorOrganization();
-    $person = Person::factory()->create(['organization_id' => $gestor->id]);
+    $person = tpPersonInOrganization($gestor->id);
     TransportPersonnel::factory()->create(['organization_id' => $gestor->id, 'person_id' => $person->id]);
     $actor = tpAdminActor($gestor->id);
 
@@ -148,7 +168,7 @@ test('store rechaza un person_id ya registrado como conductor (unicidad 1:1)', f
 
 test('platform staff puede crear un conductor especificando organization_id', function () {
     $gestor = tpGestorOrganization();
-    $person = Person::factory()->create(['organization_id' => $gestor->id]);
+    $person = tpPersonInOrganization($gestor->id);
     $actor = tpPlatformStaffActor();
 
     $response = $this->actingAs($actor)->postJson('/api/admin/transport-personnel', [

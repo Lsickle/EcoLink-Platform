@@ -2,12 +2,33 @@
 
 use App\Models\Organization;
 use App\Models\OrganizationalArea;
+use App\Models\OrganizationContact;
 use App\Models\Permission;
 use App\Models\Person;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
 use App\Models\UserRole;
+
+// CORREGIDO (verificación E2E, 2026-07-20): assertPersonBelongsToOrganization()
+// pasó a validar pertenencia vía el pivote real `organization_contacts` (antes
+// usaba la columna legacy `people.organization_id`, que queda NULL para todo
+// contacto creado por el flujo vigente -- bug real reproducido en vivo, mismo
+// patrón ya corregido en TransportPersonnelController/ManifestLoadController/
+// ManifestUnloadController). Este helper crea el vínculo real en vez de solo
+// setear Person.organization_id.
+function oaPersonInOrganization(int $organizationId): Person
+{
+    $person = Person::factory()->create(['organization_id' => $organizationId]);
+
+    OrganizationContact::factory()->create([
+        'contact_id' => $person->id,
+        'organization_id' => $organizationId,
+        'is_active' => true,
+    ]);
+
+    return $person;
+}
 
 // Catálogo Maestro "Áreas Organizacionales" (Batch 1/3) -- gateado por
 // OrganizationalAreaPolicy -> User::hasPermission()
@@ -198,13 +219,25 @@ test('store rechaza un responsible_person_id de OTRA organización', function ()
     $orgA = Organization::factory()->create();
     $orgB = Organization::factory()->create();
 
-    $personInOtherOrg = Person::factory()->create(['organization_id' => $orgB->id]);
+    $personInOtherOrg = oaPersonInOrganization($orgB->id);
     $actor = actorWithOrganizationalAreaPermission(['organizational_areas.manage'], $orgA->id);
 
     $this->actingAs($actor)->postJson('/api/admin/organizational-areas', [
         'code' => 'AREA_X', 'name' => 'Área X', 'level' => 'Coordinación',
         'responsible_person_id' => $personInOtherOrg->id,
     ])->assertUnprocessable()->assertJsonValidationErrors('responsible_person_id');
+});
+
+test('store acepta un responsible_person_id que SÍ pertenece a la organización (contacto real, vínculo organization_contacts)', function () {
+    $org = Organization::factory()->create();
+    $person = oaPersonInOrganization($org->id);
+    $actor = actorWithOrganizationalAreaPermission(['organizational_areas.manage'], $org->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/organizational-areas', [
+        'code' => 'AREA_Y', 'name' => 'Área Y', 'level' => 'Coordinación',
+        'responsible_person_id' => $person->id,
+    ])->assertCreated()
+        ->assertJsonPath('organizational_area.responsible_person_id', $person->id);
 });
 
 // ---- update() ----
@@ -226,12 +259,24 @@ test('update rechaza un responsible_person_id de OTRA organización', function (
     $otherOrg = Organization::factory()->create();
 
     $area = OrganizationalArea::factory()->create(['organization_id' => $org->id]);
-    $personInOtherOrg = Person::factory()->create(['organization_id' => $otherOrg->id]);
+    $personInOtherOrg = oaPersonInOrganization($otherOrg->id);
     $actor = actorWithOrganizationalAreaPermission(['organizational_areas.manage'], $org->id);
 
     $this->actingAs($actor)->putJson("/api/admin/organizational-areas/{$area->id}", [
         'responsible_person_id' => $personInOtherOrg->id,
     ])->assertUnprocessable()->assertJsonValidationErrors('responsible_person_id');
+});
+
+test('update acepta un responsible_person_id que SÍ pertenece a la organización (contacto real, vínculo organization_contacts)', function () {
+    $org = Organization::factory()->create();
+    $area = OrganizationalArea::factory()->create(['organization_id' => $org->id]);
+    $person = oaPersonInOrganization($org->id);
+    $actor = actorWithOrganizationalAreaPermission(['organizational_areas.manage'], $org->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/organizational-areas/{$area->id}", [
+        'responsible_person_id' => $person->id,
+    ])->assertOk()
+        ->assertJsonPath('organizational_area.responsible_person_id', $person->id);
 });
 
 // ---- activate()/deactivate() ----

@@ -472,14 +472,27 @@ class ManifestUnloadController extends Controller
 
     /**
      * Anti-IDOR: `receiver_person_id` debe pertenecer a la organización
-     * RECEPTORA -- mismo criterio que
-     * `ManifestLoadController::assertPersonBelongsToOrganization()`.
+     * RECEPTORA -- mismo criterio ya corregido en
+     * `ManifestLoadController::assertPersonBelongsToOrganization()`
+     * (verificación E2E, 2026-07-20): pertenencia vía `organizationLinks()`
+     * (pivote `organization_contacts`, D-P02/L-08) con vínculo ACTIVO, no la
+     * columna legacy `people.organization_id` (queda `NULL` para todo
+     * contacto creado por el flujo real vigente).
      */
     private function assertPersonBelongsToOrganization(int $personId, ?int $organizationId): void
     {
         $person = Person::withTrashed()->find($personId);
 
-        if ($person && (int) $person->organization_id !== (int) $organizationId) {
+        if (! $person) {
+            return;
+        }
+
+        $belongs = $person->organizationLinks()
+            ->where('organization_id', $organizationId)
+            ->where('is_active', true)
+            ->exists();
+
+        if (! $belongs) {
             throw ValidationException::withMessages([
                 'receiver_person_id' => ['La persona indicada no pertenece a la organización Receptora.'],
             ]);

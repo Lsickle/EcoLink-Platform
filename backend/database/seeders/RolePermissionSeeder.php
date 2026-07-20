@@ -136,6 +136,13 @@ class RolePermissionSeeder extends Seeder
      */
     private const LOGISTICA_PERMISSION_CODES = [
         'vehicles.read',
+        // 'contacts.read' (verificación E2E, 2026-07-20): sin este permiso,
+        // LOGÍSTICA no puede usar ContactSearchSelect en NINGUNO de los
+        // flujos que ya opera (registrar conductor, firmante Generador de
+        // Manifiesto de Cargue, firmante Receptor de Manifiesto de Descargue)
+        // -- se reprodujo en vivo "No tiene permiso para buscar contactos."
+        // al intentar generar un Manifiesto de Cargue como LOGÍSTICA.
+        'contacts.read',
         'transport_schedules.read', 'transport_schedules.create', 'transport_schedules.update', 'transport_schedules.cancel',
         'transport_personnel.read',
         'transport_routes.read', 'transport_routes.create',

@@ -142,13 +142,7 @@ class OrganizationalAreaController extends Controller
         }
 
         if (! empty($data['responsible_person_id'])) {
-            $responsiblePerson = Person::query()->find($data['responsible_person_id']);
-
-            if (! $responsiblePerson || $responsiblePerson->organization_id !== $organizationId) {
-                throw ValidationException::withMessages([
-                    'responsible_person_id' => ['La persona responsable debe pertenecer a la misma organización.'],
-                ]);
-            }
+            $this->assertPersonBelongsToOrganization((int) $data['responsible_person_id'], $organizationId);
         }
 
         $area = OrganizationalArea::query()->create([
@@ -189,13 +183,7 @@ class OrganizationalAreaController extends Controller
         }
 
         if (array_key_exists('responsible_person_id', $data) && $data['responsible_person_id'] !== null) {
-            $responsiblePerson = Person::query()->find($data['responsible_person_id']);
-
-            if (! $responsiblePerson || $responsiblePerson->organization_id !== $organizationalArea->organization_id) {
-                throw ValidationException::withMessages([
-                    'responsible_person_id' => ['La persona responsable debe pertenecer a la misma organización.'],
-                ]);
-            }
+            $this->assertPersonBelongsToOrganization((int) $data['responsible_person_id'], $organizationalArea->organization_id);
         }
 
         $organizationalArea->fill($data);
@@ -220,5 +208,39 @@ class OrganizationalAreaController extends Controller
         $organizationalArea->forceFill(['is_active' => false])->save();
 
         return response()->json(['organizational_area' => $organizationalArea->fresh()]);
+    }
+
+    /**
+     * Anti-IDOR: `responsible_person_id` debe pertenecer a la organización
+     * indicada.
+     *
+     * CORREGIDO (verificación E2E, 2026-07-20 -- mismo patrón encontrado y
+     * corregido en `TransportPersonnelController`/`ManifestLoadController`/
+     * `ManifestUnloadController`): la versión original comparaba contra
+     * `people.organization_id` -- columna LEGACY que queda `NULL` para todo
+     * contacto creado por el flujo real vigente (`organization_contacts`,
+     * D-P02/L-08), lo que rechazaba a CUALQUIER contacto real como
+     * responsable de área. Ahora valida pertenencia vía `organizationLinks()`
+     * (pivote `organization_contacts`) con vínculo ACTIVO -- mismo criterio
+     * ya usado en `OrganizationController::searchContacts()`.
+     */
+    private function assertPersonBelongsToOrganization(int $personId, ?int $organizationId): void
+    {
+        $person = Person::withTrashed()->find($personId);
+
+        if (! $person) {
+            return;
+        }
+
+        $belongs = $person->organizationLinks()
+            ->where('organization_id', $organizationId)
+            ->where('is_active', true)
+            ->exists();
+
+        if (! $belongs) {
+            throw ValidationException::withMessages([
+                'responsible_person_id' => ['La persona responsable debe pertenecer a la misma organización.'],
+            ]);
+        }
     }
 }
