@@ -9,7 +9,7 @@ use App\Models\User;
 use App\Models\UserRole;
 use App\Models\UserStatus;
 use Illuminate\Database\Seeder;
-use function fake;
+use Illuminate\Foundation\Testing\WithFaker;
 
 /**
  * Datos de demostración (no de catálogo crítico): 4 usuarios reales por
@@ -39,6 +39,7 @@ use function fake;
  */
 class DemoUsersSeeder extends Seeder
 {
+    use WithFaker;
     public function run(): void
     {
         $activeStatusId = UserStatus::query()->where('code', 'ACTIVE')->value('id');
@@ -99,7 +100,7 @@ class DemoUsersSeeder extends Seeder
                         'first_name' => $userData['first'],
                         'last_name' => $userData['last'],
                         'email' => strtolower($userData['username']).'.person@'.$config['domain'],
-                        'phone' => '300'.fake()->numerify('#######'),
+                        'phone' => '300'.$this->faker->numerify('#######'),
                         'is_active' => true,
                     ]);
 

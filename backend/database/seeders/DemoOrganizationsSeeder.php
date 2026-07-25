@@ -16,7 +16,7 @@ use App\Models\OrganizationStatus;
 use App\Models\Person;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
-use function fake;
+use Illuminate\Foundation\Testing\WithFaker;
 
 /**
  * Datos de demostración (no de catálogo crítico): 3 organizaciones, una por
@@ -41,6 +41,7 @@ use function fake;
  */
 class DemoOrganizationsSeeder extends Seeder
 {
+    use WithFaker;
     public function run(): void
     {
         $activeStatusId = OrganizationStatus::query()->where('code', 'ACT')->value('id');
@@ -158,7 +159,7 @@ class DemoOrganizationsSeeder extends Seeder
                         'municipality_id' => $city['municipality_id'],
                         'locality_id' => $city['locality_id'],
                         'address' => $city['address'],
-                        'phone' => '601'.fake()->numerify('#######'),
+                        'phone' => '601'.$this->faker->numerify('#######'),
                         'email' => strtolower(Str::slug($organizationData['trade_name'])).'.'.strtolower(Str::ascii($city['name'])).'@example.com',
                         'is_active' => true,
                     ],
@@ -168,7 +169,7 @@ class DemoOrganizationsSeeder extends Seeder
             foreach ($organizationData['contacts'] as $index => [$firstName, $lastName, $positionTitle]) {
                 $person = Person::factory()->create([
                     'document_type' => 'CC',
-                    'document_number' => fake()->unique()->numerify('#########'),
+                    'document_number' => $this->faker->unique()->numerify('#########'),
                     'first_name' => $firstName,
                     'last_name' => $lastName,
                     'email' => strtolower(Str::slug("{$firstName} {$lastName}")).'@'.strtolower(Str::slug($organizationData['trade_name'])).'.com',
