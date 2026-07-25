@@ -98,7 +98,7 @@ class DemoUsersSeeder extends Seeder
                         'first_name' => $userData['first'],
                         'last_name' => $userData['last'],
                         'email' => strtolower($userData['username']).'.person@'.$config['domain'],
-                        'phone' => '300'.random_int(1000000, 9999999),
+                        'phone' => '300'.fake()->numerify('#######'),
                         'is_active' => true,
                     ]);
 
