@@ -14,6 +14,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // 👈 AGREGA ESTA LÍNEA AQUÍ
+        // Le indica a Laravel que confíe en los headers X-Forwarded-Proto de Render/Vercel
+        $middleware->trustProxies(at: '*');
         // RN-181: autenticación Sanctum con cookie de sesión para el SPA
         // web (stateful, dominios en config/sanctum.php + SANCTUM_STATEFUL_DOMAINS).
         $middleware->statefulApi();
