@@ -1,15 +1,39 @@
-FROM php:8.2-cli-alpine
+FROM php:8.4-cli-alpine
 
-# Extensiones requeridas por Laravel, PostgreSQL y Redis
-RUN apk add --no-cache postgresql-dev libpng-dev libzip-dev zip unzip \
-    && docker-php-ext-install pdo pdo_pgsql bcmath zip
+# Instalar dependencias del sistema y herramientas de compilación
+RUN apk add --no-cache \
+    postgresql-dev \
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    libzip-dev \
+    zip \
+    unzip \
+    git \
+    curl \
+    oniguruma-dev \
+    icu-dev \
+    $PHPIZE_DEPS
 
+# Instalar extensiones de PHP requeridas por Laravel + PostgreSQL
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install \
+        pdo \
+        pdo_pgsql \
+        bcmath \
+        zip \
+        gd \
+        mbstring \
+        intl
+
+# Copiar ejecutable oficial de Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 COPY . .
 
-RUN composer install --no-dev --optimize-autoloader
+# Instalar dependencias de Composer ignorando la verificación estricta de versión si es necesario
+RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --ignore-platform-req=php+
 
 EXPOSE 8080
 
