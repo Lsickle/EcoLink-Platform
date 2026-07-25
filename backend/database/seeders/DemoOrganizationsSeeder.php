@@ -16,7 +16,7 @@ use App\Models\OrganizationStatus;
 use App\Models\Person;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
-use Illuminate\Foundation\Testing\WithFaker;
+use Faker\Factory as Faker;
 
 /**
  * Datos de demostración (no de catálogo crítico): 3 organizaciones, una por
@@ -41,9 +41,9 @@ use Illuminate\Foundation\Testing\WithFaker;
  */
 class DemoOrganizationsSeeder extends Seeder
 {
-    use WithFaker;
     public function run(): void
     {
+        $faker = Faker::create('es_CO');
         $activeStatusId = OrganizationStatus::query()->where('code', 'ACT')->value('id');
 
         // IDs de geografía resueltos por llave natural, NUNCA hardcodeados

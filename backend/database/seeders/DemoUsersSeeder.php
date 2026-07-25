@@ -9,7 +9,7 @@ use App\Models\User;
 use App\Models\UserRole;
 use App\Models\UserStatus;
 use Illuminate\Database\Seeder;
-use Illuminate\Foundation\Testing\WithFaker;
+use Faker\Factory as Faker;
 
 /**
  * Datos de demostración (no de catálogo crítico): 4 usuarios reales por
@@ -39,9 +39,9 @@ use Illuminate\Foundation\Testing\WithFaker;
  */
 class DemoUsersSeeder extends Seeder
 {
-    use WithFaker;
     public function run(): void
     {
+        $faker = Faker::create('es_CO');
         $activeStatusId = UserStatus::query()->where('code', 'ACTIVE')->value('id');
         $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
         $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
