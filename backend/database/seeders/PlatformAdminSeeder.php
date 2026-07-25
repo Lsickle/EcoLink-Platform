@@ -69,7 +69,7 @@ class PlatformAdminSeeder extends Seeder
 
     public function run(): void
     {
-        if (! app()->environment(['local', 'testing'])) {
+        if (! app()->environment(['local', 'testing', 'staging'])) {
             throw new RuntimeException(
                 'PlatformAdminSeeder: solo puede correr en entornos local o testing -- '
                 .'entorno actual: '.app()->environment()
