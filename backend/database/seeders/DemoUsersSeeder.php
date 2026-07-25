@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\UserRole;
 use App\Models\UserStatus;
 use Illuminate\Database\Seeder;
+use function fake;
 
 /**
  * Datos de demostración (no de catálogo crítico): 4 usuarios reales por

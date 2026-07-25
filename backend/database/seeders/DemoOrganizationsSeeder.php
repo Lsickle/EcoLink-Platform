@@ -16,6 +16,7 @@ use App\Models\OrganizationStatus;
 use App\Models\Person;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
+use function fake;
 
 /**
  * Datos de demostración (no de catálogo crítico): 3 organizaciones, una por
