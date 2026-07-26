@@ -21,6 +21,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // web (stateful, dominios en config/sanctum.php + SANCTUM_STATEFUL_DOMAINS).
         $middleware->statefulApi();
 
+        $middleware->validateCsrfTokens(except: [
+            'api/login',
+        ]);
         // Hallazgo Alto (especialista-seguridad, 2026-07-13): alias para el
         // grupo `auth:sanctum` de routes/api.php -- ver EnsureUserIsActive.
         $middleware->alias(['active' => EnsureUserIsActive::class]);
