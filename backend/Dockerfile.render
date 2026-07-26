@@ -37,4 +37,4 @@ RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-di
 
 EXPOSE 8080
 
-CMD php artisan migrate:fresh --force --seed && php artisan serve && php artisan config:clear && php artisan cache:clear && php artisan route:clear && php artisan config:publish cors && php artisan serve --host=0.0.0.0 --port=${PORT:-8080}
+CMD php artisan migrate:fresh --force --seed && php artisan config:clear && php artisan cache:clear && php artisan route:clear && php artisan config:publish cors && php artisan serve --host=0.0.0.0 --port=${PORT:-8080}
