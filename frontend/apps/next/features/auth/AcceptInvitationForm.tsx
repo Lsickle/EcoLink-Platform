@@ -100,7 +100,7 @@ export function AcceptInvitationForm() {
         <CardContent>
           <p className="text-center text-sm text-muted-foreground">
             <a href="/login" className="underline underline-offset-4">
-              Volver a iniciar sesión
+              bien, Ahora volver a iniciar sesión
             </a>
           </p>
         </CardContent>
