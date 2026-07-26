@@ -24,6 +24,30 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'api/login',
         ]);
+        $middleware->append(function ($request, $next) {
+            $response = $next($request);
+
+            foreach ($response->headers->getCookies() as $cookie) {
+                if (in_array($cookie->getName(), ['ecolink-session', 'XSRF-TOKEN'])) {
+                    // Symfony Cookie::create o clonar con nuevos parámetros
+                    $newCookie = new Cookie(
+                        $cookie->getName(),
+                        $cookie->getValue(),
+                        $cookie->getExpiresTime(),
+                        $cookie->getPath(),
+                        $cookie->getDomain(),
+                        true,  // secure ($secure)
+                        $cookie->isHttpOnly(), // httpOnly ($httpOnly)
+                        false, // raw ($raw)
+                        'none' // sameSite ($sameSite: 'lax', 'strict', 'none', null)
+                    );
+
+                    $response->headers->setCookie($newCookie);
+                }
+            }
+
+            return $response;
+        });
         // Hallazgo Alto (especialista-seguridad, 2026-07-13): alias para el
         // grupo `auth:sanctum` de routes/api.php -- ver EnsureUserIsActive.
         $middleware->alias(['active' => EnsureUserIsActive::class]);
