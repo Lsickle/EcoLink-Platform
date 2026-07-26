@@ -5,7 +5,6 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\Cookie;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -25,31 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'api/login',
         ]);
-        $middleware->web(append: [
-            function ($request, $next) {
-                $response = $next($request);
 
-                foreach ($response->headers->getCookies() as $cookie) {
-                    if (in_array($cookie->getName(), ['ecolink-session', 'XSRF-TOKEN'])) {
-                        $newCookie = new Cookie(
-                            $cookie->getName(),
-                            $cookie->getValue(),
-                            $cookie->getExpiresTime(),
-                            $cookie->getPath(),
-                            $cookie->getDomain(),
-                            true,  // secure
-                            $cookie->isHttpOnly(),
-                            false, // raw
-                            'none' // sameSite
-                        );
-
-                        $response->headers->setCookie($newCookie);
-                    }
-                }
-
-                return $response;
-            },
-        ]);
         // Hallazgo Alto (especialista-seguridad, 2026-07-13): alias para el
         // grupo `auth:sanctum` de routes/api.php -- ver EnsureUserIsActive.
         $middleware->alias(['active' => EnsureUserIsActive::class]);
