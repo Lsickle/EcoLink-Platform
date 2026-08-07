@@ -309,7 +309,6 @@ test('submit rechaza si faltan campos requeridos del wizard', function () {
     $waste = Waste::factory()->create([
         'organization_id' => $organization->id,
         'quantity' => null,
-        'generation_date' => null,
     ]);
     $waste->wasteStreamAssignments()->create([
         'tenant_organization_id' => $waste->tenant_organization_id,
@@ -321,7 +320,7 @@ test('submit rechaza si faltan campos requeridos del wizard', function () {
 
     $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/submit")
         ->assertUnprocessable()
-        ->assertJsonValidationErrors(['quantity', 'generation_date']);
+        ->assertJsonValidationErrors(['quantity']);
 });
 
 test('submit transiciona BR->DEC cuando el residuo está completo', function () {

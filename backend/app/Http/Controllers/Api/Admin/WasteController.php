@@ -287,7 +287,7 @@ class WasteController extends Controller
             $missing['name'] = ['El nombre es obligatorio para declarar el residuo.'];
         }
 
-        foreach (['waste_category_id', 'quantity', 'measurement_unit_id', 'generation_frequency_id', 'generation_date'] as $field) {
+        foreach (['waste_category_id', 'quantity', 'measurement_unit_id', 'generation_frequency_id'] as $field) {
             if (blank($waste->{$field})) {
                 $missing[$field] = ["El campo {$field} es obligatorio para declarar el residuo."];
             }
