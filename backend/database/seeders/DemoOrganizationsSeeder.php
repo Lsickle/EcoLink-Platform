@@ -32,11 +32,12 @@ use Illuminate\Support\Str;
  * `department_id=68`/`municipality_id=2223` (sin localidad -- ese catálogo
  * solo aplica a Bogotá).
  *
- * Idempotente por `tax_id` (organizaciones, vía `firstOrCreate`) y por
- * `(organization_id, code)` (sedes) -- los 15 contactos NO son idempotentes
- * (cada corrida agrega 5 `Person` nuevas por organización): es un seeder de
- * demo, no de catálogo crítico, y `document_number` debe ser único por fila
- * real de `people`.
+ * Idempotente por `tax_id` (organizaciones, vía `firstOrCreate`), por
+ * `(organization_id, code)` (sedes) y por `email` (los 15 contactos, vía
+ * `firstOrCreate` sobre `Person` + `updateOrCreate` sobre
+ * `OrganizationContact` keyed por `(contact_id, organization_id)`) -- antes
+ * no lo eran (asumían `migrate:fresh` en cada deploy); se corrigió cuando
+ * `Dockerfile.render` dejó de borrar la BD en cada arranque del contenedor.
  */
 class DemoOrganizationsSeeder extends Seeder
 {
@@ -165,23 +166,28 @@ class DemoOrganizationsSeeder extends Seeder
             }
 
             foreach ($organizationData['contacts'] as $index => [$firstName, $lastName, $positionTitle]) {
-                $person = Person::factory()->create([
-                    'document_type' => 'CC',
-                    'document_number' => fake()->unique()->numerify('#########'),
-                    'first_name' => $firstName,
-                    'last_name' => $lastName,
-                    'email' => strtolower(Str::slug("{$firstName} {$lastName}")).'@'.strtolower(Str::slug($organizationData['trade_name'])).'.com',
-                ]);
+                $email = strtolower(Str::slug("{$firstName} {$lastName}")).'@'.strtolower(Str::slug($organizationData['trade_name'])).'.com';
 
-                OrganizationContact::factory()->create([
-                    'contact_id' => $person->id,
-                    'organization_id' => $organization->id,
-                    'branch_id' => null,
-                    'position_title' => $positionTitle,
-                    'relationship_type' => 'Empleado',
-                    'is_primary' => $index === 0,
-                    'is_active' => true,
-                ]);
+                $person = Person::query()->firstOrCreate(
+                    ['email' => $email],
+                    [
+                        'document_type' => 'CC',
+                        'document_number' => fake()->unique()->numerify('#########'),
+                        'first_name' => $firstName,
+                        'last_name' => $lastName,
+                    ],
+                );
+
+                OrganizationContact::query()->updateOrCreate(
+                    ['contact_id' => $person->id, 'organization_id' => $organization->id],
+                    [
+                        'branch_id' => null,
+                        'position_title' => $positionTitle,
+                        'relationship_type' => 'Empleado',
+                        'is_primary' => $index === 0,
+                        'is_active' => true,
+                    ],
+                );
             }
         }
     }
