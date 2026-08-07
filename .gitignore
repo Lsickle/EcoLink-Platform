@@ -3,3 +3,6 @@
 
 # Residuo de un comando mal ejecutado en PowerShell (ej. `comando > nul`)
 nul
+
+# Capturas/logs del MCP de Playwright (pruebas manuales en navegador)
+.playwright-mcp/

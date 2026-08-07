@@ -64,10 +64,30 @@ const withTurpopack = {
   },
 }
 
+// Proxy de /api y /sanctum hacia el backend (Render) cuando frontend y
+// backend viven en dominios distintos (Vercel free tier, sin dominio propio
+// compartido) -- así las cookies de sesión de Sanctum quedan first-party
+// para el navegador (mismo origin que la página) en vez de cross-site, que
+// los navegadores bloquean/descartan aunque SameSite=None;Secure esté bien
+// configurado. Sin BACKEND_URL (dev local con Sail, mismo host "localhost"
+// en frontend y backend) no se activa ningún rewrite.
+async function proxyRewrites() {
+  const backendUrl = process.env.BACKEND_URL
+  if (!backendUrl) {
+    return []
+  }
+
+  return [
+    { source: '/api/:path*', destination: `${backendUrl}/api/:path*` },
+    { source: '/sanctum/:path*', destination: `${backendUrl}/sanctum/:path*` },
+  ]
+}
+
 /**
  * @type {import('next').NextConfig}
  */
 module.exports = {
+  rewrites: proxyRewrites,
   transpilePackages: [
     'react-native',
     'react-native-web',
