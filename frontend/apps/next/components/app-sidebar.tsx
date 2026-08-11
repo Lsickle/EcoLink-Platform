@@ -328,6 +328,15 @@ const data = {
       icon: <NetworkIcon />,
       permission: "generator_subgestor_relationships.read",
     },
+    // Vínculo comercial DIRECTO Generador -> Gestor (Carga Masiva de
+    // Generadores, confirmado por el usuario 2026-08-11) -- gemela de
+    // "Generadores por Subgestor" de arriba, mismo motivo de ruta propia.
+    {
+      title: "Generadores por Gestor",
+      url: "/admin/generator-gestor-relationships",
+      icon: <NetworkIcon />,
+      permission: "generator_gestor_relationships.read",
+    },
     // Carga Masiva de Generadores (CSV) -- autoservicio de Subgestor/Gestor
     // confirmado por el usuario, 2026-08-11. Visible con CUALQUIERA de los
     // dos permisos `.create` (OR), ver `hasRequiredPermission()` arriba.

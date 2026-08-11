@@ -1,6 +1,9 @@
 <?php
 
+use App\Models\BusinessRole;
+use App\Models\GeneratorSubgestorRelationship;
 use App\Models\Organization;
+use App\Models\OrganizationBusinessRole;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\RolePermission;
@@ -518,6 +521,112 @@ test('show resuelve created_by/updated_by a {id, username} (paridad con RoleCont
         ->assertJsonPath('user.created_by.username', 'user_creador_test')
         ->assertJsonPath('user.updated_by.id', $creator->id)
         ->assertJsonPath('user.updated_by.username', 'user_creador_test');
+});
+
+test('show resuelve organization.type a los nombres de business_roles ACTIVOS de la organización del usuario', function () {
+    $organization = Organization::factory()->create();
+    $target = User::factory()->create(['organization_id' => $organization->id]);
+
+    $activeRole = BusinessRole::factory()->create(['name' => 'Gestor']);
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id, 'business_role_id' => $activeRole->id, 'is_active' => true, 'assigned_at' => now(),
+    ]);
+    $revokedRole = BusinessRole::factory()->create(['name' => 'Subgestor']);
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id, 'business_role_id' => $revokedRole->id, 'is_active' => false, 'assigned_at' => now(),
+    ]);
+
+    $actor = actingAsWithPermission(['users.read'], $target->tenant_organization_id);
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/users/{$target->id}")->assertOk();
+
+    $response->assertJsonPath('user.organization.id', $organization->id)
+        ->assertJsonPath('user.organization.type', ['Gestor']);
+    expect($response->json('user.organization'))->not->toHaveKey('business_roles');
+});
+
+test('show devuelve organization null cuando el usuario no tiene organización asignada', function () {
+    $target = User::factory()->create(['organization_id' => null]);
+
+    $actor = actingAsWithPermission(['users.read'], $target->tenant_organization_id);
+
+    $this->actingAs($actor)->getJson("/api/admin/users/{$target->id}")
+        ->assertOk()
+        ->assertJsonPath('user.organization', null);
+});
+
+// Pedido explícito del usuario, 2026-08-11: un Subgestor/Gestor con
+// relación ACTIVA hacia un Generador puede VER (no gestionar) al usuario
+// de ese Generador -- ver User::hasActiveGeneratorRelationshipWith().
+test('show permite a un Subgestor VER al usuario de un Generador con relación ACTIVA (antes 403)', function () {
+    $subgestor = Organization::factory()->create();
+    $actor = actingAsWithPermission(['users.read'], $subgestor->id);
+    $generator = Organization::factory()->create();
+    $target = User::factory()->create(['tenant_organization_id' => $generator->id, 'organization_id' => $generator->id]);
+
+    GeneratorSubgestorRelationship::factory()->create([
+        'generator_organization_id' => $generator->id, 'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $this->actingAs($actor)->getJson("/api/admin/users/{$target->id}")
+        ->assertOk()
+        ->assertJsonPath('user.organization.can_view_organization', true);
+});
+
+test('show sigue DENEGANDO (403) sin relación activa entre los tenants', function () {
+    $actor = actingAsWithPermission(['users.read']);
+    $generator = Organization::factory()->create();
+    $target = User::factory()->create(['tenant_organization_id' => $generator->id, 'organization_id' => $generator->id]);
+
+    $this->actingAs($actor)->getJson("/api/admin/users/{$target->id}")->assertForbidden();
+});
+
+test('show sigue DENEGANDO (403) si la relación fue REVOCADA', function () {
+    $subgestor = Organization::factory()->create();
+    $actor = actingAsWithPermission(['users.read'], $subgestor->id);
+    $generator = Organization::factory()->create();
+    $target = User::factory()->create(['tenant_organization_id' => $generator->id, 'organization_id' => $generator->id]);
+
+    GeneratorSubgestorRelationship::factory()->revoked()->create([
+        'generator_organization_id' => $generator->id, 'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $this->actingAs($actor)->getJson("/api/admin/users/{$target->id}")->assertForbidden();
+});
+
+test('show NO expone can_view_organization=true para un actor del MISMO tenant que el usuario (sin relación, ni platform staff)', function () {
+    $organization = Organization::factory()->create();
+    $target = User::factory()->create(['tenant_organization_id' => $organization->id, 'organization_id' => $organization->id]);
+    $actor = actingAsWithPermission(['users.read'], $organization->id);
+
+    $this->actingAs($actor)->getJson("/api/admin/users/{$target->id}")
+        ->assertOk()
+        ->assertJsonPath('user.organization.can_view_organization', false);
+});
+
+// Hallazgo Medio (especialista-seguridad, 2026-08-11): fija el invariante
+// "solo VER, nunca gestionar" -- una relación Subgestor-Generador ACTIVA
+// (que SÍ habilita view(), ver arriba) NO debe filtrarse a ningún verbo de
+// gestión. Sin este test, un futuro copy-paste de la excepción de view()
+// a cualquiera de estos métodos de UserPolicy pasaría desapercibido.
+test('una relación ACTIVA hacia el Generador NO habilita update/activate/deactivate/resendInvitation/resetPassword (siguen 403)', function () {
+    $subgestor = Organization::factory()->create();
+    $actor = actingAsWithPermission(
+        ['users.update', 'users.activate', 'users.deactivate', 'users.create', 'users.reset-password'],
+        $subgestor->id,
+    );
+    $generator = Organization::factory()->create();
+    $target = User::factory()->create(['tenant_organization_id' => $generator->id, 'organization_id' => $generator->id]);
+
+    GeneratorSubgestorRelationship::factory()->create([
+        'generator_organization_id' => $generator->id, 'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $this->actingAs($actor)->putJson("/api/admin/users/{$target->id}", ['phone' => '3000000000'])->assertForbidden();
+    $this->actingAs($actor)->postJson("/api/admin/users/{$target->id}/deactivate")->assertForbidden();
+    $this->actingAs($actor)->postJson("/api/admin/users/{$target->id}/activate")->assertForbidden();
+    $this->actingAs($actor)->postJson("/api/admin/users/{$target->id}/resend-invitation")->assertForbidden();
+    $this->actingAs($actor)->postJson("/api/admin/users/{$target->id}/reset-password")->assertForbidden();
 });
 
 test('store fija created_by/updated_by del actor autenticado; update() actualiza updated_by (nunca created_by)', function () {

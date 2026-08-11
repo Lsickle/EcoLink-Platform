@@ -1,19 +1,19 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { GeneratorSubgestorRelationshipsListScreen } from './GeneratorSubgestorRelationshipsListScreen'
+import { GeneratorGestorRelationshipsListScreen } from './GeneratorGestorRelationshipsListScreen'
 
-const fetchGeneratorSubgestorRelationshipsMock = vi.fn()
-const createGeneratorSubgestorRelationshipMock = vi.fn()
-const revokeGeneratorSubgestorRelationshipMock = vi.fn()
+const fetchGeneratorGestorRelationshipsMock = vi.fn()
+const createGeneratorGestorRelationshipMock = vi.fn()
+const revokeGeneratorGestorRelationshipMock = vi.fn()
 const searchOrganizationsMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('app/features/admin/api')>()
   return {
     ...actual,
-    fetchGeneratorSubgestorRelationships: (...args: unknown[]) => fetchGeneratorSubgestorRelationshipsMock(...args),
-    createGeneratorSubgestorRelationship: (...args: unknown[]) => createGeneratorSubgestorRelationshipMock(...args),
-    revokeGeneratorSubgestorRelationship: (...args: unknown[]) => revokeGeneratorSubgestorRelationshipMock(...args),
+    fetchGeneratorGestorRelationships: (...args: unknown[]) => fetchGeneratorGestorRelationshipsMock(...args),
+    createGeneratorGestorRelationship: (...args: unknown[]) => createGeneratorGestorRelationshipMock(...args),
+    revokeGeneratorGestorRelationship: (...args: unknown[]) => revokeGeneratorGestorRelationshipMock(...args),
     searchOrganizations: (...args: unknown[]) => searchOrganizationsMock(...args),
   }
 })
@@ -27,7 +27,7 @@ vi.mock('next/navigation', () => ({
 let currentUser: { id: number; is_platform_staff: boolean; permissions: string[] } | null = {
   id: 1,
   is_platform_staff: false,
-  permissions: ['generator_subgestor_relationships.read'],
+  permissions: ['generator_gestor_relationships.read'],
 }
 
 vi.mock('app/provider/auth', () => ({
@@ -40,9 +40,9 @@ const emptyPage = { data: [], current_page: 1, last_page: 1, total: 0, per_page:
 function relationship(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: 3,
-    uuid: 'gsr-3',
+    uuid: 'ggr-3',
     generator_organization_id: 1,
-    subgestor_organization_id: 5,
+    gestor_organization_id: 5,
     authorized_by: 1,
     authorized_at: '2026-08-09T00:00:00Z',
     revoked_by: null,
@@ -52,70 +52,70 @@ function relationship(overrides: Partial<Record<string, unknown>> = {}) {
     created_at: '2026-08-09T00:00:00Z',
     updated_at: '2026-08-09T00:00:00Z',
     generator_organization: { id: 1, legal_name: 'Immetal S.A.S.' },
-    subgestor_organization: { id: 5, legal_name: 'LogVerde S.A.S.' },
+    gestor_organization: { id: 5, legal_name: 'EcoTrata S.A.S.' },
     ...overrides,
   }
 }
 
-describe('GeneratorSubgestorRelationshipsListScreen', () => {
+describe('GeneratorGestorRelationshipsListScreen', () => {
   beforeEach(() => {
     currentUser = {
       id: 1,
       is_platform_staff: false,
       permissions: [
-        'generator_subgestor_relationships.read',
-        'generator_subgestor_relationships.create',
-        'generator_subgestor_relationships.revoke',
+        'generator_gestor_relationships.read',
+        'generator_gestor_relationships.create',
+        'generator_gestor_relationships.revoke',
       ],
     }
-    fetchGeneratorSubgestorRelationshipsMock.mockResolvedValue({ ...emptyPage, data: [relationship()], total: 1 })
+    fetchGeneratorGestorRelationshipsMock.mockResolvedValue({ ...emptyPage, data: [relationship()], total: 1 })
     searchOrganizationsMock.mockResolvedValue({ ...emptyPage, data: [] })
   })
 
   afterEach(() => {
-    fetchGeneratorSubgestorRelationshipsMock.mockReset()
-    createGeneratorSubgestorRelationshipMock.mockReset()
-    revokeGeneratorSubgestorRelationshipMock.mockReset()
+    fetchGeneratorGestorRelationshipsMock.mockReset()
+    createGeneratorGestorRelationshipMock.mockReset()
+    revokeGeneratorGestorRelationshipMock.mockReset()
     searchOrganizationsMock.mockReset()
     pushMock.mockClear()
   })
 
-  test('renders the subgestor, generator and active status badge', async () => {
-    render(<GeneratorSubgestorRelationshipsListScreen />)
+  test('renders the gestor, generator and active status badge', async () => {
+    render(<GeneratorGestorRelationshipsListScreen />)
 
-    await screen.findByText('LogVerde S.A.S.')
+    await screen.findByText('EcoTrata S.A.S.')
     expect(screen.getByText('Immetal S.A.S.')).toBeInTheDocument()
     expect(screen.getByText('Vigente')).toBeInTheDocument()
   })
 
   test('revokes an active relationship', async () => {
-    revokeGeneratorSubgestorRelationshipMock.mockResolvedValue({
-      generator_subgestor_relationship: relationship({ is_active: false }),
+    revokeGeneratorGestorRelationshipMock.mockResolvedValue({
+      generator_gestor_relationship: relationship({ is_active: false }),
     })
-    render(<GeneratorSubgestorRelationshipsListScreen />)
-    await screen.findByText('LogVerde S.A.S.')
+    render(<GeneratorGestorRelationshipsListScreen />)
+    await screen.findByText('EcoTrata S.A.S.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Revocar' }))
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar revocación' }))
 
-    await waitFor(() => expect(revokeGeneratorSubgestorRelationshipMock).toHaveBeenCalledWith(3))
+    await waitFor(() => expect(revokeGeneratorGestorRelationshipMock).toHaveBeenCalledWith(3))
   })
 
   test('hides "Revocar" without the revoke permission', async () => {
-    currentUser = { id: 1, is_platform_staff: false, permissions: ['generator_subgestor_relationships.read'] }
-    render(<GeneratorSubgestorRelationshipsListScreen />)
-    await screen.findByText('LogVerde S.A.S.')
+    currentUser = { id: 1, is_platform_staff: false, permissions: ['generator_gestor_relationships.read'] }
+    render(<GeneratorGestorRelationshipsListScreen />)
+    await screen.findByText('EcoTrata S.A.S.')
 
     expect(screen.queryByRole('button', { name: 'Revocar' })).not.toBeInTheDocument()
   })
 
-  test('creates a relationship for a tenant Subgestor (own organization, no subgestor selector)', async () => {
-    createGeneratorSubgestorRelationshipMock.mockResolvedValue({ generator_subgestor_relationship: relationship() })
-    render(<GeneratorSubgestorRelationshipsListScreen />)
-    await screen.findByText('LogVerde S.A.S.')
+  test('creates a relationship for a tenant Gestor (own organization, no gestor selector)', async () => {
+    createGeneratorGestorRelationshipMock.mockResolvedValue({ generator_gestor_relationship: relationship() })
+    render(<GeneratorGestorRelationshipsListScreen />)
+    await screen.findByText('EcoTrata S.A.S.')
 
     fireEvent.click(screen.getByRole('button', { name: '+ Registrar Generador Cliente' }))
-    expect(screen.queryByLabelText('Organización Subgestor')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Organización Gestor')).not.toBeInTheDocument()
 
     searchOrganizationsMock.mockResolvedValue({
       ...emptyPage,
@@ -126,25 +126,25 @@ describe('GeneratorSubgestorRelationshipsListScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Registrar' }))
 
     await waitFor(() =>
-      expect(createGeneratorSubgestorRelationshipMock).toHaveBeenCalledWith(
+      expect(createGeneratorGestorRelationshipMock).toHaveBeenCalledWith(
         expect.objectContaining({ generator_organization_id: 9 })
       )
     )
   })
 
   test('shows an empty message when there are no relationships', async () => {
-    fetchGeneratorSubgestorRelationshipsMock.mockResolvedValue(emptyPage)
-    render(<GeneratorSubgestorRelationshipsListScreen />)
+    fetchGeneratorGestorRelationshipsMock.mockResolvedValue(emptyPage)
+    render(<GeneratorGestorRelationshipsListScreen />)
 
-    expect(await screen.findByText(/No hay relaciones Generador-Subgestor/)).toBeInTheDocument()
+    expect(await screen.findByText(/No hay relaciones Generador-Gestor/)).toBeInTheDocument()
   })
 
   // Pedido explícito del usuario, 2026-08-11: punto de entrada a la
   // pantalla acotada del Generador vinculado (LinkedGeneratorDetailScreen).
   describe('botón "Ver usuarios"', () => {
     test('navega a /admin/generators/{id} cuando el actor NO es platform staff', async () => {
-      render(<GeneratorSubgestorRelationshipsListScreen />)
-      await screen.findByText('LogVerde S.A.S.')
+      render(<GeneratorGestorRelationshipsListScreen />)
+      await screen.findByText('EcoTrata S.A.S.')
 
       fireEvent.click(screen.getByRole('button', { name: 'Ver usuarios' }))
 
@@ -155,10 +155,10 @@ describe('GeneratorSubgestorRelationshipsListScreen', () => {
       currentUser = {
         id: 1,
         is_platform_staff: true,
-        permissions: ['generator_subgestor_relationships.read', 'generator_subgestor_relationships.revoke'],
+        permissions: ['generator_gestor_relationships.read', 'generator_gestor_relationships.revoke'],
       }
-      render(<GeneratorSubgestorRelationshipsListScreen />)
-      await screen.findByText('LogVerde S.A.S.')
+      render(<GeneratorGestorRelationshipsListScreen />)
+      await screen.findByText('EcoTrata S.A.S.')
 
       fireEvent.click(screen.getByRole('button', { name: 'Ver usuarios' }))
 
@@ -166,13 +166,13 @@ describe('GeneratorSubgestorRelationshipsListScreen', () => {
     })
 
     test('NO se muestra para una relación REVOCADA', async () => {
-      fetchGeneratorSubgestorRelationshipsMock.mockResolvedValue({
+      fetchGeneratorGestorRelationshipsMock.mockResolvedValue({
         ...emptyPage,
         data: [relationship({ is_active: false })],
         total: 1,
       })
-      render(<GeneratorSubgestorRelationshipsListScreen />)
-      await screen.findByText('LogVerde S.A.S.')
+      render(<GeneratorGestorRelationshipsListScreen />)
+      await screen.findByText('EcoTrata S.A.S.')
 
       expect(screen.queryByRole('button', { name: 'Ver usuarios' })).not.toBeInTheDocument()
     })

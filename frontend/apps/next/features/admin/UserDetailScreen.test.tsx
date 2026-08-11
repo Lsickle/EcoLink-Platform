@@ -33,12 +33,28 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
   }
 })
 
-const useRequireAuthMock = vi.fn<(permission?: string) => { user: { id: number } | null; isLoading: boolean; isAuthorized: boolean }>(
-  () => ({ user: { id: 1 }, isLoading: false, isAuthorized: true })
-)
+const useRequireAuthMock = vi.fn<
+  (
+    permission?: string
+  ) => {
+    user: { id: number; is_platform_staff?: boolean; tenant_organization_id?: number | null } | null
+    isLoading: boolean
+    isAuthorized: boolean
+  }
+  // Mismo tenant que makeUser() (tenant_organization_id: 1, ver abajo) --
+  // por defecto el actor SÍ puede gestionar al usuario que mira (caso
+  // normal, mismo tenant); los tests de la sección "organización del
+  // usuario"/gating cross-tenant sobreescriben esto explícitamente.
+>(() => ({ user: { id: 1, is_platform_staff: false, tenant_organization_id: 1 }, isLoading: false, isAuthorized: true }))
 
 vi.mock('app/provider/auth', () => ({
   useRequireAuth: (permission?: string) => useRequireAuthMock(permission),
+}))
+
+const pushMock = vi.fn()
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: pushMock }),
 }))
 
 function paginated<T>(data: T[]) {
@@ -175,6 +191,162 @@ describe('UserDetailScreen', () => {
     revokeRoleFromUserMock.mockReset()
     fetchUserActivityMock.mockReset()
     useRequireAuthMock.mockClear()
+    // El componente re-renderiza varias veces por test (carga -> datos
+    // listos), llamando useRequireAuth en cada una -- un mockReturnValue
+    // persistente que un test anterior haya dejado debe restaurarse aquí,
+    // no solo limpiarse el historial de llamadas (mockClear no lo hace).
+    useRequireAuthMock.mockReturnValue({
+      user: { id: 1, is_platform_staff: false, tenant_organization_id: 1 },
+      isLoading: false,
+      isAuthorized: true,
+    })
+    pushMock.mockClear()
+  })
+
+  // Pedido explícito del usuario, 2026-08-11: a qué organización pertenece
+  // este usuario y de qué tipo(s) de negocio es (Generador/Gestor/
+  // Subgestor/...) -- `user.organization` solo viaja en show(), ver AVISO
+  // en types.ts.
+  describe('organización del usuario', () => {
+    test('muestra "Sin organización asignada" cuando el usuario no tiene organización', async () => {
+      render(<UserDetailScreen userId={7} />)
+      await screen.findByDisplayValue('Ana')
+
+      expect(screen.getByText('Sin organización asignada.')).toBeInTheDocument()
+    })
+
+    test('muestra la razón social, el nombre comercial y los tipos de negocio de la organización', async () => {
+      fetchUserMock.mockResolvedValueOnce({
+        user: makeUser({
+          organization: {
+            id: 42,
+            legal_name: 'Transportes y Logística Verde S.A.S.',
+            trade_name: 'LogVerde',
+            type: ['Subgestor', 'Gestor'],
+            can_view_organization: false,
+          },
+        }),
+      })
+
+      render(<UserDetailScreen userId={7} />)
+      await screen.findByDisplayValue('Ana')
+
+      expect(screen.getByText('Transportes y Logística Verde S.A.S.')).toBeInTheDocument()
+      expect(screen.getByText('LogVerde')).toBeInTheDocument()
+      expect(screen.getByText('Subgestor')).toBeInTheDocument()
+      expect(screen.getByText('Gestor')).toBeInTheDocument()
+    })
+
+    // Autorización real vive en el backend (`organization.can_view_organization`,
+    // ver AVISO en types.ts) -- el frontend solo lee el flag, no reimplementa
+    // la regla.
+    test('NO muestra "Ver organización" cuando can_view_organization es false', async () => {
+      fetchUserMock.mockResolvedValueOnce({
+        user: makeUser({
+          organization: { id: 42, legal_name: 'LogVerde S.A.S.', trade_name: null, type: ['Subgestor'], can_view_organization: false },
+        }),
+      })
+
+      render(<UserDetailScreen userId={7} />)
+      await screen.findByDisplayValue('Ana')
+
+      expect(screen.queryByRole('button', { name: 'Ver organización' })).not.toBeInTheDocument()
+    })
+
+    test('el botón "Ver organización" navega a /admin/organizations/{id} cuando el actor es platform staff', async () => {
+      useRequireAuthMock.mockReturnValue({ user: { id: 1, is_platform_staff: true }, isLoading: false, isAuthorized: true })
+      fetchUserMock.mockResolvedValueOnce({
+        user: makeUser({
+          organization: { id: 42, legal_name: 'LogVerde S.A.S.', trade_name: null, type: ['Subgestor'], can_view_organization: true },
+        }),
+      })
+
+      render(<UserDetailScreen userId={7} />)
+      await screen.findByDisplayValue('Ana')
+      fireEvent.click(screen.getByRole('button', { name: 'Ver organización' }))
+
+      expect(pushMock).toHaveBeenCalledWith('/admin/organizations/42')
+    })
+
+    // Nueva capacidad, pedido explícito del usuario 2026-08-11: un
+    // Subgestor/Gestor con relación activa hacia un Generador (reflejado en
+    // can_view_organization=true) va a la pantalla acotada
+    // `/admin/generators/{id}` (LinkedGeneratorDetailScreen), NO al detalle
+    // completo exclusivo de plataforma.
+    test('el botón "Ver organización" navega a /admin/generators/{id} cuando el actor NO es platform staff pero puede ver la organización', async () => {
+      // Escenario real: Subgestor (tenant 99) viendo al usuario de un
+      // Generador vinculado (tenant 1, ver makeUser()) -- tenants
+      // DISTINTOS, la visibilidad viene solo de can_view_organization.
+      useRequireAuthMock.mockReturnValue({
+        user: { id: 1, is_platform_staff: false, tenant_organization_id: 99 },
+        isLoading: false,
+        isAuthorized: true,
+      })
+      fetchUserMock.mockResolvedValueOnce({
+        user: makeUser({
+          organization: { id: 42, legal_name: 'Distribuidora Ejemplo Uno S.A.S.', trade_name: null, type: ['Generador'], can_view_organization: true },
+        }),
+      })
+
+      render(<UserDetailScreen userId={7} />)
+      await screen.findByDisplayValue('Ana')
+      fireEvent.click(screen.getByRole('button', { name: 'Ver organización' }))
+
+      expect(pushMock).toHaveBeenCalledWith('/admin/generators/42')
+    })
+  })
+
+  // Hallazgo Medio (especialista-seguridad, 2026-08-11, revisión del
+  // mecanismo cross-tenant Subgestor/Gestor->Generador): el backend YA
+  // bloquea con 403 update/activate/deactivate/resetPassword/
+  // resendInvitation/assignRole/revokeRole sobre un usuario de OTRO tenant
+  // -- estos tests fijan que la UI deje de OFRECER esos controles cuando el
+  // actor no tiene autorización real de gestión (defensa en profundidad).
+  describe('controles de gestión ocultos para un actor sin autorización real', () => {
+    test('oculta Editar/Restablecer contraseña/Desactivar/Guardar cambios/Asignar rol para un actor de OTRO tenant sin platform staff', async () => {
+      useRequireAuthMock.mockReturnValue({
+        user: { id: 1, is_platform_staff: false, tenant_organization_id: 99 },
+        isLoading: false,
+        isAuthorized: true,
+      })
+      render(<UserDetailScreen userId={7} />)
+      await screen.findByDisplayValue('Ana')
+
+      expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Restablecer contraseña' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Desactivar usuario' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Guardar cambios' })).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Asignar rol')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Revocar rol/ })).not.toBeInTheDocument()
+      expect(screen.getByDisplayValue('Ana')).toBeDisabled()
+    })
+
+    test('SÍ muestra los controles de gestión para un actor del MISMO tenant', async () => {
+      useRequireAuthMock.mockReturnValue({
+        user: { id: 1, is_platform_staff: false, tenant_organization_id: 1 },
+        isLoading: false,
+        isAuthorized: true,
+      })
+      render(<UserDetailScreen userId={7} />)
+      await screen.findByDisplayValue('Ana')
+
+      expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeInTheDocument()
+      expect(screen.getByDisplayValue('Ana')).toBeEnabled()
+    })
+
+    test('SÍ muestra los controles de gestión para platform staff, sin importar el tenant', async () => {
+      useRequireAuthMock.mockReturnValue({
+        user: { id: 1, is_platform_staff: true, tenant_organization_id: 99 },
+        isLoading: false,
+        isAuthorized: true,
+      })
+      render(<UserDetailScreen userId={7} />)
+      await screen.findByDisplayValue('Ana')
+
+      expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeInTheDocument()
+    })
   })
 
   test('requires the users.read permission via useRequireAuth', async () => {

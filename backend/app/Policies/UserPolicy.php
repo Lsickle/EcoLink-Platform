@@ -54,9 +54,21 @@ class UserPolicy
         return $actor->hasPermission('users.read');
     }
 
+    /**
+     * Pedido explícito del usuario, 2026-08-11: un Subgestor/Gestor debe
+     * poder VER (no gestionar) al usuario de un Generador con el que tiene
+     * una relación comercial ACTIVA -- ver `User::
+     * hasActiveGeneratorRelationshipWith()`. Deliberadamente SOLO en
+     * `view()` -- `update`/`delete`/`activate`/`deactivate`/`resetPassword`/
+     * `resendInvitation` de abajo quedan sin cambios (ese usuario sigue sin
+     * poder ser gestionado por una organización externa).
+     */
     public function view(User $actor, User $target): bool
     {
-        return $actor->hasPermission('users.read') && ($actor->isSameTenantAs($target) || $actor->isPlatformStaff());
+        return $actor->hasPermission('users.read')
+            && ($actor->isSameTenantAs($target)
+                || $actor->isPlatformStaff()
+                || ($target->tenant_organization_id !== null && $actor->hasActiveGeneratorRelationshipWith($target->tenant_organization_id)));
     }
 
     public function create(User $actor): bool

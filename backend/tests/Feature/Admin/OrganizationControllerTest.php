@@ -4,6 +4,8 @@ use App\Models\Branch;
 use App\Models\BusinessRole;
 use App\Models\Country;
 use App\Models\Department;
+use App\Models\GeneratorGestorRelationship;
+use App\Models\GeneratorSubgestorRelationship;
 use App\Models\Municipality;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
@@ -258,6 +260,78 @@ test('show carga status/businessRoles activos/createdBy y los 3 conteos', functi
         ->assertJsonPath('organization.branches_count', 2)
         ->assertJsonPath('organization.contacts_count', 3)
         ->assertJsonPath('organization.users_count', 0);
+});
+
+// Pedido explícito del usuario, 2026-08-11: un Subgestor/Gestor con
+// relación ACTIVA hacia un Generador puede consultarlo -- subconjunto
+// acotado, ver OrganizationController::transformLinkedGeneratorOrganization().
+test('show devuelve un subconjunto acotado (SIN campos internos) para un Subgestor con relación ACTIVA hacia el Generador', function () {
+    $subgestor = Organization::factory()->create();
+    $actor = User::factory()->create(['tenant_organization_id' => $subgestor->id]);
+    $generator = Organization::factory()->create(['legal_name' => 'Generador Vinculado S.A.S.', 'billing_email' => 'facturacion@generador.com', 'risk_level' => 'critico']);
+
+    GeneratorSubgestorRelationship::factory()->create([
+        'generator_organization_id' => $generator->id, 'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}")->assertOk();
+
+    $response->assertJsonPath('organization.legal_name', 'Generador Vinculado S.A.S.');
+    expect($response->json('organization'))
+        ->not->toHaveKeys(['billing_email', 'support_email', 'risk_level', 'storage_quota_gb', 'created_by', 'updated_by', 'observations']);
+});
+
+test('show devuelve un subconjunto acotado para un Gestor con relación ACTIVA hacia el Generador (mismo criterio, tabla Gestor)', function () {
+    $gestor = Organization::factory()->create();
+    $actor = User::factory()->create(['tenant_organization_id' => $gestor->id]);
+    $generator = Organization::factory()->create();
+
+    GeneratorGestorRelationship::factory()->create([
+        'generator_organization_id' => $generator->id, 'gestor_organization_id' => $gestor->id,
+    ]);
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}")->assertOk();
+});
+
+test('show DENIEGA (403) a un actor sin relación activa ni platform staff', function () {
+    $actor = nonPlatformOrgActor();
+    $generator = Organization::factory()->create();
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}")->assertForbidden();
+});
+
+test('show DENIEGA (403) si la relación ya fue REVOCADA', function () {
+    $subgestor = Organization::factory()->create();
+    $actor = User::factory()->create(['tenant_organization_id' => $subgestor->id]);
+    $generator = Organization::factory()->create();
+
+    GeneratorSubgestorRelationship::factory()->revoked()->create([
+        'generator_organization_id' => $generator->id, 'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}")->assertForbidden();
+});
+
+test('users lista a los usuarios del Generador para un Subgestor con relación ACTIVA', function () {
+    $subgestor = Organization::factory()->create();
+    $actor = User::factory()->create(['tenant_organization_id' => $subgestor->id]);
+    $generator = Organization::factory()->create();
+    $generatorUser = User::factory()->create(['tenant_organization_id' => $generator->id]);
+
+    GeneratorSubgestorRelationship::factory()->create([
+        'generator_organization_id' => $generator->id, 'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}/users")->assertOk();
+
+    expect(collect($response->json('data'))->pluck('id'))->toContain($generatorUser->id);
+});
+
+test('users DENIEGA (403) a un actor sin relación activa ni platform staff', function () {
+    $actor = nonPlatformOrgActor();
+    $generator = Organization::factory()->create();
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}/users")->assertForbidden();
 });
 
 // ---- store() ----

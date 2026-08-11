@@ -32,6 +32,14 @@ use Illuminate\Validation\ValidationException;
  * organizaciones -- solo el staff de la organización plataforma (EcoLink,
  * `organizations.is_platform_tenant=true`, D-CER-04).
  *
+ * EXCEPCIÓN (pedido explícito del usuario, 2026-08-11): `show()` y
+ * `users()` YA NO son exclusivos de platform staff -- un Subgestor/Gestor
+ * con relación ACTIVA hacia un Generador (`User::
+ * hasActiveGeneratorRelationshipWith()`) también puede consultarlos, con un
+ * payload reducido en `show()` (ver `transformLinkedGeneratorOrganization()`
+ * más abajo). El resto de los métodos de esta clase siguen exclusivos de
+ * platform staff sin cambios.
+ *
  * "Tipo de Organización" (Figma) = `business_roles` YA CONSTRUIDO
  * (`BusinessRole`/`organization_business_roles`/`OrganizationBusinessRole`
  * -- SIN SoftDeletes, revocación solo vía `is_active=false`, ver AVISO en
@@ -147,9 +155,27 @@ class OrganizationController extends Controller
         ]);
     }
 
+    /**
+     * Pedido explícito del usuario, 2026-08-11: un Subgestor/Gestor con
+     * relación ACTIVA hacia este Generador puede consultarlo, pero SOLO un
+     * subconjunto acotado de campos -- `transformLinkedGeneratorOrganization()`
+     * más abajo, deliberadamente SIN `billing_email`/`support_email`/
+     * `risk_level`/`storage_quota_gb`/`storage_used_gb`/`economic_activity_*`/
+     * `environmental_*`/`contract_expiration_date`/`customer_since`/
+     * `company_size`/`employee_count`/`observations`/`created_by`/
+     * `updated_by` -- son datos internos de EcoLink, no de la relación
+     * comercial entre las dos empresas. El staff de plataforma sigue
+     * recibiendo el detalle completo, sin cambios.
+     */
     public function show(Request $request, Organization $organization)
     {
-        abort_unless($request->user()->isPlatformStaff(), 403, 'Solo el staff de la plataforma puede gestionar organizaciones.');
+        $actor = $request->user();
+
+        if (! $actor->isPlatformStaff()) {
+            abort_unless($actor->hasActiveGeneratorRelationshipWith($organization->id), 403, 'No tiene acceso a esta organización.');
+
+            return response()->json(['organization' => $this->transformLinkedGeneratorOrganization($organization)]);
+        }
 
         $organization->load([
             'status',
@@ -765,10 +791,19 @@ class OrganizationController extends Controller
 
     /**
      * Tab "Usuarios" -- mismo shape que `UserManagementController::index()`.
+     * Mismo criterio relajado que `show()`: un Subgestor/Gestor con relación
+     * ACTIVA hacia este Generador también puede listar sus usuarios (punto
+     * de entrada "Ver usuarios" desde la relación) -- sin cambios en el
+     * shape de la respuesta, ya es `{person, status, roles}` por usuario,
+     * nada sensible de la organización.
      */
     public function users(Request $request, Organization $organization)
     {
-        abort_unless($request->user()->isPlatformStaff(), 403, 'Solo el staff de la plataforma puede gestionar organizaciones.');
+        $actor = $request->user();
+        abort_unless(
+            $actor->isPlatformStaff() || $actor->hasActiveGeneratorRelationshipWith($organization->id),
+            403, 'No tiene acceso a esta organización.',
+        );
 
         $users = User::query()
             ->where('tenant_organization_id', $organization->id)
@@ -994,6 +1029,41 @@ class OrganizationController extends Controller
             : null;
 
         return $data;
+    }
+
+    /**
+     * Subconjunto acotado para un Subgestor/Gestor con relación ACTIVA hacia
+     * este Generador -- ver AVISO en `show()`. Carga sus propias relaciones
+     * (no reutiliza el eager-load de `show()` para platform staff, que trae
+     * `createdBy` y conteos que este camino no necesita).
+     */
+    private function transformLinkedGeneratorOrganization(Organization $organization): array
+    {
+        $organization->load([
+            'status',
+            'businessRoles' => fn ($query) => $query->wherePivot('is_active', true),
+            'primaryBranch.municipality',
+            'primaryBranch.department',
+        ]);
+
+        return [
+            'id' => $organization->id,
+            'legal_name' => $organization->legal_name,
+            'trade_name' => $organization->trade_name,
+            'tax_id' => $organization->tax_id,
+            'tax_id_type' => $organization->tax_id_type,
+            'email' => $organization->email,
+            'phone' => $organization->phone,
+            'website' => $organization->website,
+            'status' => $organization->status,
+            'type' => $organization->businessRoles->pluck('name')->values()->all(),
+            'primary_branch' => $organization->primaryBranch
+                ? [
+                    'municipality' => $organization->primaryBranch->municipality,
+                    'department' => $organization->primaryBranch->department,
+                ]
+                : null,
+        ];
     }
 
     /**

@@ -34,6 +34,46 @@ export type AdminUserRole = {
   pivot?: Record<string, unknown>
 }
 
+// GET /api/admin/users/{id} (show() únicamente, ver AVISO de campos
+// opcionales-solo-en-show() más abajo) -- subconjunto de AdminOrganization,
+// espeja `organization.type` (nombres de business_roles ACTIVOS) tal como
+// lo resuelve UserManagementController::show(), mismo criterio que
+// OrganizationController::transformOrganization().
+export type AdminUserOrganization = {
+  id: number
+  legal_name: string
+  trade_name: string | null
+  type: string[]
+  // Pedido explícito del usuario, 2026-08-11: calculado server-side
+  // (`UserManagementController::show()`, `User::
+  // hasActiveGeneratorRelationshipWith()`) -- true si el actor es platform
+  // staff O tiene una relación Subgestor/Gestor ACTIVA hacia esta
+  // organización. El frontend solo LEE este flag para pintar el botón "Ver
+  // organización", nunca reimplementa la regla de autorización.
+  can_view_organization: boolean
+}
+
+// Subconjunto acotado que devuelve GET /api/admin/organizations/{id} para
+// un Subgestor/Gestor con relación ACTIVA (ver
+// OrganizationController::transformLinkedGeneratorOrganization()) --
+// DISTINTO del `AdminOrganizationDetail` completo que recibe el staff de
+// plataforma en el MISMO endpoint: deliberadamente sin billing_email/
+// risk_level/storage_quota_gb/etc. Dos tipos para la misma URL porque el
+// backend responde un shape distinto según quién pregunta.
+export type LinkedOrganizationSummary = {
+  id: number
+  legal_name: string
+  trade_name: string | null
+  tax_id: string
+  tax_id_type: string
+  email: string | null
+  phone: string | null
+  website: string | null
+  status: AdminOrganizationStatus
+  type: string[]
+  primary_branch: OrganizationPrimaryBranch
+}
+
 // Cierre de brecha con Figma (lote 2026-07-14, paridad con AdminRole
 // arriba): index()/show() de UserManagementController SIEMPRE devuelven
 // last_login_at/created_at/updated_at -- son columnas nativas de `users`,
@@ -58,6 +98,9 @@ export type AdminUser = {
   updated_at?: string
   created_by?: AdminActorRef | null
   updated_by?: AdminActorRef | null
+  // Solo en show() (igual que created_by/updated_by arriba) -- null si el
+  // usuario no tiene organization_id asignado.
+  organization?: AdminUserOrganization | null
 }
 
 // Mecanismo de invitación (CU-006.1 modificado): store() YA NO acepta

@@ -16,10 +16,10 @@ import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   ApiValidationError,
-  createGeneratorSubgestorRelationship,
-  fetchGeneratorSubgestorRelationships,
-  revokeGeneratorSubgestorRelationship,
-  type AdminGeneratorSubgestorRelationship,
+  createGeneratorGestorRelationship,
+  fetchGeneratorGestorRelationships,
+  revokeGeneratorGestorRelationship,
+  type AdminGeneratorGestorRelationship,
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
@@ -35,26 +35,27 @@ function errorMessage(error: unknown, key: string): string {
 }
 
 /**
- * Cadena Generador -> Subgestor -> Gestor en Declaración de Residuos
- * (confirmado por stakeholders reales, 2026-08-09) -- gestión de
- * `generator_subgestor_relationships`. Sin frame de Figma -- diseño
- * PROPUESTO, MISMO patrón exacto que `GestorCarrierAuthorizationsListScreen.tsx`
- * (relación bilateral entre organizaciones, roles invertidos: aquí el
- * Subgestor registra/revoca).
+ * Vínculo comercial DIRECTO Generador -> Gestor (Carga Masiva de
+ * Generadores, confirmado por el usuario 2026-08-11) -- gestión de
+ * `generator_gestor_relationships`. Calco exacto de
+ * `GeneratorSubgestorRelationshipsListScreen.tsx`, roles invertidos (aquí
+ * el Gestor registra/revoca) -- el backend y las funciones API ya existían
+ * desde el lote de Carga Masiva; esta pantalla cierra el gap de frontend
+ * (pedido explícito del usuario, 2026-08-11).
  *
  * Ruta PROPIA en el sidebar (NO embebida en `OrganizationDetailScreen`),
- * mismo motivo que su hermana: `GeneratorSubgestorRelationshipController::index()`
+ * mismo motivo que su hermana: `GeneratorGestorRelationshipController::index()`
  * NO acepta un filtro por organización -- platform staff ve TODAS las
  * relaciones del sistema sin acotar.
  */
-export function GeneratorSubgestorRelationshipsListScreen() {
+export function GeneratorGestorRelationshipsListScreen() {
   const { user } = useAuth()
-  const { isAuthorized } = useRequireAuth('generator_subgestor_relationships.read')
+  const { isAuthorized } = useRequireAuth('generator_gestor_relationships.read')
   const router = useRouter()
   const isPlatformStaff = Boolean(user?.is_platform_staff)
   const permissions = user?.permissions ?? []
 
-  const [relationships, setRelationships] = useState<AdminGeneratorSubgestorRelationship[]>([])
+  const [relationships, setRelationships] = useState<AdminGeneratorGestorRelationship[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -63,13 +64,13 @@ export function GeneratorSubgestorRelationshipsListScreen() {
   const [total, setTotal] = useState(0)
 
   const [createOpen, setCreateOpen] = useState(false)
-  const [pendingRevoke, setPendingRevoke] = useState<AdminGeneratorSubgestorRelationship | null>(null)
+  const [pendingRevoke, setPendingRevoke] = useState<AdminGeneratorGestorRelationship | null>(null)
   const [isRevoking, setIsRevoking] = useState(false)
   const [revokeError, setRevokeError] = useState<string | null>(null)
 
   function reload() {
     setIsLoading(true)
-    return fetchGeneratorSubgestorRelationships({ page, perPage: PER_PAGE })
+    return fetchGeneratorGestorRelationships({ page, perPage: PER_PAGE })
       .then((result) => {
         setRelationships(result.data)
         setLastPage(result.last_page)
@@ -97,11 +98,11 @@ export function GeneratorSubgestorRelationshipsListScreen() {
     setIsRevoking(true)
     setRevokeError(null)
     try {
-      await revokeGeneratorSubgestorRelationship(pendingRevoke.id)
+      await revokeGeneratorGestorRelationship(pendingRevoke.id)
       setPendingRevoke(null)
       reload()
     } catch (error) {
-      setRevokeError(errorMessage(error, 'generator_subgestor_relationship'))
+      setRevokeError(errorMessage(error, 'generator_gestor_relationship'))
     } finally {
       setIsRevoking(false)
     }
@@ -115,8 +116,8 @@ export function GeneratorSubgestorRelationshipsListScreen() {
     )
   }
 
-  const canCreate = permissions.includes('generator_subgestor_relationships.create')
-  const canRevoke = permissions.includes('generator_subgestor_relationships.revoke')
+  const canCreate = permissions.includes('generator_gestor_relationships.create')
+  const canRevoke = permissions.includes('generator_gestor_relationships.revoke')
 
   const rangeStart = total === 0 ? 0 : (page - 1) * PER_PAGE + 1
   const rangeEnd = Math.min(page * PER_PAGE, total)
@@ -157,7 +158,7 @@ export function GeneratorSubgestorRelationshipsListScreen() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Subgestor</TableHead>
+                <TableHead>Gestor</TableHead>
                 <TableHead>Generador cliente</TableHead>
                 <TableHead>Fecha de Registro</TableHead>
                 <TableHead>Estado</TableHead>
@@ -168,13 +169,13 @@ export function GeneratorSubgestorRelationshipsListScreen() {
               {relationships.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    No hay relaciones Generador-Subgestor registradas.
+                    No hay relaciones Generador-Gestor registradas.
                   </TableCell>
                 </TableRow>
               )}
               {relationships.map((relationship) => (
                 <TableRow key={relationship.id}>
-                  <TableCell>{relationship.subgestor_organization?.legal_name ?? '—'}</TableCell>
+                  <TableCell>{relationship.gestor_organization?.legal_name ?? '—'}</TableCell>
                   <TableCell>{relationship.generator_organization?.legal_name ?? '—'}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {relationship.authorized_at ? formatDate(relationship.authorized_at) : '—'}
@@ -188,7 +189,7 @@ export function GeneratorSubgestorRelationshipsListScreen() {
                     {/* Pedido explícito del usuario, 2026-08-11: acceder a los
                         usuarios del Generador vinculado. Platform staff va al
                         detalle completo (OrganizationDetailScreen, tab
-                        Usuarios); el Subgestor dueño va a la pantalla acotada
+                        Usuarios); el Gestor dueño va a la pantalla acotada
                         LinkedGeneratorDetailScreen -- mismo criterio de
                         routing dual que UserDetailScreen.tsx. */}
                     {relationship.is_active && relationship.generator_organization && (
@@ -242,7 +243,7 @@ export function GeneratorSubgestorRelationshipsListScreen() {
             <AlertDialogTitle>Revocar relación</AlertDialogTitle>
           </AlertDialogHeader>
           <p className="text-sm text-muted-foreground">
-            ¿Seguro que quieres dejar de ser el Subgestor de {pendingRevoke?.generator_organization?.legal_name}? Las
+            ¿Seguro que quieres dejar de ser el Gestor de {pendingRevoke?.generator_organization?.legal_name}? Las
             evaluaciones ya reenviadas bajo esta relación no se ven afectadas -- solo se bloquean reenvíos nuevos a
             partir de la revocación.
           </p>
@@ -271,8 +272,8 @@ function CreateRelationshipDialog({
   isPlatformStaff: boolean
   onCreated: () => void
 }) {
-  const [subgestorOrganizationId, setSubgestorOrganizationId] = useState<number | null>(null)
-  const [subgestorOrganizationLabel, setSubgestorOrganizationLabel] = useState<string | null>(null)
+  const [gestorOrganizationId, setGestorOrganizationId] = useState<number | null>(null)
+  const [gestorOrganizationLabel, setGestorOrganizationLabel] = useState<string | null>(null)
   const [generatorOrganizationId, setGeneratorOrganizationId] = useState<number | null>(null)
   const [generatorOrganizationLabel, setGeneratorOrganizationLabel] = useState<string | null>(null)
   const [observations, setObservations] = useState('')
@@ -280,8 +281,8 @@ function CreateRelationshipDialog({
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   function reset() {
-    setSubgestorOrganizationId(null)
-    setSubgestorOrganizationLabel(null)
+    setGestorOrganizationId(null)
+    setGestorOrganizationLabel(null)
     setGeneratorOrganizationId(null)
     setGeneratorOrganizationLabel(null)
     setObservations('')
@@ -296,16 +297,16 @@ function CreateRelationshipDialog({
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     setFormError(null)
-    if (!generatorOrganizationId || (isPlatformStaff && !subgestorOrganizationId)) {
+    if (!generatorOrganizationId || (isPlatformStaff && !gestorOrganizationId)) {
       setFormError('Selecciona la organización Generadora a registrar como cliente.')
       return
     }
     setIsSubmitting(true)
     try {
-      await createGeneratorSubgestorRelationship({
+      await createGeneratorGestorRelationship({
         generator_organization_id: generatorOrganizationId,
         observations: observations.trim() || undefined,
-        subgestor_organization_id: isPlatformStaff ? (subgestorOrganizationId ?? undefined) : undefined,
+        gestor_organization_id: isPlatformStaff ? (gestorOrganizationId ?? undefined) : undefined,
       })
       reset()
       onCreated()
@@ -326,24 +327,24 @@ function CreateRelationshipDialog({
         <form onSubmit={handleSubmit} className="flex flex-col gap-3" noValidate>
           {isPlatformStaff && (
             <OrganizationSearchSelect
-              label="Organización Subgestor"
-              htmlId="generatorSubgestorRel-subgestor"
-              capability="can_transport_waste"
-              selectedId={subgestorOrganizationId}
-              selectedLabel={subgestorOrganizationLabel}
+              label="Organización Gestor"
+              htmlId="generatorGestorRel-gestor"
+              capability="can_treat_waste"
+              selectedId={gestorOrganizationId}
+              selectedLabel={gestorOrganizationLabel}
               onSelect={(result) => {
-                setSubgestorOrganizationId(result.id)
-                setSubgestorOrganizationLabel(result.legal_name)
+                setGestorOrganizationId(result.id)
+                setGestorOrganizationLabel(result.legal_name)
               }}
               onClear={() => {
-                setSubgestorOrganizationId(null)
-                setSubgestorOrganizationLabel(null)
+                setGestorOrganizationId(null)
+                setGestorOrganizationLabel(null)
               }}
             />
           )}
           <OrganizationSearchSelect
             label="Organización Generadora"
-            htmlId="generatorSubgestorRel-generator"
+            htmlId="generatorGestorRel-generator"
             capability="can_generate_waste"
             selectedId={generatorOrganizationId}
             selectedLabel={generatorOrganizationLabel}
@@ -357,11 +358,11 @@ function CreateRelationshipDialog({
             }}
           />
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="generatorSubgestorRel-observations">
+            <Label htmlFor="generatorGestorRel-observations">
               Observaciones <span className="text-muted-foreground">(opcional)</span>
             </Label>
             <textarea
-              id="generatorSubgestorRel-observations"
+              id="generatorGestorRel-observations"
               className="min-h-16 rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               value={observations}
               onChange={(event) => setObservations(event.target.value)}

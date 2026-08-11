@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertDialog,
@@ -37,6 +38,7 @@ import {
   type AdminPermission,
   type AdminRole,
   type AdminUser,
+  type AdminUserOrganization,
   type AdminUserRole,
   type UserActivityEvent,
 } from 'app/features/admin/api'
@@ -99,6 +101,64 @@ function MetricTile({ label, value, className }: { label: string; value: string;
   )
 }
 
+// Pedido explícito del usuario, 2026-08-11: saber de un vistazo a qué
+// organización pertenece este usuario y de qué tipo(s) de negocio es
+// (Generador/Gestor/Subgestor/...) -- `organization.type` viene resuelto
+// por UserManagementController::show() (mismos nombres de business_roles
+// ACTIVOS que muestra el checklist "Tipos de Organización" de
+// OrganizationDetailScreen.tsx). `organization` solo viaja en show() (igual
+// que created_by/updated_by) y es null si el usuario no tiene
+// organization_id asignado.
+function OrganizationSummary({
+  organization,
+  onView,
+  isPlatformStaff,
+}: {
+  organization: AdminUserOrganization | null | undefined
+  onView: (path: string) => void
+  // Destino del botón: platform staff va al detalle completo
+  // (`OrganizationDetailScreen.tsx`, exclusivo de plataforma); un
+  // Subgestor/Gestor con relación activa va a la pantalla acotada
+  // `LinkedGeneratorDetailScreen.tsx` (`/admin/generators/{id}`) -- mismo
+  // endpoint de backend, dos pantallas de frontend distintas porque el
+  // shape de datos y los controles disponibles son deliberadamente
+  // distintos (ver AVISO en OrganizationController::show()).
+  isPlatformStaff: boolean
+}) {
+  if (!organization) {
+    return <p className="text-sm text-muted-foreground">Sin organización asignada.</p>
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div>
+        <p className="text-sm font-medium">{organization.legal_name}</p>
+        {organization.trade_name && <p className="text-sm text-muted-foreground">{organization.trade_name}</p>}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {organization.type.length === 0 && <span className="text-xs text-muted-foreground">Sin tipo asignado</span>}
+        {organization.type.map((type) => (
+          <Badge key={type} variant="outline">
+            {type}
+          </Badge>
+        ))}
+      </div>
+      {organization.can_view_organization && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="self-start"
+          onClick={() =>
+            onView(isPlatformStaff ? `/admin/organizations/${organization.id}` : `/admin/generators/${organization.id}`)
+          }
+        >
+          Ver organización
+        </Button>
+      )}
+    </div>
+  )
+}
+
 // Cierre de brecha con Figma (lote 2026-07-14, mismo ejercicio ya cerrado
 // hoy para Roles -- RoleDetailScreen.tsx es la plantilla replicada aquí):
 // layout de dos columnas + tabs Roles/Permisos/Actividad, en vez del
@@ -122,7 +182,8 @@ function MetricTile({ label, value, className }: { label: string; value: string;
 //    elegido y userId como parámetros) en vez de "moverlo", que es lo que
 //    pedía el contrato original.
 export function UserDetailScreen({ userId }: { userId: number | string }) {
-  const { isAuthorized } = useRequireAuth('users.read')
+  const { isAuthorized, user: actingUser } = useRequireAuth('users.read')
+  const router = useRouter()
 
   const [user, setUser] = useState<AdminUser | null>(null)
   const [allRoles, setAllRoles] = useState<AdminRole[]>([])
@@ -251,6 +312,21 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
   }, [activeTab, isAuthorized, userId])
 
   const activeRoles = useMemo(() => (user ? user.roles.filter(isActiveRoleAssignment) : []), [user])
+
+  // Hallazgo Medio (especialista-seguridad, 2026-08-11, revisión del
+  // mecanismo cross-tenant Subgestor/Gestor->Generador): el backend YA
+  // bloquea con 403 cualquier update/activate/deactivate/resetPassword/
+  // resendInvitation/assignRole/revokeRole sobre un usuario de OTRO tenant
+  // (UserPolicy -- esos métodos NUNCA ganaron la excepción de
+  // hasActiveGeneratorRelationshipWith(), solo `view()` la tiene) -- pero
+  // la UI seguía ofreciendo esos controles a un Subgestor/Gestor que llega
+  // aquí vía "Ver usuarios" desde un Generador vinculado, generando 403
+  // innecesarios y una experiencia que sugiere (falsamente) capacidad de
+  // gestión sobre datos de una empresa externa. Mismo criterio de
+  // aislamiento que el backend: mismo tenant o platform staff.
+  const canManageUser = Boolean(
+    user && actingUser && (actingUser.is_platform_staff || actingUser.tenant_organization_id === user.tenant_organization_id)
+  )
 
   const groupedPermissions = useMemo(() => {
     const groups = new Map<string, AdminPermission[]>()
@@ -457,33 +533,35 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
               <p className="text-sm text-muted-foreground">@{user.username}</p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleEditClick}>
-              Editar
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isResettingPassword}
-              onClick={() => setConfirmingResetPassword(true)}
-            >
-              Restablecer contraseña
-            </Button>
-            {isActive ? (
-              <Button variant="outline" size="sm" disabled={isActing} onClick={() => setConfirmingDeactivate(true)}>
-                Desactivar usuario
+          {canManageUser && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleEditClick}>
+                Editar
               </Button>
-            ) : (
-              <Button variant="outline" size="sm" disabled={isActing} onClick={handleActivate}>
-                Activar usuario
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isResettingPassword}
+                onClick={() => setConfirmingResetPassword(true)}
+              >
+                Restablecer contraseña
               </Button>
-            )}
-            {user.status.code === 'PENDING_ACTIVATION' && (
-              <Button variant="outline" size="sm" disabled={isResending} onClick={handleResendInvitation}>
-                {isResending ? 'Reenviando…' : 'Reenviar invitación'}
-              </Button>
-            )}
-          </div>
+              {isActive ? (
+                <Button variant="outline" size="sm" disabled={isActing} onClick={() => setConfirmingDeactivate(true)}>
+                  Desactivar usuario
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" disabled={isActing} onClick={handleActivate}>
+                  Activar usuario
+                </Button>
+              )}
+              {user.status.code === 'PENDING_ACTIVATION' && (
+                <Button variant="outline" size="sm" disabled={isResending} onClick={handleResendInvitation}>
+                  {isResending ? 'Reenviando…' : 'Reenviar invitación'}
+                </Button>
+              )}
+            </div>
+          )}
         </CardHeader>
         <CardContent className="flex flex-col gap-2 pb-4">
           {actionError && (
@@ -528,12 +606,18 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
                     id="firstName"
                     ref={firstNameInputRef}
                     value={firstName}
+                    disabled={!canManageUser}
                     onChange={(event) => setFirstName(event.target.value)}
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="lastName">Apellidos</Label>
-                  <Input id="lastName" value={lastName} onChange={(event) => setLastName(event.target.value)} />
+                  <Input
+                    id="lastName"
+                    value={lastName}
+                    disabled={!canManageUser}
+                    onChange={(event) => setLastName(event.target.value)}
+                  />
                 </div>
 
                 <InfoField label="Usuario">@{user.username}</InfoField>
@@ -543,11 +627,23 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
 
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="email">Correo electrónico</Label>
-                  <Input id="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    disabled={!canManageUser}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="phone">Teléfono</Label>
-                  <Input id="phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} />
+                  <Input
+                    id="phone"
+                    type="tel"
+                    value={phone}
+                    disabled={!canManageUser}
+                    onChange={(event) => setPhone(event.target.value)}
+                  />
                 </div>
 
                 <InfoField label="Fecha de Registro">{user.created_at ? formatDate(user.created_at) : '—'}</InfoField>
@@ -566,11 +662,13 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
                   </p>
                 )}
 
-                <div className="flex justify-end sm:col-span-2">
-                  <Button type="submit" disabled={isSaving}>
-                    {isSaving ? 'Guardando…' : 'Guardar cambios'}
-                  </Button>
-                </div>
+                {canManageUser && (
+                  <div className="flex justify-end sm:col-span-2">
+                    <Button type="submit" disabled={isSaving}>
+                      {isSaving ? 'Guardando…' : 'Guardar cambios'}
+                    </Button>
+                  </div>
+                )}
               </form>
             </CardContent>
           </Card>
@@ -595,13 +693,13 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Rol</TableHead>
-                          <TableHead className="text-right">Acciones</TableHead>
+                          {canManageUser && <TableHead className="text-right">Acciones</TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {activeRoles.length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={2} className="text-center text-muted-foreground">
+                            <TableCell colSpan={canManageUser ? 2 : 1} className="text-center text-muted-foreground">
                               Este usuario no tiene roles asignados.
                             </TableCell>
                           </TableRow>
@@ -609,52 +707,56 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
                         {activeRoles.map((role) => (
                           <TableRow key={role.id}>
                             <TableCell>{role.name}</TableCell>
-                            <TableCell className="text-right">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                aria-label={`Revocar rol ${role.name}`}
-                                onClick={() => setPendingRevokeRole(role)}
-                              >
-                                ✕
-                              </Button>
-                            </TableCell>
+                            {canManageUser && (
+                              <TableCell className="text-right">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  aria-label={`Revocar rol ${role.name}`}
+                                  onClick={() => setPendingRevokeRole(role)}
+                                >
+                                  ✕
+                                </Button>
+                              </TableCell>
+                            )}
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   </div>
 
-                  <div className="flex flex-col gap-2 border-t border-border pt-4">
-                    <Label htmlFor="assignRole">Asignar rol</Label>
-                    <div className="flex gap-2">
-                      <Select
-                        items={assignableRoleItems}
-                        value={selectedRoleId ? String(selectedRoleId) : null}
-                        onValueChange={(value) => setSelectedRoleId(Number(value))}
-                      >
-                        <SelectTrigger id="assignRole" className="flex-1">
-                          <SelectValue placeholder="Selecciona un rol" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {assignableRoles.map((role) => (
-                            <SelectItem key={role.id} value={String(role.id)}>
-                              {role.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button disabled={!selectedRoleId || isAssigningRole} onClick={handleAssignRole}>
-                        {isAssigningRole ? 'Asignando…' : 'Asignar'}
-                      </Button>
+                  {canManageUser && (
+                    <div className="flex flex-col gap-2 border-t border-border pt-4">
+                      <Label htmlFor="assignRole">Asignar rol</Label>
+                      <div className="flex gap-2">
+                        <Select
+                          items={assignableRoleItems}
+                          value={selectedRoleId ? String(selectedRoleId) : null}
+                          onValueChange={(value) => setSelectedRoleId(Number(value))}
+                        >
+                          <SelectTrigger id="assignRole" className="flex-1">
+                            <SelectValue placeholder="Selecciona un rol" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {assignableRoles.map((role) => (
+                              <SelectItem key={role.id} value={String(role.id)}>
+                                {role.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button disabled={!selectedRoleId || isAssigningRole} onClick={handleAssignRole}>
+                          {isAssigningRole ? 'Asignando…' : 'Asignar'}
+                        </Button>
+                      </div>
+                      {assignRoleMessage && <p className="text-sm text-muted-foreground">{assignRoleMessage}</p>}
+                      {assignRoleError && (
+                        <p className="text-sm text-destructive" role="alert">
+                          {assignRoleError}
+                        </p>
+                      )}
                     </div>
-                    {assignRoleMessage && <p className="text-sm text-muted-foreground">{assignRoleMessage}</p>}
-                    {assignRoleError && (
-                      <p className="text-sm text-destructive" role="alert">
-                        {assignRoleError}
-                      </p>
-                    )}
-                  </div>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="permisos" className="flex flex-col gap-4 pt-4">
@@ -725,6 +827,19 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
         </div>
 
         <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Organización</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <OrganizationSummary
+                organization={user.organization}
+                onView={router.push}
+                isPlatformStaff={Boolean(actingUser?.is_platform_staff)}
+              />
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Resumen del Usuario</CardTitle>

@@ -244,12 +244,41 @@ class UserManagementController extends Controller
         return response()->json(['message' => 'Invitación reenviada.']);
     }
 
-    public function show(User $user)
+    public function show(Request $request, User $user)
     {
         Gate::authorize('view', $user);
 
+        $user->load([
+            'person', 'status', 'roles', 'createdBy:id,username', 'updatedBy:id,username',
+            'organization.businessRoles' => fn ($query) => $query->wherePivot('is_active', true),
+        ]);
+
+        // `type` (nombres de business_roles activos de la organización del
+        // usuario) -- mismo criterio que OrganizationController::
+        // transformOrganization(), para que la ficha de usuario pueda
+        // mostrar a qué tipo(s) de organización pertenece sin duplicar esa
+        // lógica en el frontend.
+        if ($user->organization) {
+            $user->organization->setAttribute('type', $user->organization->businessRoles->pluck('name')->values()->all());
+            // `makeHidden` filtra por la clave de la relación tal como está
+            // cargada ('businessRoles', camelCase) -- no por su nombre
+            // snake_case de salida ('business_roles').
+            $user->organization->makeHidden('businessRoles');
+            // Pedido explícito del usuario, 2026-08-11: la ficha del usuario
+            // solo debe ofrecer el botón "Ver organización" cuando el actor
+            // REALMENTE puede verla -- la autorización real vive en
+            // OrganizationController::show() (User::
+            // hasActiveGeneratorRelationshipWith()), este flag solo evita
+            // que el frontend reimplemente esa regla.
+            $actor = $request->user();
+            $user->organization->setAttribute(
+                'can_view_organization',
+                $actor->isPlatformStaff() || $actor->hasActiveGeneratorRelationshipWith($user->organization->id),
+            );
+        }
+
         return response()->json([
-            'user' => $user->load(['person', 'status', 'roles', 'createdBy:id,username', 'updatedBy:id,username']),
+            'user' => $user,
         ]);
     }
 

@@ -250,6 +250,31 @@ class User extends Authenticatable
     }
 
     /**
+     * Excepción de visibilidad cross-tenant DE UN SOLO SENTIDO: un actor
+     * cuyo tenant es el lado Subgestor/Gestor de una relación ACTIVA
+     * (`generator_subgestor_relationships`/`generator_gestor_relationships`,
+     * ver `GeneratorSubgestorRelationship::isAccessibleBy()`) puede
+     * consultar al Generador vinculado -- NO al revés (el Generador no gana
+     * visibilidad nueva sobre su Subgestor/Gestor). Pedido explícito del
+     * usuario, 2026-08-11: solo VER, no gestionar -- este método alimenta
+     * `UserPolicy::view()` y `OrganizationController::show()`/`users()`,
+     * nunca `update`/`activate`/`deactivate`/etc.
+     */
+    public function hasActiveGeneratorRelationshipWith(int $organizationId): bool
+    {
+        return GeneratorSubgestorRelationship::query()
+            ->where('is_active', true)
+            ->where('generator_organization_id', $organizationId)
+            ->where('subgestor_organization_id', $this->tenant_organization_id)
+            ->exists()
+            || GeneratorGestorRelationship::query()
+                ->where('is_active', true)
+                ->where('generator_organization_id', $organizationId)
+                ->where('gestor_organization_id', $this->tenant_organization_id)
+                ->exists();
+    }
+
+    /**
      * Hallazgo Alto (especialista-seguridad, 2026-07-13): guarda para no
      * dejar un tenant sin ningún usuario activo capaz de gestionar el
      * ciclo de vida de otros usuarios -- usada por

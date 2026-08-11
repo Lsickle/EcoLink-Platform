@@ -29,6 +29,7 @@ import type {
   AdminOrganizationContact,
   AdminOrganizationDetail,
   AdminOrganizationStatusOption,
+  LinkedOrganizationSummary,
   AdminPackagingCondition,
   AdminPackagingType,
   AdminPermission,
@@ -1248,6 +1249,17 @@ export async function fetchOrganizations(
 }
 
 export async function fetchOrganization(id: number | string): Promise<{ organization: AdminOrganizationDetail }> {
+  return apiFetch(`/api/admin/organizations/${id}`)
+}
+
+// MISMA URL que fetchOrganization() -- el backend responde un shape
+// distinto según quién pregunta (OrganizationController::show()): platform
+// staff recibe el detalle completo (fetchOrganization/
+// AdminOrganizationDetail), un Subgestor/Gestor con relación ACTIVA recibe
+// el subconjunto acotado `LinkedOrganizationSummary`. Usado por
+// LinkedGeneratorDetailScreen.tsx, nunca por OrganizationDetailScreen.tsx
+// (esa sigue siendo exclusiva de platform staff).
+export async function fetchLinkedOrganizationSummary(id: number | string): Promise<{ organization: LinkedOrganizationSummary }> {
   return apiFetch(`/api/admin/organizations/${id}`)
 }
 
