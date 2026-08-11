@@ -16,6 +16,8 @@ import type {
   AdminLocality,
   AdminBranchLocation,
   AdminBranchLocationDetail,
+  AdminGeneratorGestorRelationship,
+  AdminGeneratorSubgestorRelationship,
   AdminGestorCarrierAuthorization,
   AdminManifestLoad,
   AdminManifestLoadDetail,
@@ -90,6 +92,8 @@ import type {
   CreateBranchPayload,
   CreateBranchTreatmentPayload,
   CreateBranchTypePayload,
+  CreateGeneratorGestorRelationshipPayload,
+  CreateGeneratorSubgestorRelationshipPayload,
   CreateGestorCarrierAuthorizationPayload,
   CreateServiceRequestPayload,
   CreateHazardCharacteristicPayload,
@@ -117,6 +121,7 @@ import type {
   CreateWasteCategoryPayload,
   CreateWasteStreamPayload,
   CreateWorkflowTransitionPayload,
+  GeneratorBulkImportResult,
   ImportResult,
   InspectManifestUnloadItemsPayload,
   OrganizationBranch,
@@ -3041,6 +3046,94 @@ export async function revokeGestorCarrierAuthorization(
   id: number | string
 ): Promise<{ gestor_carrier_authorization: AdminGestorCarrierAuthorization }> {
   return apiFetch(`/api/admin/gestor-carrier-authorizations/${id}/revoke`, { method: 'POST' })
+}
+
+// ---- Cadena Generador -> Subgestor -> Gestor en Declaración de Residuos ----
+// (confirmado por stakeholders reales, 2026-08-09;
+// /api/admin/generator-subgestor-relationships) -- ver AVISO en
+// `AdminGeneratorSubgestorRelationship` (types.ts). MISMO PATRÓN exacto que
+// `fetchGestorCarrierAuthorizations()` (sin filtro `organization_id`, el
+// backend ya resuelve el acceso DUAL por `generator_organization_id`/
+// `subgestor_organization_id` del propio actor).
+export async function fetchGeneratorSubgestorRelationships(
+  params: {
+    page?: number
+    perPage?: number
+    activeOnly?: boolean
+  } = {}
+): Promise<Paginated<AdminGeneratorSubgestorRelationship>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    active_only: params.activeOnly ? 1 : undefined,
+  })
+  return apiFetch(`/api/admin/generator-subgestor-relationships${query}`)
+}
+
+export async function createGeneratorSubgestorRelationship(
+  payload: CreateGeneratorSubgestorRelationshipPayload
+): Promise<{ generator_subgestor_relationship: AdminGeneratorSubgestorRelationship }> {
+  return apiFetch('/api/admin/generator-subgestor-relationships', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// POST .../revoke -- NO borra el registro, solo `is_active=false` (ver
+// docblock del controller).
+export async function revokeGeneratorSubgestorRelationship(
+  id: number | string
+): Promise<{ generator_subgestor_relationship: AdminGeneratorSubgestorRelationship }> {
+  return apiFetch(`/api/admin/generator-subgestor-relationships/${id}/revoke`, { method: 'POST' })
+}
+
+// ---- Vínculo comercial DIRECTO Generador -> Gestor (Carga Masiva de
+// Generadores, confirmado por el usuario 2026-08-11;
+// /api/admin/generator-gestor-relationships) -- MISMO PATRÓN exacto que
+// generator-subgestor-relationships arriba, roles invertidos.
+
+export async function fetchGeneratorGestorRelationships(
+  params: {
+    page?: number
+    perPage?: number
+    activeOnly?: boolean
+  } = {}
+): Promise<Paginated<AdminGeneratorGestorRelationship>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    active_only: params.activeOnly ? 1 : undefined,
+  })
+  return apiFetch(`/api/admin/generator-gestor-relationships${query}`)
+}
+
+export async function createGeneratorGestorRelationship(
+  payload: CreateGeneratorGestorRelationshipPayload
+): Promise<{ generator_gestor_relationship: AdminGeneratorGestorRelationship }> {
+  return apiFetch('/api/admin/generator-gestor-relationships', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// POST .../revoke -- NO borra el registro, solo `is_active=false` (ver
+// docblock del controller).
+export async function revokeGeneratorGestorRelationship(
+  id: number | string
+): Promise<{ generator_gestor_relationship: AdminGeneratorGestorRelationship }> {
+  return apiFetch(`/api/admin/generator-gestor-relationships/${id}/revoke`, { method: 'POST' })
+}
+
+// ---- Carga Masiva de Generadores (CSV) por Subgestor/Gestor --
+// autoservicio confirmado por el usuario 2026-08-11
+// (POST /api/admin/generators/bulk-import). `linkAs` solo aplica cuando la
+// organización actora tiene AMBAS capacidades (can_transport_waste Y
+// can_treat_waste) -- caso raro, ver docblock de GeneratorBulkImportController.
+export async function importGeneratorsBulk(
+  file: File,
+  options: { onBehalfOfOrganizationId?: number; linkAs?: 'gestor' | 'subgestor' } = {}
+): Promise<GeneratorBulkImportResult> {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (options.onBehalfOfOrganizationId) {
+    formData.append('on_behalf_of_organization_id', String(options.onBehalfOfOrganizationId))
+  }
+  if (options.linkAs) formData.append('link_as', options.linkAs)
+  return apiFetch('/api/admin/generators/bulk-import', { method: 'POST', body: formData })
 }
 
 export type * from './types'

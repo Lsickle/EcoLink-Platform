@@ -551,3 +551,31 @@ test('search filtra por capability (organizaciones con business_role activo con 
     $ids = collect($response->json('data'))->pluck('id');
     expect($ids)->toContain($gestor->id)->not->toContain($transporter->id);
 });
+
+// Hallazgo real (verificación E2E cadena Generador->Subgestor->Gestor,
+// 2026-08-09): un tenant admin NO platform staff necesita poder buscar una
+// organización CONTRAPARTE filtrando por capacidad (usado por
+// GestorCarrierAuthorizationsListScreen/GeneratorSubgestorRelationshipsListScreen)
+// -- antes SIEMPRE devolvía 403 para cualquier actor no platform staff, sin
+// importar si filtraba por capability o no.
+test('search permite a un actor NO platform staff cuando filtra por capability', function () {
+    $actor = nonPlatformOrgActor();
+
+    $gestorRole = BusinessRole::factory()->create(['can_treat_waste' => true]);
+    $gestor = Organization::factory()->create(['legal_name' => 'Gestor Capacidad Tenant S.A.S.']);
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $gestor->id, 'business_role_id' => $gestorRole->id, 'is_active' => true, 'assigned_at' => now(),
+    ]);
+
+    $response = $this->actingAs($actor)
+        ->getJson('/api/admin/organizations/search?capability=can_treat_waste')
+        ->assertOk();
+
+    expect(collect($response->json('data'))->pluck('id'))->toContain($gestor->id);
+});
+
+test('search sigue rechazando a un actor NO platform staff SIN filtrar por capability', function () {
+    $actor = nonPlatformOrgActor();
+
+    $this->actingAs($actor)->getJson('/api/admin/organizations/search?q=algo')->assertForbidden();
+});

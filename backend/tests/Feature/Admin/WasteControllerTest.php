@@ -370,6 +370,165 @@ test('submit rechaza si el residuo NO está en Borrador', function () {
         ->assertJsonValidationErrors('status');
 });
 
+// ---- business_role: SIN restricción -- cualquier rol de negocio declara y clasifica ----
+
+test('una organización SUBGESTOR (transporta pero no trata residuos) declara y clasifica un residuo igual que cualquier otra', function () {
+    $this->seed(\Database\Seeders\WasteTypeSeeder::class);
+    $this->seed(\Database\Seeders\MeasurementUnitSeeder::class);
+    $this->seed(\Database\Seeders\WasteOperationalStatusSeeder::class);
+
+    $organization = Organization::factory()->create();
+    $subgestor = \App\Models\BusinessRole::factory()->create(['can_transport_waste' => true, 'can_treat_waste' => false]);
+    \App\Models\OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id,
+        'business_role_id' => $subgestor->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    $actor = wasteActor([...WASTE_ALL_PERMISSIONS, ...WASTE_WORKFLOW_PERMISSIONS], $organization->id);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/wastes', [
+        'name' => 'Residuo declarado por Subgestor',
+        'quantity' => 50,
+        'generation_date' => now()->toDateString(),
+        'waste_category_id' => WasteCategory::factory()->create()->id,
+        'generation_frequency_id' => \App\Models\GenerationFrequency::factory()->create()->id,
+    ])->assertCreated();
+
+    $waste = Waste::query()->findOrFail($response->json('waste.id'));
+    expect($waste->organization_id)->toBe($organization->id)->and($waste->status)->toBe('BR');
+
+    $waste->wasteStreamAssignments()->create([
+        'tenant_organization_id' => $waste->tenant_organization_id,
+        'organization_id' => $waste->organization_id,
+        'waste_stream_id' => WasteStream::factory()->create()->id,
+    ]);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/submit")
+        ->assertOk()->assertJsonPath('waste.status', 'DEC');
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/start-review")
+        ->assertOk()->assertJsonPath('waste.status', 'REV');
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/classify")
+        ->assertOk()->assertJsonPath('waste.status', 'CLS');
+});
+
+test('una organización COMERCIALIZADOR (sin ningún flag de capacidad) también puede declarar un residuo', function () {
+    $this->seed(\Database\Seeders\WasteTypeSeeder::class);
+    $this->seed(\Database\Seeders\MeasurementUnitSeeder::class);
+    $this->seed(\Database\Seeders\WasteOperationalStatusSeeder::class);
+
+    $organization = Organization::factory()->create();
+    $comercializador = \App\Models\BusinessRole::factory()->create([
+        'can_generate_waste' => false, 'can_transport_waste' => false,
+        'can_treat_waste' => false, 'can_approve_treatments' => false, 'can_issue_manifests' => false,
+    ]);
+    \App\Models\OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id,
+        'business_role_id' => $comercializador->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    $actor = wasteActor(['wastes.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/wastes', [
+        'name' => 'Residuo declarado por Comercializador',
+    ])->assertCreated()->assertJsonPath('waste.organization_id', $organization->id);
+});
+
+// ---- Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders reales, 2026-08-09) ----
+
+function wasteSubgestorRelationship(int $generatorOrganizationId, int $subgestorOrganizationId): void
+{
+    $subgestorBusinessRole = \App\Models\BusinessRole::factory()->create(['can_transport_waste' => true]);
+    \App\Models\OrganizationBusinessRole::query()->create([
+        'organization_id' => $subgestorOrganizationId,
+        'business_role_id' => $subgestorBusinessRole->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    \App\Models\GeneratorSubgestorRelationship::query()->create([
+        'generator_organization_id' => $generatorOrganizationId,
+        'subgestor_organization_id' => $subgestorOrganizationId,
+        'authorized_at' => now(),
+        'is_active' => true,
+    ]);
+}
+
+test('un Subgestor con relación ACTIVA puede VER (show) el residuo de su Generador cliente', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    wasteSubgestorRelationship($generatorOrganization->id, $subgestorOrganization->id);
+
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $actor = wasteActor(['wastes.read'], $subgestorOrganization->id);
+
+    $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}")->assertOk();
+});
+
+test('un Subgestor SIN relación activa NO puede ver el residuo de un Generador ajeno', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    // Sin wasteSubgestorRelationship() -- ninguna relación registrada.
+
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $actor = wasteActor(['wastes.read'], $subgestorOrganization->id);
+
+    $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}")->assertForbidden();
+});
+
+test('un Subgestor con relación activa NO puede editar/clasificar/rechazar el residuo de su Generador cliente -- solo VER', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    wasteSubgestorRelationship($generatorOrganization->id, $subgestorOrganization->id);
+
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
+    $actor = wasteActor([...WASTE_ALL_PERMISSIONS, ...WASTE_WORKFLOW_PERMISSIONS], $subgestorOrganization->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/wastes/{$waste->id}", ['name' => 'Editado por Subgestor'])->assertForbidden();
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/start-review")->assertForbidden();
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/reject", ['reason' => 'x'])->assertForbidden();
+});
+
+test('index() de un Subgestor incluye los residuos de sus Generadores clientes, además de los suyos propios', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    wasteSubgestorRelationship($generatorOrganization->id, $subgestorOrganization->id);
+
+    Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'name' => 'Residuo del Generador cliente']);
+    Waste::factory()->create(['organization_id' => $subgestorOrganization->id, 'name' => 'Residuo propio del Subgestor']);
+
+    $otherOrganization = Organization::factory()->create();
+    Waste::factory()->create(['organization_id' => $otherOrganization->id, 'name' => 'Residuo ajeno sin relación']);
+
+    $actor = wasteActor(['wastes.read'], $subgestorOrganization->id);
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/wastes')->assertOk();
+    $names = collect($response->json('data'))->pluck('name');
+
+    expect($names)->toContain('Residuo del Generador cliente')
+        ->toContain('Residuo propio del Subgestor')
+        ->not->toContain('Residuo ajeno sin relación');
+});
+
+test('index() NO incluye residuos de un Generador cuya relación con el Subgestor fue REVOCADA', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    wasteSubgestorRelationship($generatorOrganization->id, $subgestorOrganization->id);
+    \App\Models\GeneratorSubgestorRelationship::query()
+        ->where('generator_organization_id', $generatorOrganization->id)
+        ->update(['is_active' => false]);
+
+    Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'name' => 'Residuo del ex-cliente']);
+
+    $actor = wasteActor(['wastes.read'], $subgestorOrganization->id);
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/wastes')->assertOk();
+    expect(collect($response->json('data'))->pluck('name'))->not->toContain('Residuo del ex-cliente');
+});
+
 test('startReview transiciona DEC->REV', function () {
     $organization = Organization::factory()->create();
     $waste = Waste::factory()->create(['organization_id' => $organization->id, 'status' => 'DEC']);

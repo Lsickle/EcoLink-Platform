@@ -54,7 +54,8 @@ class CreateAdminCommand extends Command
     {
         $email = (string) $this->argument('email');
 
-        if (User::query()->where('email', $email)->exists()) {
+        // RN-181: mismo criterio anti-mayúsculas que AuthController::login().
+        if (User::query()->whereRaw('LOWER(email) = ?', [Str::lower(trim($email))])->exists()) {
             $this->error("Ya existe un usuario con email '{$email}'.");
 
             return self::FAILURE;

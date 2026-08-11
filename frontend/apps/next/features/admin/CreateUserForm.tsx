@@ -11,17 +11,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ApiValidationError, createUser, fetchRoles, type AdminRole } from 'app/features/admin/api'
 import { createUserSchema, documentTypeOptions } from 'app/features/admin/schemas'
 import { useRequireAuth } from 'app/provider/auth'
+import { OrganizationQuickSelect } from './OrganizationQuickSelect'
 
 type FieldErrors = Partial<
   Record<'documentNumber' | 'firstName' | 'lastName' | 'username' | 'email', string>
 >
 
-// POST /api/admin/users -- organization_id se omite a propósito (no hay UI
-// de Organizaciones todavía, ver contrato del lote RBAC).
+// POST /api/admin/users -- gap de staging (2026-08-08): antes, `organization_id`
+// nunca viajaba en el payload porque no había UI de Organizaciones. Ahora
+// UserProvisioningService::createPendingUser() usa este valor como
+// `tenant_organization_id` del usuario nuevo SOLO cuando el actor es
+// `isPlatformStaff()` -- por eso el selector de abajo se muestra únicamente
+// a ese actor (mismo criterio que WasteWizard.tsx/ServiceRequestWizard.tsx).
+// Para un admin de tenant normal `organization_id` sigue sin efecto en el
+// backend, así que no tiene sentido exponerlo aquí.
 export function CreateUserForm() {
   const router = useRouter()
-  const { isAuthorized } = useRequireAuth('users.read')
+  const { isAuthorized, user } = useRequireAuth('users.read')
+  const isPlatformStaff = Boolean(user?.is_platform_staff)
   const [roles, setRoles] = useState<AdminRole[]>([])
+  const [organizationId, setOrganizationId] = useState<number | null>(null)
+  const [organizationLabel, setOrganizationLabel] = useState<string | null>(null)
 
   const [documentType, setDocumentType] = useState<'CC' | 'CE' | 'PA'>('CC')
   const [documentNumber, setDocumentNumber] = useState('')
@@ -64,6 +74,7 @@ export function CreateUserForm() {
       email,
       phone,
       roleIds,
+      organizationId: organizationId ?? undefined,
     })
 
     if (!parsed.success) {
@@ -90,6 +101,7 @@ export function CreateUserForm() {
         email: parsed.data.email,
         phone: parsed.data.phone || undefined,
         role_ids: parsed.data.roleIds,
+        organization_id: parsed.data.organizationId,
       })
       router.push('/admin/users')
     } catch (error) {
@@ -123,6 +135,22 @@ export function CreateUserForm() {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-6" noValidate>
+          {isPlatformStaff && (
+            <OrganizationQuickSelect
+              label="Organización"
+              htmlId="createUserOrganizationId"
+              selectedId={organizationId}
+              selectedLabel={organizationLabel}
+              onSelect={(result) => {
+                setOrganizationId(result.id)
+                setOrganizationLabel(result.legal_name)
+              }}
+              onClear={() => {
+                setOrganizationId(null)
+                setOrganizationLabel(null)
+              }}
+            />
+          )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-[auto_1fr]">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="documentType">Tipo de documento</Label>

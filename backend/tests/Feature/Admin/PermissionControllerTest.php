@@ -120,6 +120,132 @@ test('assignToRole permite un role_id GLOBAL (tenant_organization_id NULL, catá
     expect(RolePermission::query()->where('role_id', $globalRole->id)->where('permission_id', $permission->id)->exists())->toBeTrue();
 });
 
+// ---- Verificación RBAC/privacidad del módulo Residuos (2026-08-09): is_editable + GESTOR_ONLY_CODES ----
+
+function gestorOrganizationForPermissionTests(): Organization
+{
+    $organization = Organization::factory()->create();
+    $gestor = \App\Models\BusinessRole::factory()->create(['can_treat_waste' => true]);
+
+    \App\Models\OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id,
+        'business_role_id' => $gestor->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    return $organization->fresh();
+}
+
+test('assignToRole rechaza (422) a un tenant admin normal sobre un rol de SISTEMA (is_editable=false), aunque sea global/accesible', function () {
+    $orgA = Organization::factory()->create();
+
+    $permission = Permission::factory()->create();
+    $systemRole = Role::factory()->create(['tenant_organization_id' => null, 'is_system' => true, 'is_editable' => false]);
+
+    $actor = actorWithPermissionGrant(['permissions.assign'], $orgA->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/permissions/{$permission->id}/assign", ['role_id' => $systemRole->id])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('role_id');
+
+    expect(RolePermission::query()->where('role_id', $systemRole->id)->where('permission_id', $permission->id)->exists())->toBeFalse();
+});
+
+test('revokeFromRole rechaza (422) a un tenant admin normal sobre un rol de SISTEMA (is_editable=false)', function () {
+    $orgA = Organization::factory()->create();
+
+    $permission = Permission::factory()->create();
+    $systemRole = Role::factory()->create(['tenant_organization_id' => null, 'is_system' => true, 'is_editable' => false]);
+    RolePermission::query()->create(['role_id' => $systemRole->id, 'permission_id' => $permission->id, 'is_active' => true]);
+
+    $actor = actorWithPermissionGrant(['permissions.assign'], $orgA->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/permissions/{$permission->id}/revoke", ['role_id' => $systemRole->id])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('role_id');
+
+    expect(RolePermission::query()->where('role_id', $systemRole->id)->where('permission_id', $permission->id)->where('is_active', true)->exists())->toBeTrue();
+});
+
+test('assignToRole -- platform staff SÍ puede asignar permisos a un rol de SISTEMA (is_editable=false)', function () {
+    $permission = Permission::factory()->create();
+    $systemRole = Role::factory()->create(['tenant_organization_id' => null, 'is_system' => true, 'is_editable' => false]);
+
+    $actor = platformOrgActorForPermissionTests(['permissions.assign']);
+
+    $this->actingAs($actor)->postJson("/api/admin/permissions/{$permission->id}/assign", ['role_id' => $systemRole->id])
+        ->assertOk();
+
+    expect(RolePermission::query()->where('role_id', $systemRole->id)->where('permission_id', $permission->id)->exists())->toBeTrue();
+});
+
+function platformOrgActorForPermissionTests(array $codes): User
+{
+    $platform = Organization::factory()->create(['is_platform_tenant' => true]);
+
+    return actorWithPermissionGrant($codes, $platform->id);
+}
+
+test('assignToRole rechaza un permiso GESTOR_ONLY_CODES sobre un rol CUSTOM de una organización SIN business_role Gestor', function () {
+    $orgA = Organization::factory()->create();
+
+    $evaluatePermission = Permission::factory()->create(['code' => 'treatment_approvals.evaluate']);
+    $customRole = Role::factory()->create(['tenant_organization_id' => $orgA->id, 'is_system' => false, 'is_editable' => true]);
+
+    $actor = actorWithPermissionGrant(['permissions.assign'], $orgA->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/permissions/{$evaluatePermission->id}/assign", ['role_id' => $customRole->id])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('permission_id');
+
+    expect(RolePermission::query()->where('role_id', $customRole->id)->where('permission_id', $evaluatePermission->id)->exists())->toBeFalse();
+});
+
+test('assignToRole permite un permiso GESTOR_ONLY_CODES sobre un rol CUSTOM de una organización CON business_role Gestor', function () {
+    $gestorOrg = gestorOrganizationForPermissionTests();
+
+    $evaluatePermission = Permission::factory()->create(['code' => 'treatment_approvals.evaluate']);
+    $customRole = Role::factory()->create(['tenant_organization_id' => $gestorOrg->id, 'is_system' => false, 'is_editable' => true]);
+
+    $actor = actorWithPermissionGrant(['permissions.assign'], $gestorOrg->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/permissions/{$evaluatePermission->id}/assign", ['role_id' => $customRole->id])
+        ->assertOk();
+
+    expect(RolePermission::query()->where('role_id', $customRole->id)->where('permission_id', $evaluatePermission->id)->exists())->toBeTrue();
+});
+
+test('assignToRole permite un permiso GESTOR_ONLY_CODES sobre un rol CUSTOM sin business_role Gestor cuando el actor es platform staff', function () {
+    $platform = Organization::factory()->create(['is_platform_tenant' => true]);
+
+    $evaluatePermission = Permission::factory()->create(['code' => 'treatment_approvals.evaluate']);
+    // Sin business_role GESTOR asignado -- la organización plataforma no lo
+    // necesita, el bypass es por ser platform staff, no por capacidad.
+    $customRole = Role::factory()->create(['tenant_organization_id' => $platform->id, 'is_system' => false, 'is_editable' => true]);
+
+    $actor = actorWithPermissionGrant(['permissions.assign'], $platform->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/permissions/{$evaluatePermission->id}/assign", ['role_id' => $customRole->id])
+        ->assertOk();
+
+    expect(RolePermission::query()->where('role_id', $customRole->id)->where('permission_id', $evaluatePermission->id)->exists())->toBeTrue();
+});
+
+test('assignToRole NO restringe un permiso normal (fuera de GESTOR_ONLY_CODES) sobre un rol CUSTOM sin business_role Gestor', function () {
+    $orgA = Organization::factory()->create();
+
+    $wastesPermission = Permission::factory()->create(['code' => 'wastes.create']);
+    $customRole = Role::factory()->create(['tenant_organization_id' => $orgA->id, 'is_system' => false, 'is_editable' => true]);
+
+    $actor = actorWithPermissionGrant(['permissions.assign'], $orgA->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/permissions/{$wastesPermission->id}/assign", ['role_id' => $customRole->id])
+        ->assertOk();
+
+    expect(RolePermission::query()->where('role_id', $customRole->id)->where('permission_id', $wastesPermission->id)->exists())->toBeTrue();
+});
+
 // ---- Permission::isAccessibleBy() (especialista-seguridad, 2026-07-14, hallazgo Medio) ----
 // Dormido con los datos reales (los 16 permisos sembrados son globales),
 // pero el esquema permite un permiso con tenant propio -- se fija el

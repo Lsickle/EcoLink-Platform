@@ -7,6 +7,7 @@ use App\Models\SecurityLog;
 use App\Models\User;
 use App\Models\UserRole;
 use Illuminate\Console\Command;
+use Illuminate\Support\Str;
 
 /**
  * RN-027/CU-006.7: todo usuario debe tener al menos un rol, pero los
@@ -30,7 +31,8 @@ class AssignRoleCommand extends Command
         $email = $this->argument('email');
         $roleCode = strtoupper((string) $this->argument('role'));
 
-        $user = User::query()->where('email', $email)->first();
+        // RN-181: mismo criterio anti-mayúsculas que AuthController::login().
+        $user = User::query()->whereRaw('LOWER(email) = ?', [Str::lower(trim($email))])->first();
 
         if (! $user) {
             $this->error("No se encontró ningún usuario con email '{$email}'.");

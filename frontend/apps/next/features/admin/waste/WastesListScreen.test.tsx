@@ -125,6 +125,28 @@ describe('WastesListScreen', () => {
     expect(screen.queryByRole('columnheader', { name: 'Organización' })).not.toBeInTheDocument()
   })
 
+  // Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders reales, 2026-08-09):
+  // un Subgestor ve residuos de MÁS de una organización (los suyos + los de
+  // sus Generadores clientes) sin ser platform staff -- la columna debe
+  // mostrarse igual, criterio data-driven (no depende de is_platform_staff).
+  test('shows the Organización column for a non-platform-staff actor whose results span more than one organization', async () => {
+    fetchWastesMock.mockResolvedValue(
+      wastesPage({
+        data: [
+          { ...wastesPage().data[0], id: 20, organization_id: 1, organization: { id: 1, legal_name: 'Hospital San José' } },
+          { ...wastesPage().data[0], id: 21, name: 'Residuo del Subgestor', organization_id: 5, organization: { id: 5, legal_name: 'LogVerde S.A.S.' } },
+        ],
+        total: 2,
+      })
+    )
+    render(<WastesListScreen />)
+
+    await screen.findByText('Aceite Lubricante Usado')
+    expect(screen.getByRole('columnheader', { name: 'Organización' })).toBeInTheDocument()
+    expect(screen.getByText('Hospital San José')).toBeInTheDocument()
+    expect(screen.getByText('LogVerde S.A.S.')).toBeInTheDocument()
+  })
+
   test('applies search with debounce', async () => {
     render(<WastesListScreen />)
     await screen.findByText('Aceite Lubricante Usado')

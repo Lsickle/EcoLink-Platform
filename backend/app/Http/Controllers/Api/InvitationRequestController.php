@@ -12,6 +12,8 @@ use Database\Seeders\PlatformOrganizationSeeder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -77,14 +79,17 @@ class InvitationRequestController extends Controller
             'phone' => ['nullable', 'string', 'max:50'],
         ]);
 
+        // RN-181: email insensible a mayúsculas -- ver normalizeEmail().
+        $normalizedEmail = $this->normalizeEmail($data['email']);
+
         // Anti-enumeración (mismo principio que CU-009): NO se usan reglas
         // `unique:` de validación (revelarían con un 422 si el dato ya
         // existe) -- se verifica manualmente y, si ya existe, se ignora en
         // silencio sin crear la fila, pero respondiendo el mismo mensaje.
         $alreadyExists = Person::query()->where('document_number', $data['document_number'])->exists()
-            || Person::query()->where('email', $data['email'])->exists()
-            || User::query()->where('email', $data['email'])->exists()
-            || InvitationRequest::query()->where('email', $data['email'])->where('status', 'PENDING')->exists();
+            || Person::query()->whereRaw('LOWER(email) = ?', [$normalizedEmail])->exists()
+            || User::query()->whereRaw('LOWER(email) = ?', [$normalizedEmail])->exists()
+            || InvitationRequest::query()->whereRaw('LOWER(email) = ?', [$normalizedEmail])->where('status', 'PENDING')->exists();
 
         if ($alreadyExists) {
             $this->logSecurityEvent(
@@ -94,7 +99,11 @@ class InvitationRequestController extends Controller
                 'Solicitud de invitación ignorada -- correo/documento ya en uso o solicitud pendiente existente.',
             );
         } else {
-            InvitationRequest::query()->create($data + ['status' => 'PENDING']);
+            // RN-181: se guarda ya normalizado -- esta tabla no tiene índice
+            // único de BD en este lote, así que sin normalizar el valor
+            // guardado las variaciones de mayúsculas en solicitudes
+            // sucesivas podrían no detectarse consistentemente.
+            InvitationRequest::query()->create(['status' => 'PENDING'] + $data + ['email' => $normalizedEmail]);
 
             $this->logSecurityEvent($request, 'INVITATION_REQUEST_SUBMITTED', 'SUCCESS', 'Solicitud de invitación registrada.');
         }
@@ -141,7 +150,12 @@ class InvitationRequestController extends Controller
         }
 
         $data = $request->validate([
-            'organization_id' => ['nullable', 'integer', 'exists:organizations,id'],
+            // Hallazgo Medio (especialista-seguridad, 2026-08-08): ver
+            // UserManagementController::store() -- mismo criterio, `exists:`
+            // no excluía organizaciones soft-deleted (destino inválido);
+            // una organización INACTIVA (`is_active=false`, no eliminada)
+            // sigue siendo un destino válido a propósito.
+            'organization_id' => ['nullable', 'integer', Rule::exists('organizations', 'id')->whereNull('deleted_at')],
             // RN-027 (CU-006.7): todo usuario debe tener al menos un rol.
             'role_ids' => ['required', 'array', 'min:1'],
             'role_ids.*' => ['integer', 'distinct', 'exists:roles,id'],
@@ -150,11 +164,14 @@ class InvitationRequestController extends Controller
         // Revalida unicidad justo antes de crear: el tiempo transcurrido
         // entre el envío de la solicitud y su aprobación pudo haber dejado
         // el correo/documento tomados por otro registro (otro usuario
-        // creado directamente, u otra solicitud aprobada primero).
+        // creado directamente, u otra solicitud aprobada primero). RN-181:
+        // email insensible a mayúsculas, ver normalizeEmail().
+        $normalizedEmail = $this->normalizeEmail($invitationRequest->email);
+
         if (
             Person::query()->where('document_number', $invitationRequest->document_number)->exists()
-            || Person::query()->where('email', $invitationRequest->email)->exists()
-            || User::query()->where('email', $invitationRequest->email)->exists()
+            || Person::query()->whereRaw('LOWER(email) = ?', [$normalizedEmail])->exists()
+            || User::query()->whereRaw('LOWER(email) = ?', [$normalizedEmail])->exists()
         ) {
             throw ValidationException::withMessages([
                 'invitation_request' => ['El correo o documento de esta solicitud ya está en uso por otro registro -- no se puede aprobar.'],
@@ -237,5 +254,14 @@ class InvitationRequestController extends Controller
         );
 
         return response()->json(['invitation_request' => $invitationRequest->fresh()]);
+    }
+
+    /**
+     * RN-181: mismo criterio que `PasswordRecoveryController::normalizeEmail()`
+     * -- evita repetir `Str::lower(trim(...))` en la clase.
+     */
+    private function normalizeEmail(string $email): string
+    {
+        return Str::lower(trim($email));
     }
 }

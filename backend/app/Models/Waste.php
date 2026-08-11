@@ -202,6 +202,24 @@ class Waste extends Model
     }
 
     /**
+     * Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders
+     * reales, 2026-08-09; NO reemplaza `isAccessibleBy()`, es una vía
+     * ADICIONAL de solo VER + solicitar evaluación, nunca de editar/
+     * clasificar/rechazar -- ver `WastePolicy::view()`/`requestEvaluation()`).
+     * `true` si existe una relación `generator_subgestor_relationships`
+     * ACTIVA donde este residuo pertenece al Generador y el actor pertenece
+     * al Subgestor autorizado.
+     */
+    public function isForwardableBySubgestor(User $actor): bool
+    {
+        return GeneratorSubgestorRelationship::query()
+            ->where('generator_organization_id', $this->organization_id)
+            ->where('subgestor_organization_id', $actor->tenant_organization_id)
+            ->where('is_active', true)
+            ->exists();
+    }
+
+    /**
      * "Tratamiento viable" (mecanismo de preaprobación + gating de la futura
      * Solicitud de Servicio): AMBOS ejes de al menos UNA evaluación activa
      * deben estar aprobados (`technical_status=APPROVED` AND

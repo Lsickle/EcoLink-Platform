@@ -161,6 +161,27 @@ test('storeForWaste rechaza un branch_treatment_id de una organización que NO e
     ])->assertUnprocessable()->assertJsonValidationErrors('branch_treatment_id');
 });
 
+test('storeForWaste rechaza un branch_treatment_id de una organización SUBGESTOR (transporta pero no trata residuos)', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+
+    $subgestorOrganization = Organization::factory()->create();
+    $subgestor = BusinessRole::factory()->create(['can_transport_waste' => true, 'can_treat_waste' => false]);
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $subgestorOrganization->id,
+        'business_role_id' => $subgestor->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $subgestorOrganization->id]);
+
+    $actor = treatmentApprovalActor(['wastes.update', 'treatment_approvals.create'], $generatorOrganization->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertUnprocessable()->assertJsonValidationErrors('branch_treatment_id');
+});
+
 test('storeForWaste exige wastes.update (dueño del residuo) Y treatment_approvals.create', function () {
     $generatorOrganization = Organization::factory()->create();
     $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
@@ -217,6 +238,193 @@ test('storeForWaste rechaza una segunda solicitud activa duplicada (mismo waste_
         ->where('waste_id', $waste->id)
         ->where('branch_treatment_id', $branchTreatment->id)
         ->count())->toBe(1);
+});
+
+// ---- Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders reales, 2026-08-09) ----
+
+function subgestorOrganizationForRelationship(int $generatorOrganizationId): Organization
+{
+    $subgestor = Organization::factory()->create();
+    $subgestorBusinessRole = BusinessRole::factory()->create(['can_transport_waste' => true]);
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $subgestor->id,
+        'business_role_id' => $subgestorBusinessRole->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    \App\Models\GeneratorSubgestorRelationship::query()->create([
+        'generator_organization_id' => $generatorOrganizationId,
+        'subgestor_organization_id' => $subgestor->id,
+        'authorized_at' => now(),
+        'is_active' => true,
+    ]);
+
+    return $subgestor->fresh();
+}
+
+test('storeForWaste: un Subgestor con relación activa reenvía el residuo de su Generador cliente SIN necesitar wastes.update', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $subgestorOrganization = subgestorOrganizationForRelationship($generatorOrganization->id);
+
+    $gestor = gestorOrganization();
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+
+    // Deliberadamente SOLO treatment_approvals.create, SIN wastes.update --
+    // el Subgestor nunca edita el residuo del Generador (ver WastePolicy::requestEvaluation()).
+    $subgestorActor = treatmentApprovalActor(['treatment_approvals.create'], $subgestorOrganization->id);
+
+    $response = $this->actingAs($subgestorActor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertCreated();
+
+    $response->assertJsonPath('treatment_approval.organization_id', $gestor->id);
+
+    $approval = WasteTreatmentApproval::query()->where('waste_id', $waste->id)->firstOrFail();
+    expect($approval->forwarded_by_organization_id)->toBe($subgestorOrganization->id);
+});
+
+test('storeForWaste: un Subgestor SIN relación activa NO puede reenviar el residuo de un Generador ajeno', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+
+    $unrelatedSubgestor = Organization::factory()->create();
+    $gestor = gestorOrganization();
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+
+    $actor = treatmentApprovalActor(['treatment_approvals.create'], $unrelatedSubgestor->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertForbidden();
+
+    expect(WasteTreatmentApproval::query()->where('waste_id', $waste->id)->exists())->toBeFalse();
+});
+
+test('storeForWaste directo (dueño del residuo) deja forwarded_by_organization_id en NULL', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $gestor = gestorOrganization();
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+
+    $actor = treatmentApprovalActor(['wastes.update', 'treatment_approvals.create'], $generatorOrganization->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertCreated();
+
+    $approval = WasteTreatmentApproval::query()->where('waste_id', $waste->id)->firstOrFail();
+    expect($approval->forwarded_by_organization_id)->toBeNull();
+});
+
+test('show(): el Gestor evaluador NO ve waste.organization cuando la ruta fue INDIRECTA (vía Subgestor)', function () {
+    $generatorOrganization = Organization::factory()->create(['legal_name' => 'Generador Secreto S.A.S.']);
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $subgestorOrganization = subgestorOrganizationForRelationship($generatorOrganization->id);
+    $gestor = gestorOrganization();
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+
+    $subgestorActor = treatmentApprovalActor(['treatment_approvals.create'], $subgestorOrganization->id);
+    $created = $this->actingAs($subgestorActor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertCreated();
+    $approvalId = $created->json('treatment_approval.id');
+
+    $gestorActor = treatmentApprovalActor(['treatment_approvals.read', 'treatment_approvals.evaluate'], $gestor->id);
+    $response = $this->actingAs($gestorActor)->getJson("/api/admin/treatment-approvals/{$approvalId}")->assertOk();
+
+    expect($response->json('treatment_approval.waste.organization'))->toBeNull()
+        ->and($response->json('treatment_approval.forwarded_by_organization.id'))->toBe($subgestorOrganization->id);
+});
+
+test('show(): el Gestor evaluador SÍ ve waste.organization cuando la ruta fue DIRECTA (sin Subgestor)', function () {
+    $generatorOrganization = Organization::factory()->create(['legal_name' => 'Generador Directo S.A.S.']);
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $gestor = gestorOrganization();
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+
+    $ownerActor = treatmentApprovalActor(['wastes.update', 'treatment_approvals.create'], $generatorOrganization->id);
+    $created = $this->actingAs($ownerActor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertCreated();
+    $approvalId = $created->json('treatment_approval.id');
+
+    $gestorActor = treatmentApprovalActor(['treatment_approvals.read', 'treatment_approvals.evaluate'], $gestor->id);
+    $response = $this->actingAs($gestorActor)->getJson("/api/admin/treatment-approvals/{$approvalId}")->assertOk();
+
+    expect($response->json('treatment_approval.waste.organization.legal_name'))->toBe('Generador Directo S.A.S.');
+});
+
+test('show(): el DUEÑO del residuo y el Subgestor que reenvió SIGUEN viendo waste.organization normalmente (el ocultamiento es SOLO para el Gestor)', function () {
+    $generatorOrganization = Organization::factory()->create(['legal_name' => 'Generador Visible Para Sí Mismo S.A.S.']);
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $subgestorOrganization = subgestorOrganizationForRelationship($generatorOrganization->id);
+    $gestor = gestorOrganization();
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+
+    $subgestorActor = treatmentApprovalActor(['treatment_approvals.create', 'treatment_approvals.read'], $subgestorOrganization->id);
+    $created = $this->actingAs($subgestorActor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertCreated();
+    $approvalId = $created->json('treatment_approval.id');
+
+    // El propio Subgestor que reenvió (acceso de solo lectura vía isAccessibleBy()).
+    $this->actingAs($subgestorActor)->getJson("/api/admin/treatment-approvals/{$approvalId}")
+        ->assertOk()
+        ->assertJsonPath('treatment_approval.waste.organization.legal_name', 'Generador Visible Para Sí Mismo S.A.S.');
+
+    // El dueño del residuo.
+    $ownerActor = treatmentApprovalActor(['treatment_approvals.read'], $generatorOrganization->id);
+    $this->actingAs($ownerActor)->getJson("/api/admin/treatment-approvals/{$approvalId}")
+        ->assertOk()
+        ->assertJsonPath('treatment_approval.waste.organization.legal_name', 'Generador Visible Para Sí Mismo S.A.S.');
+});
+
+test('index(): el Subgestor que reenvió conserva acceso de SOLO LECTURA a la evaluación (no puede evaluar)', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $subgestorOrganization = subgestorOrganizationForRelationship($generatorOrganization->id);
+    $gestor = gestorOrganization();
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+
+    $subgestorActor = treatmentApprovalActor(['treatment_approvals.create'], $subgestorOrganization->id);
+    $created = $this->actingAs($subgestorActor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertCreated();
+    $approvalId = $created->json('treatment_approval.id');
+
+    $readOnlySubgestorActor = treatmentApprovalActor(['treatment_approvals.read'], $subgestorOrganization->id);
+    $this->actingAs($readOnlySubgestorActor)->getJson("/api/admin/treatment-approvals/{$approvalId}")->assertOk();
+    $this->actingAs($readOnlySubgestorActor)->postJson("/api/admin/treatment-approvals/{$approvalId}/approve-technical")->assertForbidden();
+});
+
+test('indexForWaste: el Subgestor ve SOLO las evaluaciones que él mismo reenvió, no las que el Generador pidió directamente a otro Gestor', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $subgestorOrganization = subgestorOrganizationForRelationship($generatorOrganization->id);
+
+    $gestorA = gestorOrganization();
+    $branchTreatmentA = BranchTreatment::factory()->create(['organization_id' => $gestorA->id]);
+    $gestorB = gestorOrganization();
+    $branchTreatmentB = BranchTreatment::factory()->create(['organization_id' => $gestorB->id]);
+
+    // El Subgestor reenvía a Gestor A.
+    $subgestorActor = treatmentApprovalActor(['treatment_approvals.create', 'treatment_approvals.read'], $subgestorOrganization->id);
+    $this->actingAs($subgestorActor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatmentA->id,
+    ])->assertCreated();
+
+    // El propio Generador pide directamente a Gestor B (sin pasar por el Subgestor).
+    $ownerActor = treatmentApprovalActor(['wastes.update', 'treatment_approvals.create'], $generatorOrganization->id);
+    $this->actingAs($ownerActor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatmentB->id,
+    ])->assertCreated();
+
+    $response = $this->actingAs($subgestorActor)->getJson("/api/admin/wastes/{$waste->id}/treatment-approvals")->assertOk();
+
+    expect($response->json('total'))->toBe(1)
+        ->and($response->json('data.0.organization_id'))->toBe($gestorA->id);
 });
 
 // ---- Acceso CRUZADO: view (ambos lados) vs. edit (solo el Gestor) ----

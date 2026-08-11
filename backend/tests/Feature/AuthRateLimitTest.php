@@ -35,6 +35,18 @@ test('el rate limiter de login sigue permitiendo un `login` distinto tras agotar
         ->assertStatus(422);
 });
 
+test('el rate limiter de login comparte el mismo balde al variar mayúsculas del mismo `login` (RN-181)', function () {
+    foreach (range(1, 10) as $attempt) {
+        $this->postJson('/api/login', ['login' => 'ana.gomez@example.com', 'password' => 'incorrecta'])
+            ->assertStatus(422);
+    }
+
+    // Mismo login, mayúsculas distintas -> mismo balde (clave normalizada),
+    // no un balde nuevo con cupo fresco.
+    $this->postJson('/api/login', ['login' => 'ANA.GOMEZ@EXAMPLE.COM', 'password' => 'incorrecta'])
+        ->assertStatus(429);
+});
+
 test('el rate limiter de login agrega un techo por IP sola: password spraying contra cuentas distintas también dispara 429', function () {
     // Hallazgo Alta (especialista-seguridad, 2026-07-13, segunda pasada): el
     // límite por IP+login (10/min) protege UNA cuenta, pero no evita que un

@@ -5,11 +5,13 @@ import { ORGANIZATIONAL_AREA_LEVELS, TREATMENT_RISK_LEVELS, TREATMENT_TYPES } fr
 
 export { documentTypeOptions }
 
-// POST /api/admin/users -- organization_id se omite a propósito (no hay UI
-// de Organizaciones todavía, ver contrato del lote). Mecanismo de invitación
-// (CU-006.1 modificado): store() YA NO acepta password/password_confirmation
-// -- todo usuario nace PENDING_ACTIVATION y fija su propia contraseña al
-// aceptar la invitación por correo (ver UserManagementController::store()).
+// POST /api/admin/users -- Mecanismo de invitación (CU-006.1 modificado):
+// store() YA NO acepta password/password_confirmation -- todo usuario nace
+// PENDING_ACTIVATION y fija su propia contraseña al aceptar la invitación
+// por correo (ver UserManagementController::store()). `organizationId`
+// (gap de staging, 2026-08-08): opcional, solo tiene efecto real en el
+// backend cuando el actor es `isPlatformStaff()` -- ver docblock de
+// CreateUserForm.tsx.
 export const createUserSchema = z.object({
   documentType: z.enum(['CC', 'CE', 'PA']),
   documentNumber: z.string().trim().min(1, 'Ingresa el número de documento.'),
@@ -21,6 +23,7 @@ export const createUserSchema = z.object({
   email: z.string().trim().email('Ingresa un correo válido.'),
   phone: z.string().trim().optional().or(z.literal('')),
   roleIds: z.array(z.number()).default([]),
+  organizationId: z.number().int().positive().optional(),
 })
 
 export type CreateUserFormValues = z.infer<typeof createUserSchema>
@@ -226,36 +229,54 @@ export type CreateVehicleTypeFormValues = z.infer<typeof createVehicleTypeSchema
 // ese límite se deja como validación server-side (422) en vez de duplicarlo
 // aquí -- mismo criterio ya usado en el resto de este archivo para no
 // arriesgar divergencia silenciosa si el backend cambia el límite.
-export const createOrganizationSchema = z.object({
-  legalName: z.string().trim().min(1, 'Ingresa la razón social.'),
-  tradeName: z.string().trim().optional().or(z.literal('')),
-  taxId: z.string().trim().min(1, 'Ingresa el NIT/identificación tributaria.'),
-  taxIdType: z.enum(TAX_ID_TYPES, { message: 'Selecciona un tipo de identificación.' }),
-  companySize: z.string().trim().optional().or(z.literal('')),
-  employeeCount: z.number().int().min(0).optional(),
-  parentOrganizationId: z.number().int().positive().optional(),
-  customerSince: z.string().trim().optional().or(z.literal('')),
-  economicActivityCode: z.string().trim().optional().or(z.literal('')),
-  economicActivityName: z.string().trim().optional().or(z.literal('')),
-  email: z.string().trim().email('Ingresa un correo válido.').optional().or(z.literal('')),
-  billingEmail: z.string().trim().email('Ingresa un correo válido.').optional().or(z.literal('')),
-  supportEmail: z.string().trim().email('Ingresa un correo válido.').optional().or(z.literal('')),
-  phone: z.string().trim().optional().or(z.literal('')),
-  website: z.string().trim().optional().or(z.literal('')),
-  environmentalAuthority: z.string().trim().optional().or(z.literal('')),
-  environmentalRegistration: z.string().trim().optional().or(z.literal('')),
-  riskLevel: z.enum(['bajo', 'medio', 'alto', 'critico']).optional(),
-  contractExpirationDate: z.string().trim().optional().or(z.literal('')),
-  organizationStatusId: z.number().int().positive('Selecciona un estado.'),
-  timezone: z.enum(TIMEZONES, { message: 'Selecciona una zona horaria.' }),
-  countryCode: z.string().trim().min(1, 'Selecciona un país.'),
-  currencyCode: z.enum(CURRENCIES, { message: 'Selecciona una moneda.' }),
-  storageQuotaGb: z.number().min(0).optional(),
-  isActive: z.boolean(),
-  customFieldsEnabled: z.boolean(),
-  observations: z.string().trim().optional().or(z.literal('')),
-  businessRoleIds: z.array(z.number()).default([]),
-})
+// Formato de NIT -- decisión confirmada por el usuario (2026-08-09):
+// validación básica SOLO cuando `taxIdType === 'NIT'` (dígitos, con guión y
+// dígito de verificación opcional -- ej. `900123456-1` o `900123456`), SIN
+// el algoritmo módulo 11 DIAN (decisión explícita de no implementarlo). Los
+// otros 4 tipos de `TAX_ID_TYPES` (CC/CE/Pasaporte/Tax ID) no llevan
+// restricción de formato, solo siguen siendo obligatorios.
+const nitFormatPattern = /^\d{6,15}(-\d)?$/
+
+export const createOrganizationSchema = z
+  .object({
+    legalName: z.string().trim().min(1, 'Ingresa la razón social.'),
+    tradeName: z.string().trim().optional().or(z.literal('')),
+    taxId: z.string().trim().min(1, 'Ingresa el NIT/identificación tributaria.'),
+    taxIdType: z.enum(TAX_ID_TYPES, { message: 'Selecciona un tipo de identificación.' }),
+    companySize: z.string().trim().optional().or(z.literal('')),
+    employeeCount: z.number().int().min(0).optional(),
+    parentOrganizationId: z.number().int().positive().optional(),
+    customerSince: z.string().trim().optional().or(z.literal('')),
+    economicActivityCode: z.string().trim().optional().or(z.literal('')),
+    economicActivityName: z.string().trim().optional().or(z.literal('')),
+    email: z.string().trim().email('Ingresa un correo válido.').optional().or(z.literal('')),
+    billingEmail: z.string().trim().email('Ingresa un correo válido.').optional().or(z.literal('')),
+    supportEmail: z.string().trim().email('Ingresa un correo válido.').optional().or(z.literal('')),
+    phone: z.string().trim().optional().or(z.literal('')),
+    website: z.string().trim().optional().or(z.literal('')),
+    environmentalAuthority: z.string().trim().optional().or(z.literal('')),
+    environmentalRegistration: z.string().trim().optional().or(z.literal('')),
+    riskLevel: z.enum(['bajo', 'medio', 'alto', 'critico']).optional(),
+    contractExpirationDate: z.string().trim().optional().or(z.literal('')),
+    organizationStatusId: z.number().int().positive('Selecciona un estado.'),
+    timezone: z.enum(TIMEZONES, { message: 'Selecciona una zona horaria.' }),
+    countryCode: z.string().trim().min(1, 'Selecciona un país.'),
+    currencyCode: z.enum(CURRENCIES, { message: 'Selecciona una moneda.' }),
+    storageQuotaGb: z.number().min(0).optional(),
+    isActive: z.boolean(),
+    customFieldsEnabled: z.boolean(),
+    observations: z.string().trim().optional().or(z.literal('')),
+    businessRoleIds: z.array(z.number()).default([]),
+  })
+  .superRefine((data, ctx) => {
+    if (data.taxIdType === 'NIT' && !nitFormatPattern.test(data.taxId.trim())) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['taxId'],
+        message: 'Formato de NIT inválido (ej. 900123456-1).',
+      })
+    }
+  })
 
 export type CreateOrganizationFormValues = z.infer<typeof createOrganizationSchema>
 
@@ -264,10 +285,13 @@ export type CreateOrganizationFormValues = z.infer<typeof createOrganizationSche
 // si `user.is_platform_staff`, ver plan del lote); `code` sin `.max(50)`
 // duplicado del backend por el mismo criterio ya usado en
 // `createOrganizationSchema` (max:255 del backend no se duplica aquí).
+// `code` opcional (esquema-bd: `branches.code VARCHAR(50) NULL`, backend ya
+// migrado a `nullable`, 2026-08-09) -- unicidad compuesta con
+// `organization_id`, varias sedes sin código conviven sin chocar.
 export const createBranchSchema = z.object({
   organizationId: z.number().int().positive().optional(),
   branchTypeId: z.number().int().positive('Selecciona un tipo de sucursal.'),
-  code: z.string().trim().min(1, 'Ingresa un código.'),
+  code: z.string().trim().optional().or(z.literal('')),
   name: z.string().trim().min(1, 'Ingresa un nombre.'),
   status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']),
   countryId: z.number().int().positive().optional(),
@@ -279,7 +303,14 @@ export const createBranchSchema = z.object({
   email: z.string().trim().email('Ingresa un correo válido.').optional().or(z.literal('')),
   environmentalLicense: z.string().trim().optional().or(z.literal('')),
   licenseExpirationDate: z.string().trim().optional().or(z.literal('')),
-  operationalCapacity: z.number().min(0).optional(),
+  // Punto 11 del lote de correcciones -- reemplaza el único campo
+  // `operationalCapacity` por 3 independientes, uno por unidad (backend:
+  // `operational_capacity_kg`/`_liters`/`_m3`, las 3 `DECIMAL(12,2) NULL`,
+  // `sometimes|nullable|numeric|min:0` cada una -- sin relación entre sí,
+  // no son mutuamente excluyentes).
+  operationalCapacityKg: z.number().min(0).optional(),
+  operationalCapacityLiters: z.number().min(0).optional(),
+  operationalCapacityM3: z.number().min(0).optional(),
   observations: z.string().trim().optional().or(z.literal('')),
   isActive: z.boolean(),
 })

@@ -16,7 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon, UserRoundIcon, FileSignatureIcon, PackageSearchIcon, PackageCheckIcon, CalendarClockIcon, UserCheckIcon } from "lucide-react"
+import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon, UserRoundIcon, FileSignatureIcon, PackageSearchIcon, PackageCheckIcon, CalendarClockIcon, UserCheckIcon, UploadCloudIcon } from "lucide-react"
 import { useAuth } from "app/provider/auth"
 
 // Sin módulos de negocio todavía (Residuos, Solicitudes, Manifiestos, etc.)
@@ -318,6 +318,25 @@ const data = {
       icon: <UserCheckIcon />,
       permission: "gestor_carrier_authorizations.read",
     },
+    // Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders
+    // reales, 2026-08-09) -- gestión de `generator_subgestor_relationships`.
+    // Ruta PROPIA, mismo motivo que "Autorizaciones de Transportador" (el
+    // backend no soporta filtrar por organización).
+    {
+      title: "Generadores por Subgestor",
+      url: "/admin/generator-subgestor-relationships",
+      icon: <NetworkIcon />,
+      permission: "generator_subgestor_relationships.read",
+    },
+    // Carga Masiva de Generadores (CSV) -- autoservicio de Subgestor/Gestor
+    // confirmado por el usuario, 2026-08-11. Visible con CUALQUIERA de los
+    // dos permisos `.create` (OR), ver `hasRequiredPermission()` arriba.
+    {
+      title: "Carga Masiva de Generadores",
+      url: "/admin/generators/bulk-import",
+      icon: <UploadCloudIcon />,
+      permission: ["generator_subgestor_relationships.create", "generator_gestor_relationships.create"],
+    },
     {
       title: "Corrientes Y/A",
       url: "/admin/waste-streams",
@@ -494,9 +513,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // instante después (parpadeo).
   const { user } = useAuth()
   const userPermissions = user?.permissions ?? []
-  const visibleAdminItems = data.navAdmin.filter((item) => userPermissions.includes(item.permission))
-  const visibleResiduosItems = data.navResiduos.filter((item) => userPermissions.includes(item.permission))
-  const visibleCatalogsItems = data.navCatalogs.filter((item) => userPermissions.includes(item.permission))
+  // `permission` acepta un solo código o una lista (OR) -- necesario para
+  // ítems accesibles por más de un permiso distinto (ej. "Carga Masiva de
+  // Generadores", que un Subgestor ve con `generator_subgestor_relationships.create`
+  // y un Gestor con `generator_gestor_relationships.create`).
+  const hasRequiredPermission = (permission: string | string[]) =>
+    Array.isArray(permission)
+      ? permission.some((code) => userPermissions.includes(code))
+      : userPermissions.includes(permission)
+  const visibleAdminItems = data.navAdmin.filter((item) => hasRequiredPermission(item.permission))
+  const visibleResiduosItems = data.navResiduos.filter((item) => hasRequiredPermission(item.permission))
+  const visibleCatalogsItems = data.navCatalogs.filter((item) => hasRequiredPermission(item.permission))
   // Criterio de visibilidad DISTINTO al resto de grupos -- `is_platform_staff`,
   // no `user.permissions` (ver comentario en `data.navPlatform` arriba).
   const visiblePlatformItems = user?.is_platform_staff ? data.navPlatform : []

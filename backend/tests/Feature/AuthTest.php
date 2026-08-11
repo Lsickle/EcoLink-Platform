@@ -138,6 +138,21 @@ test('GET /api/user expone is_platform_staff=false para un usuario sin tenant o 
         ->assertJsonPath('user.is_platform_staff', false);
 });
 
+// RN-181: el email es insensible a mayúsculas en toda la capa de identidad
+// (login, comandos de consola, invitaciones, gestión de usuarios) -- el
+// login fallaba si el correo se escribía con distinta capitalización a como
+// quedó guardado. Ver PasswordRecoveryController::findUserByEmail() para el
+// patrón ya existente que este cambio generaliza.
+test('RN-181: login con el email en mayúsculas distintas a como se creó el usuario también autentica (case-insensitive)', function () {
+    createActiveUser(['email' => 'ana.gomez@example.com']);
+
+    $this->postJson('/api/login', [
+        'login' => 'ANA.GOMEZ@EXAMPLE.COM',
+        'password' => 'Passw0rd123',
+        'device_name' => 'test-device',
+    ])->assertOk();
+});
+
 test('web login (sin device_name) autentica por sesión', function () {
     createActiveUser();
 

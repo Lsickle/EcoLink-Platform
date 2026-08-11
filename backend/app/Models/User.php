@@ -6,6 +6,7 @@ use App\Models\Concerns\HasUuid;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -14,6 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 
 // esquema-bd: users. Autenticación Sanctum (RN-181): cookie de sesión en
@@ -22,7 +24,7 @@ use Laravel\Sanctum\HasApiTokens;
 // Role (esquema-bd): siempre se fijan server-side desde
 // `$request->user()->id` (UserProvisioningService::createPendingUser() /
 // UserManagementController::update()), nunca como input del cliente.
-#[Fillable(['tenant_organization_id', 'organization_id', 'person_id', 'username', 'email', 'password_hash', 'user_status_id', 'created_by', 'updated_by'])]
+#[Fillable(['tenant_organization_id', 'organization_id', 'person_id', 'username', 'email', 'password_hash', 'user_status_id', 'must_change_password', 'created_by', 'updated_by'])]
 #[Hidden(['password_hash', 'mfa_secret'])]
 class User extends Authenticatable
 {
@@ -38,6 +40,7 @@ class User extends Authenticatable
             'locked_until' => 'datetime',
             'is_mfa_enabled' => 'boolean',
             'is_active' => 'boolean',
+            'must_change_password' => 'boolean',
             'metadata' => 'array',
         ];
     }
@@ -49,6 +52,23 @@ class User extends Authenticatable
     public function getAuthPasswordName(): string
     {
         return 'password_hash';
+    }
+
+    /**
+     * RN-181: email insensible a mayúsculas en toda la capa de identidad --
+     * el login fallaba si el correo se escribía con distinta capitalización
+     * a como quedó guardado. Se normaliza a minúsculas (+ trim) en cada
+     * guardado, mismo criterio que ya usaba
+     * `PasswordRecoveryController::normalizeEmail()`, ahora respaldado
+     * también por el índice único funcional `UNIQUE (LOWER(email))` (ver
+     * migración `2026_08_08_000001_replace_case_sensitive_email_unique_indexes`).
+     * NO aplica a `username` -- mismo problema, fuera de alcance de este lote.
+     */
+    protected function email(): Attribute
+    {
+        return Attribute::make(
+            set: fn (?string $value) => $value === null ? null : Str::lower(trim($value)),
+        );
     }
 
     public function tenantOrganization(): BelongsTo

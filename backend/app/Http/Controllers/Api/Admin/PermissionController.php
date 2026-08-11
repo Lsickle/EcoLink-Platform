@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
+use App\Models\Organization;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\RolePermission;
@@ -337,6 +338,44 @@ class PermissionController extends Controller
             ]);
         }
 
+        // Hallazgo Crítico (verificación RBAC/privacidad, 2026-08-09): esta
+        // acción NUNCA chequeaba `is_editable` -- un tenant admin con
+        // `permissions.assign` (todo ADMINISTRADOR) podía asignar/revocar
+        // permisos sobre un rol de SISTEMA global (`ADMINISTRADOR`,
+        // `LOGÍSTICA`, etc. -- `tenant_organization_id=NULL`, siempre
+        // "accesible" por el check de arriba), afectando a TODOS los demás
+        // tenants simultáneamente. `RoleController::update()`/`destroy()`
+        // ya protegían `is_editable=false` para nombre/descripción/borrado;
+        // esta acción quedaba sin la misma guarda. Platform staff exento
+        // (mismo patrón "god mode" ya usado para editar recursos ajenos).
+        if (! $targetRole->is_editable && ! $request->user()->isPlatformStaff()) {
+            throw ValidationException::withMessages([
+                'role_id' => ['Este rol es de sistema y sus permisos no pueden modificarse.'],
+            ]);
+        }
+
+        // Verificación RBAC/privacidad del módulo Residuos (2026-08-09,
+        // confirmado por el usuario): los permisos de
+        // `Permission::GESTOR_ONLY_CODES` (evaluar/gestionar tratamientos,
+        // Residuos Preaprobados) solo tienen sentido dentro de una
+        // organización con business_role GESTOR -- no aplica a roles
+        // GLOBALES (ya bloqueados arriba por `is_editable`, la única forma
+        // de tocarlos es platform staff), solo a roles CUSTOM de un tenant.
+        if (
+            ! $request->user()->isPlatformStaff()
+            && in_array($permission->code, Permission::GESTOR_ONLY_CODES, true)
+        ) {
+            $targetOrganization = $targetRole->tenant_organization_id
+                ? Organization::find($targetRole->tenant_organization_id)
+                : null;
+
+            if (! $targetOrganization || ! $targetOrganization->hasCapability('can_treat_waste')) {
+                throw ValidationException::withMessages([
+                    'permission_id' => ['Este permiso solo puede asignarse a roles de organizaciones con rol de negocio Gestor.'],
+                ]);
+            }
+        }
+
         RolePermission::query()->updateOrCreate(
             ['role_id' => $data['role_id'], 'permission_id' => $permission->id],
             [
@@ -382,6 +421,16 @@ class PermissionController extends Controller
         if (! $targetRole->isAccessibleBy($request->user())) {
             throw ValidationException::withMessages([
                 'role_id' => ['El rol indicado no pertenece a tu organización.'],
+            ]);
+        }
+
+        // Mismo hallazgo que assignToRole() -- ver su docblock. Revocar es
+        // igual de peligroso que asignar sobre un rol de sistema global
+        // (sabotaje: dejar a TODOS los demás tenants sin ese permiso de un
+        // momento a otro).
+        if (! $targetRole->is_editable && ! $request->user()->isPlatformStaff()) {
+            throw ValidationException::withMessages([
+                'role_id' => ['Este rol es de sistema y sus permisos no pueden modificarse.'],
             ]);
         }
 

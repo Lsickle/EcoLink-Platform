@@ -285,6 +285,88 @@ test('assignToUser permite un ROL GLOBAL (tenant_organization_id NULL, catálogo
     expect(UserRole::query()->where('user_id', $targetSameTenant->id)->where('role_id', $globalRole->id)->exists())->toBeTrue();
 });
 
+// ---- Verificación RBAC/privacidad del módulo Residuos (2026-08-09): assignToUser() y los permisos GESTOR_ONLY_CODES ----
+
+function gestorOrganizationForRoleTests(): \App\Models\Organization
+{
+    $organization = \App\Models\Organization::factory()->create();
+    $gestor = \App\Models\BusinessRole::factory()->create(['can_treat_waste' => true]);
+
+    \App\Models\OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id,
+        'business_role_id' => $gestor->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    return $organization->fresh();
+}
+
+test('assignToUser rechaza un rol con un permiso GESTOR_ONLY_CODES si el usuario destino NO pertenece a una organización Gestor', function () {
+    $orgA = Organization::factory()->create();
+
+    $evaluatorRole = Role::factory()->create(['tenant_organization_id' => null, 'is_system' => true]);
+    $permission = Permission::factory()->create(['code' => 'treatment_approvals.evaluate']);
+    RolePermission::query()->create(['role_id' => $evaluatorRole->id, 'permission_id' => $permission->id, 'is_active' => true]);
+
+    $targetNonGestor = User::factory()->create(['tenant_organization_id' => $orgA->id]);
+    $actor = actorWithRolePermission(['roles.assign'], $orgA->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/roles/{$evaluatorRole->id}/assign", ['user_id' => $targetNonGestor->id])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('role');
+
+    expect(UserRole::query()->where('user_id', $targetNonGestor->id)->where('role_id', $evaluatorRole->id)->exists())->toBeFalse();
+});
+
+test('assignToUser permite un rol con un permiso GESTOR_ONLY_CODES si el usuario destino SÍ pertenece a una organización Gestor', function () {
+    $gestorOrg = gestorOrganizationForRoleTests();
+
+    $evaluatorRole = Role::factory()->create(['tenant_organization_id' => null, 'is_system' => true]);
+    $permission = Permission::factory()->create(['code' => 'treatment_approvals.evaluate']);
+    RolePermission::query()->create(['role_id' => $evaluatorRole->id, 'permission_id' => $permission->id, 'is_active' => true]);
+
+    $targetGestor = User::factory()->create(['tenant_organization_id' => $gestorOrg->id]);
+    $actor = actorWithRolePermission(['roles.assign'], $gestorOrg->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/roles/{$evaluatorRole->id}/assign", ['user_id' => $targetGestor->id])
+        ->assertOk();
+
+    expect(UserRole::query()->where('user_id', $targetGestor->id)->where('role_id', $evaluatorRole->id)->where('is_active', true)->exists())->toBeTrue();
+});
+
+test('assignToUser permite ADMINISTRADOR (exento del gate GESTOR_ONLY_CODES) sin importar el business_role de la organización', function () {
+    $orgA = Organization::factory()->create();
+
+    $administrador = Role::factory()->create(['code' => 'ADMINISTRADOR', 'tenant_organization_id' => null, 'is_system' => true]);
+    $permission = Permission::factory()->create(['code' => 'treatment_approvals.evaluate']);
+    RolePermission::query()->create(['role_id' => $administrador->id, 'permission_id' => $permission->id, 'is_active' => true]);
+
+    $targetNonGestor = User::factory()->create(['tenant_organization_id' => $orgA->id]);
+    $actor = actorWithRolePermission(['roles.assign'], $orgA->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/roles/{$administrador->id}/assign", ['user_id' => $targetNonGestor->id])
+        ->assertOk();
+
+    expect(UserRole::query()->where('user_id', $targetNonGestor->id)->where('role_id', $administrador->id)->where('is_active', true)->exists())->toBeTrue();
+});
+
+test('assignToUser -- platform staff puede asignar un rol con un permiso GESTOR_ONLY_CODES a un usuario de organización NO Gestor', function () {
+    $orgA = Organization::factory()->create();
+
+    $evaluatorRole = Role::factory()->create(['tenant_organization_id' => null, 'is_system' => true]);
+    $permission = Permission::factory()->create(['code' => 'treatment_approvals.evaluate']);
+    RolePermission::query()->create(['role_id' => $evaluatorRole->id, 'permission_id' => $permission->id, 'is_active' => true]);
+
+    $targetNonGestor = User::factory()->create(['tenant_organization_id' => $orgA->id]);
+    $actor = platformOrgActor(['roles.assign']);
+
+    $this->actingAs($actor)->postJson("/api/admin/roles/{$evaluatorRole->id}/assign", ['user_id' => $targetNonGestor->id])
+        ->assertOk();
+
+    expect(UserRole::query()->where('user_id', $targetNonGestor->id)->where('role_id', $evaluatorRole->id)->where('is_active', true)->exists())->toBeTrue();
+});
+
 // ---- Hallazgo Crítico (especialista-seguridad, 2026-07-13, segunda pasada): Role sin la misma cobertura que User ----
 
 test('store fija tenant_organization_id del actor (nunca NULL/global) al crear un rol', function () {
@@ -936,6 +1018,43 @@ test('activity() del rol incluye PERMISSION_REVOKED cuando se revoca un permiso 
 
     $events = collect($response->json('data'))->pluck('event_type');
     expect($events->all())->toBe(['PERMISSION_REVOKED', 'PERMISSION_ASSIGNED']);
+});
+
+// ---- Fix de consistencia (especialista-seguridad, seguimiento 2026-08-08):
+// assignToUser() quedaba con el chequeo manual de isSameTenantAs() SIN la
+// excepción isPlatformStaff() -- inconsistente con RoleController::users()/
+// activity() y con UserManagementController tras el Fix 1. No era una fuga
+// (fallaba cerrado), pero un platform staff no podía asignarle un rol a un
+// usuario de otro tenant.
+
+test('assignToUser SÍ permite a platform staff asignar un rol a un usuario de OTRO tenant', function () {
+    $clientOrg = Organization::factory()->create();
+
+    $role = Role::factory()->create();
+    $target = User::factory()->create(['tenant_organization_id' => $clientOrg->id]);
+
+    $actor = platformOrgActor(['roles.assign']);
+
+    $this->actingAs($actor)->postJson("/api/admin/roles/{$role->id}/assign", ['user_id' => $target->id])
+        ->assertOk();
+
+    expect(UserRole::query()->where('user_id', $target->id)->where('role_id', $role->id)->where('is_active', true)->exists())->toBeTrue();
+});
+
+test('assignToUser sigue rechazando (422) a un admin de tenant NORMAL sobre un user_id de OTRO tenant, tras el fix', function () {
+    $orgA = Organization::factory()->create();
+    $orgB = Organization::factory()->create();
+
+    $role = Role::factory()->create();
+    $target = User::factory()->create(['tenant_organization_id' => $orgB->id]);
+
+    $actor = actorWithRolePermission(['roles.assign'], $orgA->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/roles/{$role->id}/assign", ['user_id' => $target->id])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('user_id');
+
+    expect(UserRole::query()->where('user_id', $target->id)->where('role_id', $role->id)->exists())->toBeFalse();
 });
 
 test('un usuario pierde sus permisos efectivos cuando su rol se desactiva, y los recupera al reactivarlo', function () {

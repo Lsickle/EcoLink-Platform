@@ -493,7 +493,13 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <InfoField label="Nombre">{detail.waste.name}</InfoField>
               <InfoField label="Código">{detail.waste.code ?? '—'}</InfoField>
-              <InfoField label="Organización Generadora">{detail.waste.organization.legal_name}</InfoField>
+              {/* Cadena Generador -> Subgestor -> Gestor (2026-08-09): `detail.waste.organization`
+                  viene `null` (no ausente) para el Gestor evaluador cuando la ruta fue
+                  INDIRECTA -- se muestra "Remitido por" con el Subgestor en su lugar, la
+                  identidad del Generador NO se expone en esta pantalla (sigue intacta en BD). */}
+              <InfoField label={detail.waste.organization ? 'Organización Generadora' : 'Remitido por'}>
+                {detail.waste.organization?.legal_name ?? detail.forwarded_by_organization?.legal_name ?? '—'}
+              </InfoField>
               <InfoField label="Sede del Tratamiento">{detail.branch_treatment.branch.name}</InfoField>
             </div>
 

@@ -134,6 +134,25 @@ describe('TreatmentApprovalDetailScreen', () => {
     expect(screen.getByText('Incineración')).toBeInTheDocument()
   })
 
+  // Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders reales, 2026-08-09)
+  test('shows "Remitido por" with the Subgestor instead of "Organización Generadora" when forwarded_by_organization is present', async () => {
+    fetchTreatmentApprovalMock.mockResolvedValue({
+      treatment_approval: baseDetail({
+        waste: { ...baseDetail().waste, organization: null },
+        forwarded_by_organization_id: 9,
+        forwarded_by_organization: { id: 9, legal_name: 'LogVerde SAS' },
+      }),
+    })
+
+    render(<TreatmentApprovalDetailScreen treatmentApprovalId={5} />)
+
+    await screen.findByText('Aceite Lubricante Usado')
+    expect(screen.getByText('Remitido por')).toBeInTheDocument()
+    expect(screen.getByText('LogVerde SAS')).toBeInTheDocument()
+    expect(screen.queryByText('Organización Generadora')).not.toBeInTheDocument()
+    expect(screen.queryByText('Hospital San José')).not.toBeInTheDocument()
+  })
+
   test('shows the waste classification (corrientes/UN, hazard characteristics) via the eager-loaded relations', async () => {
     render(<TreatmentApprovalDetailScreen treatmentApprovalId={5} />)
 

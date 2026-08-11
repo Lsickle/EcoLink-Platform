@@ -16,6 +16,7 @@ import {
   fetchDepartments,
   fetchLocalities,
   fetchMunicipalities,
+  fetchOrganization,
   type AdminBranchType,
   type AdminCountry,
   type AdminDepartment,
@@ -39,7 +40,21 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h3 className="text-sm font-semibold text-foreground">{children}</h3>
 }
 
-type FieldErrors = Partial<Record<'name' | 'code' | 'branchTypeId' | 'email', string>>
+// Punto 8 del lote de correcciones -- reordenamiento CLIENT-SIDE (no toca
+// el orden alfabético que devuelve `DepartmentController::index()`, ese
+// endpoint lo reutiliza también el catálogo de Departamentos): "BOGOTÁ D.C."
+// primero, "CUNDINAMARCA" segundo, el resto en el orden ya devuelto por el
+// backend (alfabético).
+function sortDepartmentsBogotaFirst(departments: AdminDepartment[]): AdminDepartment[] {
+  const priority = (name: string) => {
+    if (name === 'BOGOTÁ D.C.') return 0
+    if (name === 'CUNDINAMARCA') return 1
+    return 2
+  }
+  return [...departments].sort((a, b) => priority(a.name) - priority(b.name))
+}
+
+type FieldErrors = Partial<Record<'name' | 'code' | 'branchTypeId' | 'email' | 'localityId', string>>
 
 // Formulario de creación (POST /api/admin/branches) -- plan "CRUD de Sedes
 // (Branches) + Contactos". El selector de Organización dueña SOLO se
@@ -82,7 +97,12 @@ export function CreateBranchForm() {
   // Sección 4 -- Regulatorio
   const [environmentalLicense, setEnvironmentalLicense] = useState('')
   const [licenseExpirationDate, setLicenseExpirationDate] = useState('')
-  const [operationalCapacity, setOperationalCapacity] = useState('')
+  // Punto 11 del lote de correcciones -- 3 campos independientes por
+  // unidad (backend: `operational_capacity_kg`/`_liters`/`_m3`, las 3
+  // `DECIMAL(12,2) NULL` -- ninguna obligatoria, ni mutuamente excluyentes).
+  const [operationalCapacityKg, setOperationalCapacityKg] = useState('')
+  const [operationalCapacityLiters, setOperationalCapacityLiters] = useState('')
+  const [operationalCapacityM3, setOperationalCapacityM3] = useState('')
 
   // Sección 5 -- Estado + Observaciones
   const [status, setStatus] = useState<BranchStatus>('ACTIVE')
@@ -93,15 +113,30 @@ export function CreateBranchForm() {
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Punto 4 del lote de correcciones -- el placeholder `Organización #N`
+  // nunca se reemplazaba por el nombre real. Se preselecciona el id de
+  // inmediato (deja el botón "Crear Sucursal" operativo) y se resuelve el
+  // label real vía `fetchOrganization()`, mismo formato que el resto del
+  // archivo (`${legal_name} (${tax_id})`, ver `onSelect` del picker más
+  // abajo). Si el fetch falla (organización inexistente/sin permiso), el
+  // campo queda sin preseleccionar en vez de romper el resto del
+  // formulario -- ver AVISO de seguridad: el id nunca se usa para eludir el
+  // gate `isPlatformStaff` server-side, solo es una preselección visual.
   useEffect(() => {
     const queryOrganizationId = searchParams.get('organizationId')
-    if (queryOrganizationId) {
-      const parsed = Number(queryOrganizationId)
-      if (Number.isFinite(parsed) && parsed > 0) {
-        setOrganizationId(parsed)
-        setOrganizationLabel(`Organización #${parsed}`)
-      }
-    }
+    if (!queryOrganizationId) return
+    const parsed = Number(queryOrganizationId)
+    if (!Number.isFinite(parsed) || parsed <= 0) return
+    setOrganizationId(parsed)
+    setOrganizationLabel(`Organización #${parsed}`)
+    fetchOrganization(parsed)
+      .then((result) => {
+        setOrganizationLabel(`${result.organization.legal_name} (${result.organization.tax_id})`)
+      })
+      .catch(() => {
+        setOrganizationId(null)
+        setOrganizationLabel(null)
+      })
     // Solo se lee una vez, al montar -- `searchParams` no cambia después.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -114,6 +149,12 @@ export function CreateBranchForm() {
         if (cancelled) return
         setBranchTypes(branchTypesResult.data)
         setCountries(countriesResult.data)
+        // Punto 6 -- "Tipo de Sucursal" por defecto Administrativa (ADM),
+        // solo si el usuario no eligió ya un valor (evita pisarlo si este
+        // efecto corre de nuevo). Punto 7 -- mismo criterio para País con
+        // Colombia (iso_code CO).
+        setBranchTypeId((current) => current ?? branchTypesResult.data.find((type) => type.code === 'ADM')?.id ?? current)
+        setCountryId((current) => current ?? countriesResult.data.find((country) => country.iso_code === 'CO')?.id ?? current)
         setCatalogsError(null)
       })
       .catch((error) => {
@@ -174,7 +215,9 @@ export function CreateBranchForm() {
       email,
       environmentalLicense,
       licenseExpirationDate,
-      operationalCapacity: operationalCapacity ? Number(operationalCapacity) : undefined,
+      operationalCapacityKg: operationalCapacityKg ? Number(operationalCapacityKg) : undefined,
+      operationalCapacityLiters: operationalCapacityLiters ? Number(operationalCapacityLiters) : undefined,
+      operationalCapacityM3: operationalCapacityM3 ? Number(operationalCapacityM3) : undefined,
       observations,
       isActive,
     })
@@ -189,6 +232,17 @@ export function CreateBranchForm() {
       return
     }
 
+    // Punto 10 del lote de correcciones -- Localidad es obligatoria SOLO
+    // cuando el municipio elegido tiene localidades reales (dato, no
+    // comparación de string "Bogotá") -- el formulario ya sabe
+    // `localities.length` en tiempo de render, chequeo adicional aquí
+    // (mismo patrón que la validación de `organizationId` para platform
+    // staff, unos párrafos abajo) en vez de meterlo en el zod schema.
+    if (localities.length > 0 && !localityId) {
+      setFieldErrors({ localityId: 'Selecciona una localidad.' })
+      return
+    }
+
     if (isPlatformStaff && !parsed.data.organizationId) {
       setFormError('Selecciona la organización dueña de la sucursal.')
       return
@@ -200,7 +254,7 @@ export function CreateBranchForm() {
       const { branch: created } = await createBranch({
         organization_id: isPlatformStaff ? (parsed.data.organizationId ?? undefined) : undefined,
         branch_type_id: parsed.data.branchTypeId,
-        code: parsed.data.code,
+        code: parsed.data.code || undefined,
         name: parsed.data.name,
         status: parsed.data.status,
         country_id: parsed.data.countryId,
@@ -212,7 +266,9 @@ export function CreateBranchForm() {
         email: parsed.data.email || undefined,
         environmental_license: parsed.data.environmentalLicense || undefined,
         license_expiration_date: parsed.data.licenseExpirationDate || undefined,
-        operational_capacity: parsed.data.operationalCapacity,
+        operational_capacity_kg: parsed.data.operationalCapacityKg,
+        operational_capacity_liters: parsed.data.operationalCapacityLiters,
+        operational_capacity_m3: parsed.data.operationalCapacityM3,
         observations: parsed.data.observations || undefined,
         is_active: parsed.data.isActive,
       })
@@ -277,7 +333,9 @@ export function CreateBranchForm() {
                 )}
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="code">Código</Label>
+                <Label htmlFor="code">
+                  Código <span className="text-muted-foreground">(opcional)</span>
+                </Label>
                 <Input
                   id="code"
                   value={code}
@@ -353,7 +411,7 @@ export function CreateBranchForm() {
                   Departamento <span className="text-muted-foreground">(opcional)</span>
                 </Label>
                 <Select
-                  items={[{ value: 'none', label: 'Sin especificar' }, ...departments.map((d) => ({ value: String(d.id), label: d.name }))]}
+                  items={[{ value: 'none', label: 'Sin especificar' }, ...sortDepartmentsBogotaFirst(departments).map((d) => ({ value: String(d.id), label: d.name }))]}
                   value={departmentId !== null ? String(departmentId) : 'none'}
                   disabled={!countryId}
                   onValueChange={(value) => {
@@ -368,7 +426,7 @@ export function CreateBranchForm() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Sin especificar</SelectItem>
-                    {departments.map((department) => (
+                    {sortDepartmentsBogotaFirst(departments).map((department) => (
                       <SelectItem key={department.id} value={String(department.id)}>
                         {department.name}
                       </SelectItem>
@@ -405,29 +463,39 @@ export function CreateBranchForm() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="localityId">
-                  Localidad <span className="text-muted-foreground">(opcional, solo Bogotá)</span>
-                </Label>
-                <Select
-                  items={[{ value: 'none', label: 'Sin especificar' }, ...localities.map((l) => ({ value: String(l.id), label: l.name }))]}
-                  value={localityId !== null ? String(localityId) : 'none'}
-                  disabled={!municipalityId || localities.length === 0}
-                  onValueChange={(value) => setLocalityId(value === 'none' ? null : Number(value))}
-                >
-                  <SelectTrigger id="localityId">
-                    <SelectValue placeholder="Elige un municipio" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sin especificar</SelectItem>
-                    {localities.map((locality) => (
-                      <SelectItem key={locality.id} value={String(locality.id)}>
-                        {locality.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Punto 10 del lote de correcciones -- Localidad SOLO se
+                  renderiza (visible Y obligatoria) cuando el municipio
+                  elegido tiene localidades reales (`localities.length > 0`,
+                  dato -- en la práctica solo Bogotá D.C. tiene filas en
+                  `localities`, ver esquema-bd -- no comparación de string).
+                  Con 0 localidades el bloque completo se oculta, en vez de
+                  quedar `disabled` como antes. */}
+              {localities.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="localityId">Localidad</Label>
+                  <Select
+                    items={localities.map((l) => ({ value: String(l.id), label: l.name }))}
+                    value={localityId !== null ? String(localityId) : null}
+                    onValueChange={(value) => setLocalityId(value !== null ? Number(value) : null)}
+                  >
+                    <SelectTrigger id="localityId" aria-invalid={Boolean(fieldErrors.localityId)}>
+                      <SelectValue placeholder="Selecciona una localidad" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {localities.map((locality) => (
+                        <SelectItem key={locality.id} value={String(locality.id)}>
+                          {locality.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {fieldErrors.localityId && (
+                    <p className="text-xs text-destructive" role="alert">
+                      {fieldErrors.localityId}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="address">
@@ -491,17 +559,47 @@ export function CreateBranchForm() {
                 />
               </div>
             </div>
-            <div className="flex flex-col gap-1.5 sm:w-1/2">
-              <Label htmlFor="operationalCapacity">
-                Capacidad Operativa <span className="text-muted-foreground">(opcional)</span>
-              </Label>
-              <Input
-                id="operationalCapacity"
-                type="number"
-                min={0}
-                value={operationalCapacity}
-                onChange={(event) => setOperationalCapacity(event.target.value)}
-              />
+            {/* Punto 11 del lote de correcciones -- 3 campos independientes
+                por unidad (backend: operational_capacity_kg/_liters/_m3),
+                todos opcionales, sin relación entre sí (se pueden llenar 0,
+                1, 2 o los 3). */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="operationalCapacityKg">
+                  Capacidad Operativa (KG) <span className="text-muted-foreground">(opcional)</span>
+                </Label>
+                <Input
+                  id="operationalCapacityKg"
+                  type="number"
+                  min={0}
+                  value={operationalCapacityKg}
+                  onChange={(event) => setOperationalCapacityKg(event.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="operationalCapacityLiters">
+                  Capacidad Operativa (Litros) <span className="text-muted-foreground">(opcional)</span>
+                </Label>
+                <Input
+                  id="operationalCapacityLiters"
+                  type="number"
+                  min={0}
+                  value={operationalCapacityLiters}
+                  onChange={(event) => setOperationalCapacityLiters(event.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="operationalCapacityM3">
+                  Capacidad Operativa (M³) <span className="text-muted-foreground">(opcional)</span>
+                </Label>
+                <Input
+                  id="operationalCapacityM3"
+                  type="number"
+                  min={0}
+                  value={operationalCapacityM3}
+                  onChange={(event) => setOperationalCapacityM3(event.target.value)}
+                />
+              </div>
             </div>
           </div>
 

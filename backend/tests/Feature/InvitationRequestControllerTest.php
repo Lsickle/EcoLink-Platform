@@ -112,6 +112,44 @@ test('store con document_number duplicado en people responde igual el mensaje ge
     expect(InvitationRequest::query()->where('email', 'otro.correo@example.com')->exists())->toBeFalse();
 });
 
+// RN-181: mismo criterio anti-mayúsculas del resto de la capa de identidad --
+// el chequeo anti-duplicado/anti-enumeración debe detectar el correo sin
+// importar la capitalización con la que llegue.
+test('store detecta email ya existente en users sin importar la capitalización (case-insensitive)', function () {
+    User::factory()->create(['email' => 'ana.gomez@example.com']);
+
+    $response = $this->postJson('/api/invitation-requests', validInvitationRequestPayload(['email' => 'ANA.GOMEZ@EXAMPLE.COM']));
+
+    $response->assertSuccessful()->assertJsonPath('message', 'Tu solicitud fue enviada. Un administrador la revisará.');
+
+    expect(InvitationRequest::query()->count())->toBe(0);
+    expect(SecurityLog::query()->where('event_type', 'INVITATION_REQUEST_SUBMITTED')->where('result', 'DUPLICATE_IGNORED')->exists())->toBeTrue();
+});
+
+test('store detecta una invitation_request PENDING existente sin importar la capitalización (case-insensitive)', function () {
+    InvitationRequest::factory()->create(['email' => 'ana.gomez@example.com', 'status' => 'PENDING']);
+
+    $this->postJson('/api/invitation-requests', validInvitationRequestPayload(['email' => 'ANA.GOMEZ@EXAMPLE.COM', 'document_number' => '800111334']))
+        ->assertSuccessful()
+        ->assertJsonPath('message', 'Tu solicitud fue enviada. Un administrador la revisará.');
+
+    expect(InvitationRequest::query()->count())->toBe(1);
+});
+
+test('approve detecta duplicado de email entre la solicitud y un registro existente sin importar la capitalización (422)', function () {
+    $actor = platformStaffActor(['users.create']);
+    $role = Role::factory()->create();
+    $invitationRequest = InvitationRequest::factory()->create(['email' => 'NUEVA.PERSONA@EXAMPLE.COM', 'status' => 'PENDING']);
+
+    User::factory()->create(['email' => 'nueva.persona@example.com']);
+
+    $this->actingAs($actor)->postJson("/api/admin/invitation-requests/{$invitationRequest->id}/approve", [
+        'role_ids' => [$role->id],
+    ])->assertUnprocessable()->assertJsonValidationErrors('invitation_request');
+
+    expect($invitationRequest->fresh()->status)->toBe('PENDING');
+});
+
 test('store aplica rate limiting por IP (throttle:invitation-request)', function () {
     for ($i = 0; $i < 5; $i++) {
         $this->postJson('/api/invitation-requests', validInvitationRequestPayload(['email' => "correo{$i}@example.com", 'document_number' => "80011133{$i}"]))
@@ -336,6 +374,40 @@ test('reject sobre una solicitud ya revisada devuelve 422', function () {
 // plataforma, ver arriba); el tenant resultante del usuario nuevo lo fija
 // `UserProvisioningService` a partir del tenant del ACTOR que aprueba (nunca
 // del input), igual que `UserManagementController::store()`.
+// ---- Fix 2 (especialista-seguridad, hallazgo Medio 2026-08-08): organization_id
+// debe rechazar organizaciones SOFT-DELETED, pero SÍ aceptar una organización
+// simplemente INACTIVA/SUSPENDIDA (decisión de negocio confirmada).
+
+test('approve rechaza organization_id de una organización SOFT-DELETED (422)', function () {
+    $actor = platformStaffActor(['users.create']);
+    $role = Role::factory()->create();
+    $invitationRequest = InvitationRequest::factory()->create(['status' => 'PENDING']);
+    $deletedOrg = Organization::factory()->create();
+    $deletedOrg->delete();
+
+    $this->actingAs($actor)->postJson("/api/admin/invitation-requests/{$invitationRequest->id}/approve", [
+        'role_ids' => [$role->id],
+        'organization_id' => $deletedOrg->id,
+    ])->assertUnprocessable()->assertJsonValidationErrors('organization_id');
+
+    expect(User::query()->where('email', $invitationRequest->email)->exists())->toBeFalse();
+    expect($invitationRequest->fresh()->status)->toBe('PENDING');
+});
+
+test('approve SÍ acepta organization_id de una organización INACTIVA (is_active=false) pero no eliminada', function () {
+    Notification::fake();
+
+    $actor = platformStaffActor(['users.create']);
+    $role = Role::factory()->create();
+    $invitationRequest = InvitationRequest::factory()->create(['status' => 'PENDING']);
+    $inactiveOrg = Organization::factory()->create(['is_active' => false]);
+
+    $this->actingAs($actor)->postJson("/api/admin/invitation-requests/{$invitationRequest->id}/approve", [
+        'role_ids' => [$role->id],
+        'organization_id' => $inactiveOrg->id,
+    ])->assertCreated();
+});
+
 test('approve fija tenant_organization_id del actor que aprueba, nunca del cliente', function () {
     Notification::fake();
 

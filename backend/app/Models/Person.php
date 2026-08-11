@@ -5,12 +5,14 @@ namespace App\Models;
 use App\Models\Concerns\HasUuid;
 use Database\Factories\PersonFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 
 // esquema-bd: people. `full_name` (esquema-bd: "DEFAULT generated") se
 // mantiene aquí en vez de como columna GENERATED en Postgres: concat_ws()
@@ -46,6 +48,18 @@ class Person extends Model
                 $person->second_last_name,
             ])->filter()->implode(' ');
         });
+    }
+
+    /**
+     * RN-181: mismo criterio de normalización que `User::email()` -- ver ese
+     * docblock para el detalle completo (índice único funcional respaldando
+     * este mutator, alcance explícito sin `username`).
+     */
+    protected function email(): Attribute
+    {
+        return Attribute::make(
+            set: fn (?string $value) => $value === null ? null : Str::lower(trim($value)),
+        );
     }
 
     public function tenantOrganization(): BelongsTo

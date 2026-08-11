@@ -61,6 +61,8 @@ class RolePermissionSeeder extends Seeder
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
         'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
         'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
+        'generator_subgestor_relationships.read', 'generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke',
+        'generator_gestor_relationships.read', 'generator_gestor_relationships.create', 'generator_gestor_relationships.revoke',
     ];
 
     /**
@@ -153,6 +155,48 @@ class RolePermissionSeeder extends Seeder
         'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
     ];
 
+    /**
+     * `OPERACIONES` (rol #6 del catálogo canónico, verificación
+     * RBAC/privacidad de Residuos, 2026-08-09): lado "dueño del residuo" --
+     * cualquier organización, sin importar su business_role, declara y
+     * gestiona sus propios residuos y puede solicitar evaluación a un
+     * Gestor (`treatment_approvals.create`, la elección del
+     * `branch_treatment_id` ES la invitación -- ver
+     * `WasteTreatmentApprovalController`). `treatment_approvals.read` se
+     * incluye porque `indexForWaste()` lo exige para ver las evaluaciones
+     * que el propio residuo recibió. NINGÚN código de
+     * `Permission::GESTOR_ONLY_CODES` -- ese lado va en
+     * `TECNICO_AMBIENTAL_PERMISSION_CODES`.
+     */
+    private const OPERACIONES_PERMISSION_CODES = [
+        'wastes.read', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate',
+        'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject',
+        'treatment_approvals.read', 'treatment_approvals.create',
+        // Cadena Generador -> Subgestor -> Gestor (confirmado por
+        // stakeholders reales, 2026-08-09): OPERACIONES es el rol
+        // operativo del lado declarante, incluido el Subgestor -- gestiona
+        // qué Generadores son sus clientes (mismo criterio que
+        // `treatment_approvals.create`, universal para cualquier
+        // business_role, la restricción real vive en el controller vía
+        // `assertOrganizationCanTransportWaste()`).
+        'generator_subgestor_relationships.read', 'generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke',
+        'generator_gestor_relationships.read', 'generator_gestor_relationships.create', 'generator_gestor_relationships.revoke',
+    ];
+
+    /**
+     * `TECNICO_AMBIENTAL` (rol #5 del catálogo canónico): lado evaluador --
+     * SOLO tiene sentido dentro de una organización Gestor
+     * (`can_treat_waste=true`). Los 4 códigos son exactamente
+     * `Permission::GESTOR_ONLY_CODES` -- la gobernanza de "quién puede
+     * recibir este rol" (o cualquier rol custom con estos permisos) la
+     * hacen `RoleController::assignToUser()`/`PermissionController::assignToRole()`,
+     * no este seeder.
+     */
+    private const TECNICO_AMBIENTAL_PERMISSION_CODES = [
+        'treatment_approvals.read', 'treatment_approvals.update', 'treatment_approvals.evaluate',
+        'preapproved_wastes.read', 'preapproved_wastes.manage',
+    ];
+
     public function run(): void
     {
         $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
@@ -160,6 +204,12 @@ class RolePermissionSeeder extends Seeder
 
         $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
         $this->assignPermissions($logistica, self::LOGISTICA_PERMISSION_CODES);
+
+        $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
+        $this->assignPermissions($operaciones, self::OPERACIONES_PERMISSION_CODES);
+
+        $tecnicoAmbiental = Role::query()->where('code', 'TECNICO_AMBIENTAL')->firstOrFail();
+        $this->assignPermissions($tecnicoAmbiental, self::TECNICO_AMBIENTAL_PERMISSION_CODES);
     }
 
     /**

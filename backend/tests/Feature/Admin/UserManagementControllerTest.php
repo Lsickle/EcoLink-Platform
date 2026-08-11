@@ -87,6 +87,30 @@ test('store crea usuario+persona, asigna roles y registra auditoría (users.crea
     expect($log)->not->toBeNull()->and($log->user_id)->toBe($actor->id);
 });
 
+// RN-181: mismo criterio anti-mayúsculas del resto de la capa de identidad --
+// la validación `unique:` debe detectar el duplicado sin importar la
+// capitalización del input y devolver 422 (validación de Laravel), nunca un
+// 500 por violar el índice único case-insensitive de BD.
+test('store detecta email ya existente sin importar la capitalización (case-insensitive, 422 no 500)', function () {
+    $actor = actingAsWithPermission(['users.create']);
+    $role = Role::factory()->create();
+    User::factory()->create(['email' => 'carlos.perez@example.com']);
+
+    $this->actingAs($actor)->postJson('/api/admin/users', validUserPayload(['email' => 'CARLOS.PEREZ@EXAMPLE.COM', 'role_ids' => [$role->id]]))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('email');
+});
+
+test('update detecta email ya existente sin importar la capitalización (case-insensitive, 422 no 500)', function () {
+    User::factory()->create(['email' => 'existente@example.com']);
+    $target = User::factory()->create();
+    $actor = actingAsWithPermission(['users.update'], $target->tenant_organization_id);
+
+    $this->actingAs($actor)->putJson("/api/admin/users/{$target->id}", ['email' => 'EXISTENTE@EXAMPLE.COM'])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('email');
+});
+
 // ---- Mecanismo de invitación (reemplaza el registro público) ----
 
 test('store crea el usuario en PENDING_ACTIVATION, con una fila user_invitations y despacha UserInvitationNotification', function () {
@@ -265,6 +289,57 @@ test('store rechaza role_ids que pertenecen a OTRO tenant (422) -- hallazgo Crí
         ->assertJsonValidationErrors('role_ids');
 
     expect(User::query()->where('username', 'carlos.perez')->exists())->toBeFalse();
+});
+
+// ---- Gap de staging: alta del primer administrador de una organización cliente nueva ----
+// (staff de la organización Plataforma, User::isPlatformStaff(), vía UserProvisioningService::createPendingUser())
+
+test('store: platform staff crea un usuario con organization_id de un cliente -> tenant_organization_id queda en esa organización cliente', function () {
+    $platformOrg = Organization::factory()->create(['is_platform_tenant' => true]);
+    $clientOrg = Organization::factory()->create();
+
+    $actor = actingAsWithPermission(['users.create'], $platformOrg->id);
+    $role = Role::factory()->create();
+
+    $this->actingAs($actor)->postJson('/api/admin/users', validUserPayload([
+        'role_ids' => [$role->id],
+        'organization_id' => $clientOrg->id,
+    ]))->assertCreated();
+
+    $user = User::query()->where('username', 'carlos.perez')->firstOrFail();
+    expect($user->tenant_organization_id)->toBe($clientOrg->id)
+        ->and($user->tenant_organization_id)->not->toBe($platformOrg->id);
+});
+
+test('store: admin de tenant normal (no platform staff) con organization_id de OTRA organización -> tenant_organization_id sigue siendo el del actor (aislamiento intacto)', function () {
+    $orgA = Organization::factory()->create();
+    $orgB = Organization::factory()->create();
+
+    $actor = actingAsWithPermission(['users.create'], $orgA->id);
+    $role = Role::factory()->create();
+
+    $this->actingAs($actor)->postJson('/api/admin/users', validUserPayload([
+        'role_ids' => [$role->id],
+        'organization_id' => $orgB->id,
+    ]))->assertCreated();
+
+    $user = User::query()->where('username', 'carlos.perez')->firstOrFail();
+    expect($user->tenant_organization_id)->toBe($orgA->id)
+        ->and($user->tenant_organization_id)->not->toBe($orgB->id);
+});
+
+test('store: platform staff SIN organization_id -> tenant_organization_id sigue siendo el tenant del actor (Plataforma), sin cambios', function () {
+    $platformOrg = Organization::factory()->create(['is_platform_tenant' => true]);
+
+    $actor = actingAsWithPermission(['users.create'], $platformOrg->id);
+    $role = Role::factory()->create();
+
+    $this->actingAs($actor)->postJson('/api/admin/users', validUserPayload([
+        'role_ids' => [$role->id],
+    ]))->assertCreated();
+
+    $user = User::query()->where('username', 'carlos.perez')->firstOrFail();
+    expect($user->tenant_organization_id)->toBe($platformOrg->id);
 });
 
 test('index solo lista usuarios del mismo tenant que el actor', function () {
@@ -681,6 +756,197 @@ test('activity responde 403 sin permiso audit.read', function () {
 });
 
 test('activity responde 422 (aislamiento cross-tenant) cuando el usuario pertenece a OTRO tenant', function () {
+    $orgA = Organization::factory()->create();
+    $orgB = Organization::factory()->create();
+
+    $target = User::factory()->create(['tenant_organization_id' => $orgB->id]);
+    $actor = actingAsWithPermission(['audit.read'], $orgA->id);
+
+    $this->actingAs($actor)->getJson("/api/admin/users/{$target->id}/activity")->assertUnprocessable();
+});
+
+// ---- Fix 1 (especialista-seguridad, hallazgo Alto 2026-08-08): un platform
+// staff que crea el primer admin de una organización cliente nueva (bajo ESE
+// tenant) debe poder seguir viendo/gestionando ese usuario después -- antes
+// UserPolicy/index() exigían isSameTenantAs() exacto sin excepción, dejando
+// sin ningún camino de recuperación si la invitación por correo rebota o
+// expira (TTL 7 días). Mismo patrón ya usado en
+// RoleController::users()/activity() (Role::isAccessibleBy() con excepción
+// isPlatformStaff()), pero aplicado directamente sobre el USUARIO objetivo
+// (no un roster de terceros vía otro recurso) -- aquí SÍ se concede acceso
+// completo cross-tenant al platform staff, sin el acotamiento adicional que
+// RoleController::users() necesitó para el caso de rol GLOBAL.
+
+// Nombre distinto a `userManagementPlatformStaffActor()` de InvitationRequestControllerTest.php
+// -- las funciones de Pest son globales entre archivos, un mismo nombre
+// colisiona (Fatal error: Cannot redeclare function).
+function userManagementPlatformStaffActor(array $codes, ?Organization $platformOrg = null): User
+{
+    $platformOrg ??= Organization::factory()->create(['is_platform_tenant' => true]);
+
+    return actingAsWithPermission($codes, $platformOrg->id);
+}
+
+test('index lista usuarios de TODOS los tenants cuando el actor es platform staff', function () {
+    $orgA = Organization::factory()->create();
+    $orgB = Organization::factory()->create();
+
+    $userA = User::factory()->create(['tenant_organization_id' => $orgA->id]);
+    $userB = User::factory()->create(['tenant_organization_id' => $orgB->id]);
+
+    $actor = userManagementPlatformStaffActor(['users.read']);
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/users')->assertOk();
+
+    $ids = collect($response->json('data'))->pluck('id');
+    expect($ids)->toContain($userA->id)->toContain($userB->id);
+});
+
+test('show/update/resendInvitation/activate/deactivate/resetPassword SÍ permiten a platform staff gestionar un usuario de OTRO tenant', function () {
+    // D-CER-04: exactamente una fila `is_platform_tenant=true` en todo el
+    // sistema -- se crea UNA sola vez y se reutiliza en las 6 llamadas.
+    $platformOrg = Organization::factory()->create(['is_platform_tenant' => true]);
+
+    $clientOrg = Organization::factory()->create();
+    $pending = UserStatus::query()->where('code', 'PENDING_ACTIVATION')->firstOrFail();
+    $target = User::factory()->create(['tenant_organization_id' => $clientOrg->id, 'user_status_id' => $pending->id]);
+    // Otro usuario activo del mismo tenant cliente con `users.deactivate`,
+    // para satisfacer la guarda de "último admin" (independiente de este fix).
+    actingAsWithPermission(['users.deactivate'], $clientOrg->id);
+
+    $reader = userManagementPlatformStaffActor(['users.read'], $platformOrg);
+    $this->actingAs($reader)->getJson("/api/admin/users/{$target->id}")->assertOk();
+
+    $editor = userManagementPlatformStaffActor(['users.update'], $platformOrg);
+    $this->actingAs($editor)->putJson("/api/admin/users/{$target->id}", ['email' => 'nuevo.platform@example.com'])->assertOk();
+
+    $inviter = userManagementPlatformStaffActor(['users.create'], $platformOrg);
+    $this->actingAs($inviter)->postJson("/api/admin/users/{$target->id}/resend-invitation")->assertOk();
+
+    $activator = userManagementPlatformStaffActor(['users.activate'], $platformOrg);
+    $this->actingAs($activator)->postJson("/api/admin/users/{$target->id}/activate")->assertOk();
+
+    $resetter = userManagementPlatformStaffActor(['users.reset-password'], $platformOrg);
+    $this->actingAs($resetter)->postJson("/api/admin/users/{$target->id}/reset-password")->assertOk();
+
+    $deactivator = userManagementPlatformStaffActor(['users.deactivate'], $platformOrg);
+    $this->actingAs($deactivator)->postJson("/api/admin/users/{$target->id}/deactivate")->assertOk();
+});
+
+test('el aislamiento cross-tenant para un admin de tenant NORMAL (no platform staff) sigue intacto tras el Fix 1', function () {
+    $orgA = Organization::factory()->create();
+    $orgB = Organization::factory()->create();
+
+    $targetOtherTenant = User::factory()->create(['tenant_organization_id' => $orgB->id]);
+
+    $reader = actingAsWithPermission(['users.read'], $orgA->id);
+    $this->actingAs($reader)->getJson("/api/admin/users/{$targetOtherTenant->id}")->assertForbidden();
+
+    $response = $this->actingAs($reader)->getJson('/api/admin/users')->assertOk();
+    expect(collect($response->json('data'))->pluck('id'))->not->toContain($targetOtherTenant->id);
+});
+
+// ---- Fix 2 (especialista-seguridad, hallazgo Medio 2026-08-08): organization_id
+// debe rechazar organizaciones SOFT-DELETED (destino inválido para un admin
+// nuevo), pero SÍ aceptar una organización simplemente INACTIVA/SUSPENDIDA
+// (decisión de negocio confirmada: is_active=false no es motivo de rechazo).
+
+test('store rechaza organization_id de una organización SOFT-DELETED (422)', function () {
+    $actor = actingAsWithPermission(['users.create']);
+    $role = Role::factory()->create();
+    $deletedOrg = Organization::factory()->create();
+    $deletedOrg->delete();
+
+    $this->actingAs($actor)->postJson('/api/admin/users', validUserPayload([
+        'role_ids' => [$role->id],
+        'organization_id' => $deletedOrg->id,
+    ]))->assertUnprocessable()->assertJsonValidationErrors('organization_id');
+
+    expect(User::query()->where('username', 'carlos.perez')->exists())->toBeFalse();
+});
+
+test('store SÍ acepta organization_id de una organización INACTIVA (is_active=false) pero no eliminada', function () {
+    $actor = actingAsWithPermission(['users.create']);
+    $role = Role::factory()->create();
+    $inactiveOrg = Organization::factory()->create(['is_active' => false]);
+
+    $this->actingAs($actor)->postJson('/api/admin/users', validUserPayload([
+        'role_ids' => [$role->id],
+        'organization_id' => $inactiveOrg->id,
+    ]))->assertCreated();
+});
+
+test('update rechaza organization_id de una organización SOFT-DELETED (422)', function () {
+    $target = User::factory()->create();
+    $actor = actingAsWithPermission(['users.update'], $target->tenant_organization_id);
+    $deletedOrg = Organization::factory()->create();
+    $deletedOrg->delete();
+
+    $this->actingAs($actor)->putJson("/api/admin/users/{$target->id}", [
+        'organization_id' => $deletedOrg->id,
+    ])->assertUnprocessable()->assertJsonValidationErrors('organization_id');
+});
+
+// ---- Fix de consistencia (especialista-seguridad, seguimiento 2026-08-08):
+// revokeRole()/activity() quedaron con el chequeo manual de isSameTenantAs()
+// SIN la excepción isPlatformStaff() que sí recibieron show/update/activate/
+// deactivate/resendInvitation/resetPassword en el Fix 1. No era una fuga
+// (fallaban cerrado, denegaban de más) pero sí una inconsistencia: un
+// platform staff no podía revocar un rol ni ver la actividad de un usuario
+// de otro tenant, aunque sí podía verlo/editarlo/activarlo/desactivarlo.
+
+test('revokeRole SÍ permite a platform staff revocar un rol de un usuario de OTRO tenant', function () {
+    $platformOrg = Organization::factory()->create(['is_platform_tenant' => true]);
+    $clientOrg = Organization::factory()->create();
+
+    $roleA = Role::factory()->create();
+    $roleB = Role::factory()->create();
+    $target = User::factory()->create(['tenant_organization_id' => $clientOrg->id]);
+    UserRole::query()->create(['user_id' => $target->id, 'role_id' => $roleA->id, 'is_active' => true]);
+    UserRole::query()->create(['user_id' => $target->id, 'role_id' => $roleB->id, 'is_active' => true]);
+
+    $actor = userManagementPlatformStaffActor(['roles.assign'], $platformOrg);
+
+    $this->actingAs($actor)->postJson("/api/admin/users/{$target->id}/roles/{$roleA->id}/revoke")->assertOk();
+
+    expect(UserRole::query()->where('user_id', $target->id)->where('role_id', $roleA->id)->first()->is_active)->toBeFalse();
+});
+
+test('revokeRole sigue bloqueando (422) a un admin de tenant NORMAL sobre un usuario de OTRO tenant, tras el fix', function () {
+    $orgA = Organization::factory()->create();
+    $orgB = Organization::factory()->create();
+
+    $roleA = Role::factory()->create();
+    $roleB = Role::factory()->create();
+    $target = User::factory()->create(['tenant_organization_id' => $orgB->id]);
+    UserRole::query()->create(['user_id' => $target->id, 'role_id' => $roleA->id, 'is_active' => true]);
+    UserRole::query()->create(['user_id' => $target->id, 'role_id' => $roleB->id, 'is_active' => true]);
+
+    $actor = actingAsWithPermission(['roles.assign'], $orgA->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/users/{$target->id}/roles/{$roleA->id}/revoke")
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('user');
+
+    expect(UserRole::query()->where('user_id', $target->id)->where('role_id', $roleA->id)->first()->is_active)->toBeTrue();
+});
+
+test('activity SÍ permite a platform staff ver la actividad de un usuario de OTRO tenant', function () {
+    $platformOrg = Organization::factory()->create(['is_platform_tenant' => true]);
+    $clientOrg = Organization::factory()->create();
+
+    $target = User::factory()->create(['tenant_organization_id' => $clientOrg->id]);
+    $editor = actingAsWithPermission(['users.update'], $clientOrg->id);
+    $this->actingAs($editor)->putJson("/api/admin/users/{$target->id}", ['email' => 'actividad.staff@example.com'])->assertOk();
+
+    $actor = userManagementPlatformStaffActor(['audit.read'], $platformOrg);
+
+    $this->actingAs($actor)->getJson("/api/admin/users/{$target->id}/activity")
+        ->assertOk()
+        ->assertJsonPath('data.0.event_type', 'USER_UPDATED_BY_ADMIN');
+});
+
+test('activity sigue respondiendo 422 (aislamiento cross-tenant) para un admin de tenant NORMAL sobre un usuario de OTRO tenant, tras el fix', function () {
     $orgA = Organization::factory()->create();
     $orgB = Organization::factory()->create();
 

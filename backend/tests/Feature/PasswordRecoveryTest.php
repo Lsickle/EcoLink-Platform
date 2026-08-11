@@ -8,6 +8,7 @@ use App\Notifications\PasswordResetConfirmationNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 use Tests\TestCase;
 
@@ -377,4 +378,20 @@ test('RN-032: tras OTP_MAX_ATTEMPTS (5) intentos fallidos el código queda inuti
     // fue borrada al llegar al 5º intento fallido.
     $this->postJson('/api/password/verify-code', ['email' => $user->email, 'code' => $code])
         ->assertUnprocessable();
+});
+
+// RN-181: la clave del limiter `password-recovery` normaliza el email --
+// dos requests con el mismo correo en distinta capitalización deben compartir
+// el mismo balde (5/min por IP+email), no abrir un balde independiente por
+// cada variación de mayúsculas.
+test('rate limiting: password-recovery comparte el mismo balde para el mismo email en distinta capitalización', function () {
+    $user = recoverableUser();
+    Notification::fake();
+
+    foreach (range(1, 5) as $attempt) {
+        $email = $attempt % 2 === 0 ? Str::upper($user->email) : $user->email;
+        $this->postJson('/api/password/forgot', ['email' => $email])->assertOk();
+    }
+
+    $this->postJson('/api/password/forgot', ['email' => Str::upper($user->email)])->assertStatus(429);
 });

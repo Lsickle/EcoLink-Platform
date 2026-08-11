@@ -77,7 +77,15 @@ use Database\Seeders\RoleSeeder;
 // crece a 116 permisos con `gestor_carrier_authorizations.read`/`.create`/
 // `.revoke`. Módulo Manifiesto de Descargue, Fase 5 -- última fase del plan
 // (2026-07-22, mismo GAP): crece a 121 permisos con `manifest_unloads.read`/
-// `.create`/`.update`/`.sign`/`.cancel`. ADMINISTRADOR queda con los 121
+// `.create`/`.update`/`.sign`/`.cancel`. Cadena Generador -> Subgestor ->
+// Gestor en Declaración de Residuos (2026-08-09): crece a 124 permisos con
+// `generator_subgestor_relationships.read`/`.create`/`.revoke`. Carga
+// Masiva de Generadores (CSV) por Subgestor/Gestor (2026-08-11): crece a
+// 127 permisos con `generator_gestor_relationships.read`/`.create`/
+// `.revoke` (vínculo DIRECTO Generador<->Gestor, sin permiso nuevo
+// dedicado a la carga masiva en sí -- reutiliza estos dos módulos). Este
+// test file no se había actualizado tras el primero de esos dos lotes --
+// corregido aquí de una vez para ambos. ADMINISTRADOR queda con los 127
 // permisos del catálogo completo.
 
 beforeEach(function () {
@@ -87,7 +95,7 @@ beforeEach(function () {
 });
 
 test('siembra exactamente 121 permisos con los códigos exactos del catálogo', function () {
-    expect(Permission::query()->count())->toBe(121);
+    expect(Permission::query()->count())->toBe(127);
 
     $expectedCodes = [
         'users.create', 'users.read', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.reset-password',
@@ -129,6 +137,8 @@ test('siembra exactamente 121 permisos con los códigos exactos del catálogo', 
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
         'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
         'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
+        'generator_subgestor_relationships.read', 'generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke',
+        'generator_gestor_relationships.read', 'generator_gestor_relationships.create', 'generator_gestor_relationships.revoke',
     ];
 
     expect(Permission::query()->pluck('code')->sort()->values()->all())
@@ -145,8 +155,8 @@ test('governance.view y security.view NUNCA se siembran (D-U12)', function () {
     expect(Permission::query()->whereIn('code', ['governance.view', 'security.view'])->exists())->toBeFalse();
 });
 
-test('siembra ADMINISTRADOR y LOGÍSTICA (los otros 7 roles del catálogo canónico quedan fuera de este lote)', function () {
-    expect(Role::query()->count())->toBe(2);
+test('siembra ADMINISTRADOR, LOGÍSTICA, TECNICO_AMBIENTAL y OPERACIONES (los otros 5 roles del catálogo canónico quedan fuera de este lote)', function () {
+    expect(Role::query()->count())->toBe(4);
 
     $administrador = Role::query()->where('code', 'ADMINISTRADOR')->first();
     expect($administrador)->not->toBeNull()
@@ -157,6 +167,45 @@ test('siembra ADMINISTRADOR y LOGÍSTICA (los otros 7 roles del catálogo canón
     expect($logistica)->not->toBeNull()
         ->and($logistica->is_system)->toBeTrue()
         ->and($logistica->tenant_organization_id)->toBeNull();
+
+    // Verificación de RBAC/privacidad por rol de negocio (2026-08-09):
+    // TECNICO_AMBIENTAL (rol #5) y OPERACIONES (rol #6) del catálogo
+    // canónico, sembrados para que ningún operador de Residuos necesite
+    // ADMINISTRADOR completo -- ver docblock de RoleSeeder.
+    $tecnicoAmbiental = Role::query()->where('code', 'TECNICO_AMBIENTAL')->first();
+    expect($tecnicoAmbiental)->not->toBeNull()
+        ->and($tecnicoAmbiental->is_system)->toBeTrue()
+        ->and($tecnicoAmbiental->tenant_organization_id)->toBeNull();
+
+    $operaciones = Role::query()->where('code', 'OPERACIONES')->first();
+    expect($operaciones)->not->toBeNull()
+        ->and($operaciones->is_system)->toBeTrue()
+        ->and($operaciones->tenant_organization_id)->toBeNull();
+});
+
+test('OPERACIONES queda con wastes.*/treatment_approvals.read+create/generator_subgestor_relationships.*/generator_gestor_relationships.* (lado declarante, universal para cualquier business_role)', function () {
+    $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
+
+    $codes = $operaciones->permissions()->pluck('code')->sort()->values()->all();
+
+    expect($codes)->toBe(collect([
+        'wastes.read', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate',
+        'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject',
+        'treatment_approvals.read', 'treatment_approvals.create',
+        'generator_subgestor_relationships.read', 'generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke',
+        'generator_gestor_relationships.read', 'generator_gestor_relationships.create', 'generator_gestor_relationships.revoke',
+    ])->sort()->values()->all());
+});
+
+test('TECNICO_AMBIENTAL queda EXACTAMENTE con Permission::GESTOR_ONLY_CODES (lado evaluador, exclusivo de organizaciones Gestor)', function () {
+    $tecnicoAmbiental = Role::query()->where('code', 'TECNICO_AMBIENTAL')->firstOrFail();
+
+    $codes = $tecnicoAmbiental->permissions()->pluck('code')->sort()->values()->all();
+
+    expect($codes)->toBe(collect([
+        'treatment_approvals.read', 'treatment_approvals.update', 'treatment_approvals.evaluate',
+        'preapproved_wastes.read', 'preapproved_wastes.manage',
+    ])->sort()->values()->all());
 });
 
 test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, Auditoría, Corrientes de Residuos, Códigos UN, Catálogos Maestros (geografía/tipos de sede/áreas organizacionales/características de peligrosidad/categorías de residuo/estados físicos/tipos de embalaje/estados del embalaje/tipos de vehículo), Sedes + Contactos, Vehículos, Tratamiento (tratamientos + tratamientos por sede), núcleo del Módulo Residuos (tipos de residuo/unidades de medida/frecuencias de generación/estados operativos + CRUD/workflow de residuos) y Evaluación del Gestor (waste_treatment_approvals)', function () {
@@ -204,6 +253,8 @@ test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, A
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
         'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
         'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
+        'generator_subgestor_relationships.read', 'generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke',
+        'generator_gestor_relationships.read', 'generator_gestor_relationships.create', 'generator_gestor_relationships.revoke',
     ])->sort()->values()->all();
 
     expect($codes)->toBe($expected);
@@ -262,7 +313,7 @@ test('marca is_critical=true solo en los 5 permisos confirmados por el usuario (
     expect(Permission::query()->where('is_critical', true)->pluck('code')->sort()->values()->all())
         ->toBe(collect($expectedCritical)->sort()->values()->all());
 
-    expect(Permission::query()->where('is_critical', false)->count())->toBe(121 - count($expectedCritical));
+    expect(Permission::query()->where('is_critical', false)->count())->toBe(127 - count($expectedCritical));
 });
 
 test('los seeders son idempotentes (correr dos veces no duplica filas)', function () {
@@ -270,8 +321,10 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
     $this->seed(RoleSeeder::class);
     $this->seed(RolePermissionSeeder::class);
 
-    expect(Permission::query()->count())->toBe(121)
-        ->and(Role::query()->count())->toBe(2)
-        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(121)
-        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(28);
+    expect(Permission::query()->count())->toBe(127)
+        ->and(Role::query()->count())->toBe(4)
+        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(127)
+        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(28)
+        ->and(Role::query()->where('code', 'OPERACIONES')->firstOrFail()->permissions()->count())->toBe(17)
+        ->and(Role::query()->where('code', 'TECNICO_AMBIENTAL')->firstOrFail()->permissions()->count())->toBe(5);
 });

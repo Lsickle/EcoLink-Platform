@@ -76,4 +76,26 @@ class Permission extends Model
         return $this->tenant_organization_id === null
             || $this->tenant_organization_id === $actor->tenant_organization_id;
     }
+
+    /**
+     * Códigos cuyo alcance conceptual es exclusivo de una organización con
+     * business_role GESTOR (`can_treat_waste=true`) -- evaluar/gestionar
+     * tratamientos ajenos, o el catálogo de Residuos Preaprobados (que solo
+     * un Gestor puede poseer, ver `PreapprovedWastePolicy`). Consultado por
+     * `PermissionController::assignToRole()` (custom roles) y
+     * `RoleController::assignToUser()` (roles globales tipo
+     * `TECNICO_AMBIENTAL`) para bloquear que se otorguen a organizaciones
+     * sin esa capacidad -- confirmado explícitamente por el usuario
+     * (2026-08-09): "el permiso para evaluar residuos solo sea gestionado
+     * por el admin de gestor o el admin de ecolink". `ADMINISTRADOR` queda
+     * exento a propósito (mismo patrón "god mode dentro del propio tenant"
+     * ya usado en el resto del proyecto) -- ver docblock de
+     * `RoleController::assignToUser()`.
+     */
+    public const GESTOR_ONLY_CODES = [
+        'treatment_approvals.update',
+        'treatment_approvals.evaluate',
+        'preapproved_wastes.read',
+        'preapproved_wastes.manage',
+    ];
 }

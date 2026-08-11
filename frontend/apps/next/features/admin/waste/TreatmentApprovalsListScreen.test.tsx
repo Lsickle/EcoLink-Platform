@@ -50,7 +50,13 @@ function approvalsPage(overrides: Partial<Record<string, unknown>> = {}) {
         created_at: '2026-07-01T00:00:00Z',
         updated_at: '2026-07-01T00:00:00Z',
         organization: { id: 2, legal_name: 'EcoGestor SAS' },
-        waste: { id: 20, name: 'Aceite Lubricante Usado', code: 'RES-0001', organization_id: 1 },
+        waste: {
+          id: 20,
+          name: 'Aceite Lubricante Usado',
+          code: 'RES-0001',
+          organization_id: 1,
+          organization: { id: 1, legal_name: 'Immetal SAS' },
+        },
         branch_treatment: { id: 10, operational_name: 'Horno 1', branch_id: 7, treatment_id: 3 },
       },
     ],
@@ -70,11 +76,50 @@ describe('TreatmentApprovalsListScreen', () => {
     pushMock.mockReset()
   })
 
+  // Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders reales, 2026-08-09)
+  test('shows "Remitido por: {Subgestor}" instead of the Generador when forwarded_by_organization is present', async () => {
+    fetchTreatmentApprovalsMock.mockResolvedValue(
+      approvalsPage({
+        data: [
+          {
+            id: 6,
+            uuid: 'ta-6',
+            organization_id: 2,
+            waste_id: 21,
+            branch_treatment_id: 10,
+            version: 1,
+            commercial_status: 'DRAFT',
+            technical_status: 'PENDING',
+            unit_price: null,
+            currency: 'COP',
+            billing_unit: 'KG',
+            is_active: true,
+            created_at: '2026-08-09T00:00:00Z',
+            updated_at: '2026-08-09T00:00:00Z',
+            organization: { id: 2, legal_name: 'EcoGestor SAS' },
+            waste: { id: 21, name: 'Residuo Reenviado', code: null, organization_id: 1, organization: null },
+            branch_treatment: { id: 10, operational_name: 'Horno 1', branch_id: 7, treatment_id: 3 },
+            forwarded_by_organization_id: 5,
+            forwarded_by_organization: { id: 5, legal_name: 'LogVerde SAS' },
+          },
+        ],
+        total: 1,
+      })
+    )
+
+    render(<TreatmentApprovalsListScreen />)
+
+    await screen.findByText('Residuo Reenviado')
+    expect(screen.getByText(/Remitido por: LogVerde SAS/)).toBeInTheDocument()
+    expect(screen.queryByText('Immetal SAS')).not.toBeInTheDocument()
+  })
+
   test('renders the Residuo/Tratamiento/Estado Técnico/Estado Comercial/Precio columns', async () => {
     render(<TreatmentApprovalsListScreen />)
 
     await screen.findByText('Aceite Lubricante Usado')
     expect(screen.getByText('EcoGestor SAS')).toBeInTheDocument()
+    expect(screen.getByText('Immetal SAS')).toBeInTheDocument()
     expect(screen.getByText('Horno 1')).toBeInTheDocument()
     expect(screen.getByText('Aprobado')).toBeInTheDocument()
     expect(screen.getByText('Cotizado')).toBeInTheDocument()

@@ -46,6 +46,19 @@ test('user:unlock también acepta el email como login', function () {
     expect($user->refresh()->locked_until)->toBeNull();
 });
 
+// RN-181: mismo criterio anti-mayúsculas de AuthController::login().
+test('user:unlock encuentra al usuario por email en mayúsculas distintas a como se guardó (case-insensitive)', function () {
+    $user = User::factory()->create([
+        'email' => 'bloqueada.mayus@example.com',
+        'locked_until' => now(),
+    ]);
+
+    $this->artisan('user:unlock', ['login' => 'BLOQUEADA.MAYUS@EXAMPLE.COM', '--force' => true])
+        ->assertExitCode(0);
+
+    expect($user->refresh()->locked_until)->toBeNull();
+});
+
 test('user:unlock pide confirmación y no desbloquea si el usuario responde que no', function () {
     $user = User::factory()->create([
         'username' => 'bloqueada.sinconfirmar',

@@ -84,20 +84,27 @@ function treatmentApprovalPrice(approval: AdminTreatmentApproval): string {
 // listado. Sin KPIs -- `index()` no los calcula (a diferencia de
 // BranchTreatmentsListScreen.tsx/VehiclesListScreen.tsx).
 //
-// GAP de contrato documentado en el resumen del lote: `index()` eager-carga
-// `branchTreatment:id,operational_name,branch_id,treatment_id` (SIN
-// `treatment` anidado) y `waste:id,name,code,organization_id` (SIN
-// `waste.organization` anidado) -- por eso la columna "Tratamiento" usa
+// GAP de contrato parcial (queda solo el de "Tratamiento"): `index()`
+// eager-carga `branchTreatment:id,operational_name,branch_id,treatment_id`
+// (SIN `treatment` anidado) -- por eso la columna "Tratamiento" usa
 // `operational_name` (el nombre que el propio Gestor le dio a esa
 // habilitación) en vez del nombre del tratamiento base, con el nombre del
 // Gestor (`approval.organization.legal_name` -- ESTE SÍ disponible en
 // `index()`, es el otro lado de la relación cruzada) como subtítulo -- útil
 // sobre todo para platform staff, que ve evaluaciones de múltiples Gestores
 // a la vez. La columna "Organización Generadora" (el dueño del residuo, NO
-// el Gestor) no puede resolverse a un nombre con los datos de `index()` --
-// solo se conoce el `organization_id` numérico del residuo, no su
-// `legal_name` -- se muestra "—" en vez de inventar un valor. El detalle
-// (`show()`) SÍ trae ambos completos, ver TreatmentApprovalDetailScreen.tsx.
+// el Gestor) SÍ resuelve a nombre real (`approval.waste.organization.legal_name`)
+// -- `index()` ahora eager-carga `waste.organization:id,legal_name` (fix de
+// gap de contrato, antes mostraba "—"). El detalle (`show()`) sigue trayendo
+// ambos lados completos, ver TreatmentApprovalDetailScreen.tsx.
+//
+// Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders
+// reales, 2026-08-09): cuando la fila llegó vía reenvío de un Subgestor
+// (`forwarded_by_organization` no `null`), esta MISMA columna muestra
+// "Remitido por: {Subgestor}" en vez del nombre del Generador -- el backend
+// ya devuelve `waste.organization: null` para esos casos (ver
+// `WasteTreatmentApprovalController::maskForwardedWasteOrganization()`), el
+// dato NO se pierde en base de datos, solo no se expone a este actor.
 export function TreatmentApprovalsListScreen() {
   const router = useRouter()
   const { isAuthorized } = useRequireAuth('treatment_approvals.read')
@@ -259,7 +266,15 @@ export function TreatmentApprovalsListScreen() {
                       <div className="text-xs text-muted-foreground">{approval.waste?.code ?? '—'}</div>
                     </button>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">—</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {approval.forwarded_by_organization ? (
+                      <span title="El Generador reenvió este residuo a través de un Subgestor -- su identidad no se expone en esta pantalla.">
+                        Remitido por: {approval.forwarded_by_organization.legal_name}
+                      </span>
+                    ) : (
+                      (approval.waste?.organization?.legal_name ?? '—')
+                    )}
+                  </TableCell>
                   <TableCell>
                     <div>{approval.branch_treatment?.operational_name ?? `Tratamiento #${approval.branch_treatment_id}`}</div>
                     <div className="text-xs text-muted-foreground">{approval.organization?.legal_name ?? '—'}</div>

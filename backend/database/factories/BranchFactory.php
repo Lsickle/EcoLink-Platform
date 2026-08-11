@@ -31,7 +31,9 @@ class BranchFactory extends Factory
             'email' => fake()->unique()->companyEmail(),
             'environmental_license' => null,
             'license_expiration_date' => null,
-            'operational_capacity' => null,
+            'operational_capacity_kg' => null,
+            'operational_capacity_liters' => null,
+            'operational_capacity_m3' => null,
             'observations' => null,
             'is_active' => true,
         ];

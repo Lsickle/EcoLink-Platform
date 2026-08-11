@@ -1614,6 +1614,7 @@ CREATE TABLE users (
   last_login_at TIMESTAMPTZ NULL,
   failed_login_attempts INTEGER NOT NULL DEFAULT 0,
   locked_until TIMESTAMPTZ NULL,
+  must_change_password BOOLEAN NOT NULL DEFAULT false,  -- añadida 2026-08-11 (Cambio de contraseña obligatorio en el primer login), no estaba en el diccionario original; migración `2026_08_11_000002_add_must_change_password_to_users_table`
   mfa_enabled BOOLEAN NOT NULL DEFAULT false,
   mfa_secret VARCHAR(255) NULL,
   email_verified_at TIMESTAMPTZ NULL,

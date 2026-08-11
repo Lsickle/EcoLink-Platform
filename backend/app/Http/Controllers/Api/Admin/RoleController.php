@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
+use App\Models\Organization;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SecurityLog;
 use App\Models\User;
@@ -487,6 +489,28 @@ class RoleController extends Controller
 
     /**
      * RN-027/CU-006.7: asigna (o reactiva) un rol a un usuario.
+     *
+     * Fix de consistencia (especialista-seguridad, seguimiento 2026-08-08):
+     * el chequeo del USUARIO objetivo gana la misma excepción
+     * `isPlatformStaff()` que `UserManagementController` (Fix 1) y que
+     * `users()`/`activity()` de esta misma clase -- antes quedaba
+     * inconsistente (no era una fuga, fallaba cerrado: un platform staff no
+     * podía asignarle un rol a un usuario de otro tenant). Un admin de
+     * tenant NORMAL sigue exactamente igual de bloqueado que antes.
+     *
+     * Verificación RBAC/privacidad del módulo Residuos (2026-08-09,
+     * confirmado por el usuario): si el rol otorga algún permiso de
+     * `Permission::GESTOR_ONLY_CODES` (ej. `TECNICO_AMBIENTAL`, o un rol
+     * custom que un tenant admin le haya agregado esos permisos), el
+     * usuario DESTINO debe pertenecer a una organización con business_role
+     * GESTOR (`can_treat_waste=true`) -- "el permiso para evaluar residuos
+     * solo sea gestionado por el admin de gestor o el admin de ecolink".
+     * `ADMINISTRADOR` queda exento a propósito -- es el único rol "god mode
+     * dentro del propio tenant" ya establecido en todo el proyecto (todo
+     * tenant lo necesita para su bootstrap, sin importar su business_role),
+     * y despojarlo de estos permisos rompería ese patrón ya verificado
+     * (Camilo/Immetal y Diana/EcoTrata operan Residuos hoy solo con
+     * ADMINISTRADOR).
      */
     public function assignToUser(Request $request, Role $role)
     {
@@ -509,11 +533,31 @@ class RoleController extends Controller
         $targetUser = User::query()->findOrFail($data['user_id']);
 
         // Hallazgo Crítico: el usuario objetivo debe pertenecer al mismo
-        // tenant que el actor -- ver aviso de clase.
-        if (! $request->user()->isSameTenantAs($targetUser)) {
+        // tenant que el actor -- ver aviso de clase. Excepción isPlatformStaff()
+        // agregada en el fix de consistencia de seguimiento (ver docblock del método).
+        if (! $request->user()->isSameTenantAs($targetUser) && ! $request->user()->isPlatformStaff()) {
             throw ValidationException::withMessages([
                 'user_id' => ['El usuario indicado no pertenece a tu organización.'],
             ]);
+        }
+
+        if (! $request->user()->isPlatformStaff() && $role->code !== 'ADMINISTRADOR') {
+            $grantsGestorOnlyPermission = $role->permissions()
+                ->wherePivot('is_active', true)
+                ->whereIn('code', Permission::GESTOR_ONLY_CODES)
+                ->exists();
+
+            if ($grantsGestorOnlyPermission) {
+                $targetOrganization = $targetUser->tenant_organization_id
+                    ? Organization::find($targetUser->tenant_organization_id)
+                    : null;
+
+                if (! $targetOrganization || ! $targetOrganization->hasCapability('can_treat_waste')) {
+                    throw ValidationException::withMessages([
+                        'role' => ['Este rol otorga permisos de evaluación de tratamientos, exclusivos de organizaciones con rol de negocio Gestor.'],
+                    ]);
+                }
+            }
         }
 
         UserRole::query()->updateOrCreate(

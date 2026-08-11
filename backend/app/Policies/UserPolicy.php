@@ -18,6 +18,25 @@ use App\Models\User;
  * Sin jerarquía matriz-hija (RN-188) todavía -- pendiente explícito, no se
  * replica aquí (ver resumen entregado al hilo principal).
  *
+ * Hallazgo Alto (especialista-seguridad, 2026-08-08): `isSameTenantAs()` sin
+ * excepción dejaba al staff de la organización Plataforma (`User::
+ * isPlatformStaff()`) sin ningún camino para volver a ver/gestionar un
+ * usuario que ELLOS MISMOS crearon bajo el tenant de una organización
+ * cliente nueva (ver `UserProvisioningService::resolveTenantOrganizationId()`)
+ * -- si la invitación por correo rebotaba o expiraba (TTL 7 días), el
+ * usuario quedaba huérfano, sin nadie capaz de reenviar la invitación,
+ * reactivarlo o resetear su contraseña. Todos los métodos de abajo agregan
+ * `|| $actor->isPlatformStaff()` como excepción de visibilidad/gestión --
+ * mismo criterio ya usado en `Role::isAccessibleBy()` (ver ese modelo), pero
+ * SIN el acotamiento adicional que `RoleController::users()`/`activity()`
+ * necesitaron (ahí el hallazgo Crítico era exponer el ROSTER de PII de
+ * terceros vía un rol GLOBAL ajeno al actor; aquí el `$target` YA ES el
+ * usuario concreto que se quiere gestionar, no un listado de terceros
+ * desconocidos -- conceder acceso completo cross-tenant al platform staff es
+ * el comportamiento pedido, no una sobre-relajación). Un admin de tenant
+ * normal (no platform staff) sigue exigiendo `isSameTenantAs()` exacto, sin
+ * cambios.
+ *
  * `activate`/`deactivate`/`resetPassword` no son verbos CRUD estándar de
  * Laravel, se definen como métodos custom (Gate::authorize('activate',
  * $target)). Hallazgo Medio (especialista-seguridad, 2026-07-13): un solo
@@ -37,7 +56,7 @@ class UserPolicy
 
     public function view(User $actor, User $target): bool
     {
-        return $actor->hasPermission('users.read') && $actor->isSameTenantAs($target);
+        return $actor->hasPermission('users.read') && ($actor->isSameTenantAs($target) || $actor->isPlatformStaff());
     }
 
     public function create(User $actor): bool
@@ -47,27 +66,27 @@ class UserPolicy
 
     public function update(User $actor, User $target): bool
     {
-        return $actor->hasPermission('users.update') && $actor->isSameTenantAs($target);
+        return $actor->hasPermission('users.update') && ($actor->isSameTenantAs($target) || $actor->isPlatformStaff());
     }
 
     public function delete(User $actor, User $target): bool
     {
-        return $actor->hasPermission('users.delete') && $actor->isSameTenantAs($target);
+        return $actor->hasPermission('users.delete') && ($actor->isSameTenantAs($target) || $actor->isPlatformStaff());
     }
 
     public function activate(User $actor, User $target): bool
     {
-        return $actor->hasPermission('users.activate') && $actor->isSameTenantAs($target);
+        return $actor->hasPermission('users.activate') && ($actor->isSameTenantAs($target) || $actor->isPlatformStaff());
     }
 
     public function deactivate(User $actor, User $target): bool
     {
-        return $actor->hasPermission('users.deactivate') && $actor->isSameTenantAs($target);
+        return $actor->hasPermission('users.deactivate') && ($actor->isSameTenantAs($target) || $actor->isPlatformStaff());
     }
 
     public function resetPassword(User $actor, User $target): bool
     {
-        return $actor->hasPermission('users.reset-password') && $actor->isSameTenantAs($target);
+        return $actor->hasPermission('users.reset-password') && ($actor->isSameTenantAs($target) || $actor->isPlatformStaff());
     }
 
     /**
@@ -80,6 +99,6 @@ class UserPolicy
      */
     public function resendInvitation(User $actor, User $target): bool
     {
-        return $actor->hasPermission('users.create') && $actor->isSameTenantAs($target);
+        return $actor->hasPermission('users.create') && ($actor->isSameTenantAs($target) || $actor->isPlatformStaff());
     }
 }

@@ -63,6 +63,17 @@ class WasteTreatmentApprovalController extends Controller
      * perspectiva del Gestor. Mismo criterio de acceso dual dentro del eje
      * Gestor (`organization_id`) que el resto del proyecto: platform staff
      * ve todas, un Gestor solo las suyas.
+     *
+     * Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders
+     * reales, 2026-08-09): para un actor NO platform-staff, TODAS las filas
+     * devueltas tienen `organization_id === actor` por el scoping de arriba
+     * -- es decir, el actor es SIEMPRE el Gestor evaluador de cada fila que
+     * ve aquí (nunca el dueño del residuo ni el Subgestor que reenvió, esos
+     * casos no pasan este filtro). Por eso el ocultamiento de
+     * `waste.organization` (ver `maskForwardedWasteOrganization()`) se
+     * aplica sin distinción adicional cuando `forwarded_by_organization_id`
+     * no es NULL -- el dato NO se borra de la base de datos, solo se omite
+     * de esta respuesta JSON.
      */
     public function index(Request $request)
     {
@@ -87,18 +98,26 @@ class WasteTreatmentApprovalController extends Controller
             ->with([
                 'organization:id,legal_name',
                 'waste:id,name,code,organization_id',
+                'waste.organization:id,legal_name',
+                'forwardedByOrganization:id,legal_name',
                 'branchTreatment:id,operational_name,branch_id,treatment_id',
             ])
             ->orderByDesc('created_at')
             ->paginate($request->integer('per_page', 15));
 
+        if (! $actor->isPlatformStaff()) {
+            $approvals->getCollection()->each(fn (WasteTreatmentApproval $approval) => $this->maskForwardedWasteOrganization($approval));
+        }
+
         return response()->json($approvals);
     }
 
     /**
-     * GET /admin/treatment-approvals/{treatmentApproval} -- ambos lados de
-     * la relación cruzada pueden ver el detalle, ninguno puede editar el
-     * lado ajeno (ver update()/las transiciones).
+     * GET /admin/treatment-approvals/{treatmentApproval} -- ahora TRES lados
+     * de la relación pueden ver el detalle (Gestor evaluador, dueño del
+     * residuo, y -- cadena Generador -> Subgestor -> Gestor, 2026-08-09 --
+     * el Subgestor que reenvió), ninguno puede editar el lado ajeno (ver
+     * update()/las transiciones).
      */
     public function show(Request $request, WasteTreatmentApproval $treatmentApproval)
     {
@@ -108,6 +127,7 @@ class WasteTreatmentApprovalController extends Controller
             'organization:id,legal_name',
             'waste:id,name,code,organization_id',
             'waste.organization:id,legal_name',
+            'forwardedByOrganization:id,legal_name',
             // El Gestor evaluador (dueño de organization_id de esta fila) NO
             // tiene acceso directo a GET /admin/wastes/{id} -- WastePolicy::view()
             // lo bloquea correctamente para quien no es dueño del residuo ni
@@ -123,7 +143,31 @@ class WasteTreatmentApprovalController extends Controller
             'commercialApprovedBy:id,username',
         ]);
 
+        // Ocultamiento SOLO para el Gestor evaluador viendo una evaluación
+        // que le llegó vía reenvío de un Subgestor -- ni el dueño del
+        // residuo ni el propio Subgestor (que ya conoce ambas identidades)
+        // se ven afectados por esta rama.
+        if (! $request->user()->isPlatformStaff() && $treatmentApproval->organization_id === $request->user()->tenant_organization_id) {
+            $this->maskForwardedWasteOrganization($treatmentApproval);
+        }
+
         return response()->json(['treatment_approval' => $treatmentApproval]);
+    }
+
+    /**
+     * Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders
+     * reales, 2026-08-09): cuando la fila tiene `forwarded_by_organization_id`
+     * (ruta indirecta), oculta la relación `waste.organization` YA CARGADA
+     * en memoria -- el dato sigue intacto en base de datos
+     * (`waste.organization_id` no cambia), esto es puramente una proyección
+     * condicional de la respuesta JSON. Sin efecto si la ruta fue directa
+     * (`forwarded_by_organization_id` NULL, comportamiento sin cambios).
+     */
+    private function maskForwardedWasteOrganization(WasteTreatmentApproval $approval): void
+    {
+        if ($approval->forwarded_by_organization_id !== null) {
+            $approval->waste?->setRelation('organization', null);
+        }
     }
 
     /**
@@ -408,9 +452,15 @@ class WasteTreatmentApprovalController extends Controller
 
     /**
      * GET /admin/wastes/{waste}/treatment-approvals -- visible para el
-     * dueño del residuo (ve TODAS las que él generó, de cualquier Gestor) Y
+     * dueño del residuo (ve TODAS las que él generó, de cualquier Gestor),
      * cada Gestor solo ve LA SUYA dentro de esa lista si no es el dueño del
-     * residuo.
+     * residuo, y -- cadena Generador -> Subgestor -> Gestor, confirmado por
+     * stakeholders reales 2026-08-09 -- un Subgestor autorizado
+     * (`Waste::isForwardableBySubgestor()`) ve SOLO las que él mismo
+     * reenvió (no las que el propio Generador haya solicitado directamente
+     * a otro Gestor, ni las de otro Subgestor). Sin ocultamiento de
+     * `waste.organization` en este endpoint -- nunca se expuso aquí (el
+     * `waste` ya es el contexto de la propia pantalla que lo llama).
      */
     public function indexForWaste(Request $request, Waste $waste)
     {
@@ -418,8 +468,9 @@ class WasteTreatmentApprovalController extends Controller
 
         $actor = $request->user();
         $isWasteOwnerSide = $waste->isAccessibleBy($actor);
+        $isForwardingSubgestor = ! $isWasteOwnerSide && $waste->isForwardableBySubgestor($actor);
 
-        if (! $isWasteOwnerSide) {
+        if (! $isWasteOwnerSide && ! $isForwardingSubgestor) {
             $hasOwnEvaluation = WasteTreatmentApproval::query()
                 ->where('waste_id', $waste->id)
                 ->where('organization_id', $actor->tenant_organization_id)
@@ -430,7 +481,8 @@ class WasteTreatmentApprovalController extends Controller
 
         $approvals = WasteTreatmentApproval::query()
             ->where('waste_id', $waste->id)
-            ->when(! $isWasteOwnerSide, fn ($query) => $query->where('organization_id', $actor->tenant_organization_id))
+            ->when($isForwardingSubgestor, fn ($query) => $query->where('forwarded_by_organization_id', $actor->tenant_organization_id))
+            ->when(! $isWasteOwnerSide && ! $isForwardingSubgestor, fn ($query) => $query->where('organization_id', $actor->tenant_organization_id))
             ->with(['organization:id,legal_name', 'branchTreatment.treatment', 'branchTreatment.branch:id,name'])
             ->orderByDesc('created_at')
             ->paginate($request->integer('per_page', 15));
@@ -440,15 +492,24 @@ class WasteTreatmentApprovalController extends Controller
 
     /**
      * POST /admin/wastes/{waste}/treatment-approvals -- el Generador (dueño
-     * accesible del residuo, mismo `Gate::authorize('update', $waste)` ya
-     * usado por `WasteController`) elige un `branch_treatment_id` de un
-     * Gestor -- esa elección ES la invitación. `organization_id` de la fila
-     * nueva se fija SIEMPRE server-side al dueño de `branch_treatment_id`,
-     * nunca del payload.
+     * accesible del residuo) elige un `branch_treatment_id` de un Gestor --
+     * esa elección ES la invitación. `organization_id` de la fila nueva se
+     * fija SIEMPRE server-side al dueño de `branch_treatment_id`, nunca del
+     * payload.
+     *
+     * Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders
+     * reales, 2026-08-09): la ability cambió de `update` a
+     * `requestEvaluation` (`WastePolicy`) -- un Subgestor con relación
+     * activa (`Waste::isForwardableBySubgestor()`) puede reenviar el
+     * residuo de su Generador cliente SIN tener permiso de editarlo. Cuando
+     * el actor NO es el dueño accesible del residuo (es decir, reenvía en
+     * nombre de otro), `forwarded_by_organization_id` se fija a su propia
+     * organización -- `NULL` cuando el actor sí es el dueño (o platform
+     * staff), comportamiento idéntico al anterior.
      */
     public function storeForWaste(Request $request, Waste $waste)
     {
-        Gate::authorize('update', $waste);
+        Gate::authorize('requestEvaluation', $waste);
         abort_unless($request->user()->hasPermission('treatment_approvals.create'), 403, 'No tiene permiso para solicitar evaluaciones de tratamiento.');
 
         $data = $request->validate([
@@ -462,17 +523,21 @@ class WasteTreatmentApprovalController extends Controller
         $this->assertBranchTreatmentOrganizationCanTreatWaste($branchTreatment);
         $this->assertNoActiveDuplicateRequest($waste->id, $branchTreatment->id);
 
+        $actor = $request->user();
+        $isWasteOwnerSide = $waste->isAccessibleBy($actor);
+
         $approval = WasteTreatmentApproval::query()->create([
             'organization_id' => $branchTreatment->organization_id,
             'waste_id' => $waste->id,
             'branch_treatment_id' => $branchTreatment->id,
+            'forwarded_by_organization_id' => $isWasteOwnerSide ? null : $actor->tenant_organization_id,
             'is_active' => true,
         ]);
 
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_CREATED', 'SUCCESS',
-            "Evaluación de tratamiento solicitada para el residuo '{$waste->name}'.", $request->user(),
-            ['waste_treatment_approval_id' => $approval->id, 'waste_id' => $waste->id, 'organization_id' => $approval->organization_id],
+            "Evaluación de tratamiento solicitada para el residuo '{$waste->name}'.", $actor,
+            ['waste_treatment_approval_id' => $approval->id, 'waste_id' => $waste->id, 'organization_id' => $approval->organization_id, 'forwarded_by_organization_id' => $approval->forwarded_by_organization_id],
         );
 
         return response()->json(['treatment_approval' => $approval->fresh(['organization:id,legal_name', 'branchTreatment.treatment'])], 201);

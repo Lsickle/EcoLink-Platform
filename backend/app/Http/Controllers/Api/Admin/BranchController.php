@@ -316,10 +316,14 @@ class BranchController extends Controller
     /**
      * `organization_id` se maneja aparte (`store()`/`update()`, distinto
      * criterio de required/forzado según platform staff vs. tenant admin) --
-     * este set cubre el resto del formulario. `code` es único COMPUESTO con
-     * `organization_id` (esquema-bd: `branches.unique(['organization_id',
-     * 'code'])`), excluyendo soft-deletes desde el inicio (mismo criterio ya
-     * aplicado en `OrganizationController` para `tax_id`).
+     * este set cubre el resto del formulario. `code` es OPCIONAL
+     * (esquema-bd: `branches.code VARCHAR(50) NULL`) y único COMPUESTO con
+     * `organization_id` cuando se provee (esquema-bd: índice único parcial
+     * `(organization_id, code) WHERE deleted_at IS NULL`), excluyendo
+     * soft-deletes desde el inicio (mismo criterio ya aplicado en
+     * `OrganizationController` para `tax_id`). Postgres no colisiona
+     * múltiples `NULL` en un índice único, así que varias sedes sin `code`
+     * en la misma organización coexisten sin conflicto.
      */
     private function validationRules(?int $organizationId, ?int $ignoreBranchId = null, bool $sometimes = false): array
     {
@@ -328,7 +332,7 @@ class BranchController extends Controller
         return [
             'branch_type_id' => [$required, 'integer', 'exists:branch_types,id'],
             'code' => [
-                $required, 'string', 'max:50',
+                'sometimes', 'nullable', 'string', 'max:50',
                 Rule::unique('branches', 'code')
                     ->where(fn ($query) => $query->where('organization_id', $organizationId))
                     ->whereNull('deleted_at')
@@ -345,7 +349,9 @@ class BranchController extends Controller
             'email' => ['sometimes', 'nullable', 'email', 'max:255'],
             'environmental_license' => ['sometimes', 'nullable', 'string', 'max:255'],
             'license_expiration_date' => ['sometimes', 'nullable', 'date'],
-            'operational_capacity' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'operational_capacity_kg' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'operational_capacity_liters' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'operational_capacity_m3' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'observations' => ['sometimes', 'nullable', 'string'],
             'is_active' => ['sometimes', 'boolean'],
         ];

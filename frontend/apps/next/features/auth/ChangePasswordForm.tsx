@@ -21,9 +21,19 @@ type FieldErrors = Partial<Record<'currentPassword' | 'newPassword' | 'newPasswo
 
 // PUT /api/password (AuthController::changePassword) -- protegido por
 // auth:sanctum, de ahí useRequireAuth (redirige a /login si no hay sesión).
+//
+// Cambio de contraseña obligatorio en el primer login (confirmado por el
+// usuario, 2026-08-11): mismo formulario, sin duplicar -- cuando
+// `user.must_change_password` es true (`useRequireAuth()` ya redirigió
+// aquí, ver provider/auth), se oculta "Volver" (no se puede posponer) y
+// cambia el copy introductorio. Al completar con éxito en ese modo, se
+// refresca `AuthUser` (el flag ya viene en `false` desde el backend) y
+// recién ahí navega a `/` -- en el modo voluntario (flag ya en false) se
+// deja el mensaje de éxito en pantalla, igual que antes.
 export function ChangePasswordForm() {
   const router = useRouter()
-  const { user, isLoading } = useRequireAuth()
+  const { user, isLoading, refresh } = useRequireAuth()
+  const isMandatory = Boolean(user?.must_change_password)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -66,10 +76,15 @@ export function ChangePasswordForm() {
     setIsSubmitting(true)
     try {
       await changePassword(parsed.data)
-      setSuccessMessage('Contraseña actualizada.')
       setCurrentPassword('')
       setNewPassword('')
       setNewPasswordConfirmation('')
+      if (isMandatory) {
+        await refresh()
+        router.push('/')
+        return
+      }
+      setSuccessMessage('Contraseña actualizada.')
     } catch (error) {
       if (error instanceof ApiValidationError) {
         // El backend usa nombres de columna (current_password/password), no
@@ -90,7 +105,11 @@ export function ChangePasswordForm() {
     <Card className="w-full max-w-sm">
       <CardHeader className="text-center">
         <CardTitle className="text-xl">Cambiar contraseña</CardTitle>
-        <CardDescription>Actualiza la contraseña de tu cuenta EcoLink</CardDescription>
+        <CardDescription>
+          {isMandatory
+            ? 'Tu cuenta se creó con una contraseña temporal -- debes cambiarla antes de continuar.'
+            : 'Actualiza la contraseña de tu cuenta EcoLink'}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-6" noValidate>
@@ -167,9 +186,11 @@ export function ChangePasswordForm() {
             {isSubmitting ? 'Actualizando…' : 'Actualizar contraseña'}
           </Button>
 
-          <Button type="button" variant="ghost" className="w-full" onClick={() => router.push('/')}>
-            Volver
-          </Button>
+          {!isMandatory && (
+            <Button type="button" variant="ghost" className="w-full" onClick={() => router.push('/')}>
+              Volver
+            </Button>
+          )}
         </form>
       </CardContent>
     </Card>

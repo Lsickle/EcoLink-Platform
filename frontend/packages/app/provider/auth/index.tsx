@@ -1,8 +1,14 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { useRouter } from 'solito/navigation'
+import { usePathname, useRouter } from 'solito/navigation'
 import { logout as apiLogout, me, type AuthUser } from '../../features/auth/api'
+
+// Cambio de contraseña obligatorio en el primer login (confirmado por el
+// usuario, 2026-08-11): ruta de la pantalla que atiende ese cambio -- se
+// excluye a sí misma del redirect forzado en `useRequireAuth()` de abajo
+// (si no, el usuario mandado ahí quedaría en loop de redirección).
+const CHANGE_PASSWORD_PATH = '/change-password'
 
 // Estado global de sesión (gap confirmado: hoy ninguna pantalla sabe si hay
 // usuario logueado). Se hidrata llamando a GET /api/user (RN-181, cookie
@@ -90,10 +96,23 @@ export type RequireAuthOptions = {
  * `requirePlatformStaff` (no antes, para no interrumpir mientras me()
  * todavía está en vuelo). Usa el router de solito para que la misma lógica
  * sirva en la futura app móvil.
+ *
+ * Cambio de contraseña obligatorio en el primer login (confirmado por el
+ * usuario, 2026-08-11): si `must_change_password` está en true, se redirige
+ * a `/change-password` ANTES de evaluar `requiredPermission`/
+ * `requirePlatformStaff` -- ignora qué pantalla se pidió, el usuario no
+ * puede usar nada más hasta cambiarla (el backend refuerza lo mismo en
+ * `EnsureUserIsActive`, esto es solo la UX). `/change-password` se excluye
+ * a sí misma para no quedar en loop, y siempre cuenta como autorizada
+ * mientras haya sesión (sin importar el flag ni `requiredPermission` --
+ * esa pantalla no pide ninguno).
  */
 export function useRequireAuth(requiredPermission?: string, options?: RequireAuthOptions): RequireAuthResult {
   const auth = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
+  const mustChangePassword = Boolean(auth.user?.must_change_password)
+  const isChangePasswordScreen = pathname === CHANGE_PASSWORD_PATH
   const hasPermission = !requiredPermission || Boolean(auth.user?.permissions?.includes(requiredPermission))
   const hasPlatformStaff = !options?.requirePlatformStaff || Boolean(auth.user?.is_platform_staff)
   const isAllowed = hasPermission && hasPlatformStaff
@@ -104,13 +123,18 @@ export function useRequireAuth(requiredPermission?: string, options?: RequireAut
       router.replace('/login')
       return
     }
-    if (!isAllowed) {
+    if (mustChangePassword && !isChangePasswordScreen) {
+      router.replace(CHANGE_PASSWORD_PATH)
+      return
+    }
+    if (!mustChangePassword && !isAllowed) {
       router.replace('/')
     }
-  }, [auth.isLoading, auth.user, isAllowed, router])
+  }, [auth.isLoading, auth.user, mustChangePassword, isChangePasswordScreen, isAllowed, router])
 
   return {
     ...auth,
-    isAuthorized: !auth.isLoading && Boolean(auth.user) && isAllowed,
+    isAuthorized:
+      !auth.isLoading && Boolean(auth.user) && (isChangePasswordScreen ? true : !mustChangePassword && isAllowed),
   }
 }

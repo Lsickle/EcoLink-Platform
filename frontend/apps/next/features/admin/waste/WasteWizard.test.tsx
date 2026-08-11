@@ -106,7 +106,7 @@ describe('WasteWizard', () => {
     })
     fetchBranchesMock.mockResolvedValue({
       ...emptyPage,
-      data: [{ id: 3, uuid: 'br-3', tenant_organization_id: 1, organization_id: 1, branch_type_id: 1, code: null, name: 'Sede Principal', status: 'ACTIVE', country_id: null, department_id: null, municipality_id: null, locality_id: null, address: null, phone: null, email: null, environmental_license: null, license_expiration_date: null, operational_capacity: null, observations: null, is_active: true, created_at: '', updated_at: '', created_by: null, updated_by: null }],
+      data: [{ id: 3, uuid: 'br-3', tenant_organization_id: 1, organization_id: 1, branch_type_id: 1, code: null, name: 'Sede Principal', status: 'ACTIVE', country_id: null, department_id: null, municipality_id: null, locality_id: null, address: null, phone: null, email: null, environmental_license: null, license_expiration_date: null, operational_capacity_kg: null, operational_capacity_liters: null, operational_capacity_m3: null, observations: null, is_active: true, created_at: '', updated_at: '', created_by: null, updated_by: null }],
       kpis: { total: 1, active: 1, inactive: 0, suspended: 0 },
     })
     fetchMeasurementUnitsMock.mockResolvedValue({
@@ -408,5 +408,107 @@ describe('WasteWizard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Quitar' }))
     expect(screen.getByLabelText('Organización')).toHaveValue('')
+  })
+
+  // Bug de staging (NOTAS-PRUEBAS-STAGING.md, "Residuos / Residuos
+  // Preaprobados"): las 3 zonas de carga del Paso 4 invitaban a
+  // arrastrar-soltar pero no tenían handlers de drag-and-drop -- al soltar
+  // un archivo el navegador ejecutaba su acción por defecto (abrirlo en una
+  // pestaña nueva) en vez de adjuntarlo.
+  describe('Paso 4: arrastrar y soltar archivos (drag-and-drop)', () => {
+    async function goToStep4({ requiresSds = false }: { requiresSds?: boolean } = {}) {
+      createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
+      render(<WasteWizard />)
+
+      await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+      fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
+      fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
+      await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
+
+      if (requiresSds) {
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Requiere Hoja de Seguridad (SDS)' }))
+      }
+
+      fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
+      await screen.findByRole('heading', { name: 'Paso 3 de 5 — Información de Generación' })
+
+      fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
+      await screen.findByRole('heading', { name: 'Paso 4 de 5 — Evidencias y Documentos' })
+    }
+
+    test('soltar una foto sobre la zona de fotos la sube (en vez de dejar que el navegador la abra)', async () => {
+      await goToStep4()
+      uploadFileMock.mockResolvedValue({ file: { id: 1, original_filename: 'foto.jpg' } })
+
+      const input = screen.getByLabelText('Seleccionar fotos')
+      const dropzone = input.closest('label')
+      expect(dropzone).not.toBeNull()
+
+      const file = new File(['foto'], 'foto.jpg', { type: 'image/jpeg' })
+      fireEvent.drop(dropzone as HTMLElement, { dataTransfer: { files: [file] } })
+
+      await vi.waitFor(() => {
+        expect(uploadFileMock).toHaveBeenCalledWith(
+          expect.objectContaining({ file, entityType: 'WASTE', entityId: 50, fileCategory: 'WASTE_PHOTO' })
+        )
+      })
+      expect(await screen.findByText('1 foto(s) cargada(s)')).toBeInTheDocument()
+    })
+
+    test('soltar un PDF sobre la zona de Ficha de Seguridad (SDS) lo sube', async () => {
+      await goToStep4({ requiresSds: true })
+      uploadFileMock.mockResolvedValue({ file: { id: 2, original_filename: 'sds.pdf' } })
+
+      const input = screen.getByLabelText('Adjuntar Ficha de Seguridad')
+      const dropzone = input.closest('label')
+      expect(dropzone).not.toBeNull()
+
+      const file = new File(['sds'], 'sds.pdf', { type: 'application/pdf' })
+      fireEvent.drop(dropzone as HTMLElement, { dataTransfer: { files: [file] } })
+
+      await vi.waitFor(() => {
+        expect(uploadFileMock).toHaveBeenCalledWith(
+          expect.objectContaining({ file, entityType: 'WASTE', entityId: 50, fileCategory: 'SDS' })
+        )
+      })
+      expect(await screen.findByText('sds.pdf')).toBeInTheDocument()
+    })
+
+    test('soltar un documento adicional sobre su zona lo sube', async () => {
+      await goToStep4()
+      uploadFileMock.mockResolvedValue({ file: { id: 3, original_filename: 'manifiesto.pdf' } })
+
+      const input = screen.getByLabelText('Adjuntar documento adicional')
+      const dropzone = input.closest('label')
+      expect(dropzone).not.toBeNull()
+
+      const file = new File(['doc'], 'manifiesto.pdf', { type: 'application/pdf' })
+      fireEvent.drop(dropzone as HTMLElement, { dataTransfer: { files: [file] } })
+
+      await vi.waitFor(() => {
+        expect(uploadFileMock).toHaveBeenCalledWith(
+          expect.objectContaining({ file, entityType: 'WASTE', entityId: 50, fileCategory: 'ADDITIONAL_DOCUMENT' })
+        )
+      })
+      expect(await screen.findByText('manifiesto.pdf')).toBeInTheDocument()
+    })
+
+    test('soltar más fotos de las permitidas respeta MAX_PHOTOS (5)', async () => {
+      await goToStep4()
+      uploadFileMock.mockImplementation(({ file }: { file: File }) =>
+        Promise.resolve({ file: { id: Math.random(), original_filename: file.name } })
+      )
+
+      const input = screen.getByLabelText('Seleccionar fotos')
+      const dropzone = input.closest('label') as HTMLElement
+
+      const files = Array.from({ length: 6 }, (_, index) => new File(['f'], `foto-${index}.jpg`, { type: 'image/jpeg' }))
+      fireEvent.drop(dropzone, { dataTransfer: { files } })
+
+      await vi.waitFor(() => {
+        expect(screen.getByText('5 foto(s) cargada(s)')).toBeInTheDocument()
+      })
+      expect(uploadFileMock).toHaveBeenCalledTimes(5)
+    })
   })
 })

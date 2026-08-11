@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\File;
+use App\Models\GeneratorSubgestorRelationship;
 use App\Models\MeasurementUnit;
 use App\Models\SecurityLog;
 use App\Models\UnCode;
@@ -68,7 +69,7 @@ class WasteController extends Controller
         $direction = strtolower((string) $request->input('direction')) === 'asc' ? 'asc' : 'desc';
 
         $wastes = Waste::query()
-            ->when(! $actor->isPlatformStaff(), fn ($query) => $query->where('organization_id', $actor->tenant_organization_id))
+            ->when(! $actor->isPlatformStaff(), fn ($query) => $this->applyOrganizationVisibility($query, $actor))
             ->when($actor->isPlatformStaff() && $organizationId, fn ($query) => $query->where('organization_id', $organizationId))
             ->when($search, function ($query) use ($search) {
                 $query->where(function ($query) use ($search) {
@@ -548,7 +549,7 @@ class WasteController extends Controller
     {
         $base = Waste::query()->when(
             ! $actor->isPlatformStaff(),
-            fn ($query) => $query->where('organization_id', $actor->tenant_organization_id),
+            fn ($query) => $this->applyOrganizationVisibility($query, $actor),
         );
 
         return [
@@ -556,6 +557,26 @@ class WasteController extends Controller
             'active' => (clone $base)->where('is_active', true)->count(),
             'inactive' => (clone $base)->where('is_active', false)->count(),
         ];
+    }
+
+    /**
+     * Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders
+     * reales, 2026-08-09): un actor de tenant ve sus PROPIOS residuos MÁS
+     * los de sus Generadores clientes (relación activa en
+     * `generator_subgestor_relationships`) -- vacío/sin efecto si el actor
+     * no es Subgestor de nadie. Usado por `index()`/`statusKpis()`, NUNCA
+     * por `show()` (que delega en `WastePolicy::view()` ->
+     * `Waste::isForwardableBySubgestor()`, misma regla, evaluada por fila).
+     */
+    private function applyOrganizationVisibility($query, $actor)
+    {
+        return $query->where(function ($query) use ($actor) {
+            $query->where('organization_id', $actor->tenant_organization_id)
+                ->orWhereIn('organization_id', GeneratorSubgestorRelationship::query()
+                    ->where('subgestor_organization_id', $actor->tenant_organization_id)
+                    ->where('is_active', true)
+                    ->pluck('generator_organization_id'));
+        });
     }
 
     /**

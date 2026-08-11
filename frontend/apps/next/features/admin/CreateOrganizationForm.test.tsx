@@ -151,4 +151,49 @@ describe('CreateOrganizationForm', () => {
     fireEvent.click(checkbox)
     expect(checkbox).toBeChecked()
   })
+
+  // Punto 2 del lote de correcciones -- "Organización Matriz" debe usar
+  // OrganizationQuickSelect (carga completa al montar, filtra en memoria),
+  // no OrganizationSearchSelect (debounce + red por tecla, sin opciones al
+  // solo hacer focus). Mismo patrón de test que OrganizationQuickSelect.test.tsx.
+  test('shows "Organización Matriz" options on focus, without typing (OrganizationQuickSelect)', async () => {
+    searchOrganizationsMock.mockResolvedValue({
+      data: [{ id: 5, legal_name: 'Matriz Nacional S.A.S.', tax_id: '800111222-3' }],
+      current_page: 1,
+      last_page: 1,
+      total: 1,
+      per_page: 50,
+    })
+    render(<CreateOrganizationForm />)
+    await screen.findByLabelText('Razón Social')
+    await screen.findByRole('checkbox', { name: 'Generador' })
+
+    const input = screen.getByLabelText('Organización Matriz (opcional)')
+    fireEvent.focus(input)
+
+    expect(await screen.findByText(/Matriz Nacional/)).toBeInTheDocument()
+    // Carga completa una sola vez, sin `q` (a diferencia del debounce de
+    // OrganizationSearchSelect).
+    expect(searchOrganizationsMock.mock.calls[0][0]).not.toHaveProperty('q')
+  })
+
+  // Punto 3 del lote de correcciones -- País por defecto Colombia, buscado
+  // explícitamente por `iso_code === 'CO'` (no el primero del array).
+  test('defaults "País" to Colombia even when it is not the first country in the catalog', async () => {
+    fetchCountriesMock.mockResolvedValue({
+      data: [
+        { id: 2, uuid: 'c-2', iso_code: 'MX', name: 'México', is_active: true, created_at: '', updated_at: '' },
+        { id: 1, uuid: 'c-1', iso_code: 'CO', name: 'Colombia', is_active: true, created_at: '', updated_at: '' },
+      ],
+      current_page: 1,
+      last_page: 1,
+      total: 2,
+      per_page: 300,
+    })
+    render(<CreateOrganizationForm />)
+    await screen.findByLabelText('Razón Social')
+    await screen.findByRole('checkbox', { name: 'Generador' })
+
+    expect(await screen.findByRole('combobox', { name: 'País' })).toHaveTextContent('Colombia')
+  })
 })

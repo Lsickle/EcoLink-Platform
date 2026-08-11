@@ -147,6 +147,11 @@ export type AuthUser = {
   tenant_organization_id?: number | null
   permissions?: string[]
   is_platform_staff?: boolean
+  // Cambio de contraseña obligatorio en el primer login (confirmado por el
+  // usuario, 2026-08-11) -- igual que `permissions`/`is_platform_staff`,
+  // solo lo puebla GET /api/user (me()), NO POST /api/login. `useRequireAuth()`
+  // redirige a /change-password mientras esté en true, sin importar la ruta.
+  must_change_password?: boolean
   person?: AuthPerson
   roles?: AuthRole[]
 }

@@ -22,7 +22,7 @@ import { COMPANY_SIZES, CURRENCIES, RISK_LEVELS, TAX_ID_TYPES, TIMEZONES } from 
 import { RISK_LEVEL_LABELS } from 'app/features/admin/riskLevel'
 import { createOrganizationSchema } from 'app/features/admin/schemas'
 import { useRequireAuth } from 'app/provider/auth'
-import { OrganizationSearchSelect } from './OrganizationSearchSelect'
+import { OrganizationQuickSelect } from './OrganizationQuickSelect'
 
 type FieldErrors = Partial<
   Record<
@@ -115,7 +115,12 @@ export function CreateOrganizationForm() {
     fetchCountries({ perPage: 300, status: 'active' })
       .then((result) => {
         setCountries(result.data)
-        setCountryCode((current) => current || result.data[0]?.iso_code || '')
+        // Punto 3 del lote de correcciones -- Colombia por defecto,
+        // buscada explícitamente por `iso_code === 'CO'` (no el primero
+        // del array, que dependía del orden devuelto por el backend).
+        // Fallback al primero del catálogo si Colombia no viniera en la
+        // respuesta, para no romper el formulario.
+        setCountryCode((current) => current || result.data.find((c) => c.iso_code === 'CO')?.iso_code || result.data[0]?.iso_code || '')
       })
       .catch(() => setCountries([]))
   }, [isAuthorized])
@@ -539,7 +544,12 @@ export function CreateOrganizationForm() {
                 </Select>
               </div>
             </div>
-            <OrganizationSearchSelect
+            {/* Punto 2 del lote de correcciones -- OrganizationQuickSelect
+                (carga completa al montar, filtra en memoria) en vez de
+                OrganizationSearchSelect (debounce + red por tecla, sin
+                opciones al solo hacer focus). Mismas props exactas, swap
+                directo de componente. */}
+            <OrganizationQuickSelect
               label="Organización Matriz (opcional)"
               htmlId="parentOrganization"
               selectedId={parentOrganizationId}

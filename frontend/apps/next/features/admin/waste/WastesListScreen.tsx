@@ -76,6 +76,15 @@ export function WastesListScreen() {
   const isPlatformStaff = Boolean(user?.is_platform_staff)
 
   const [wastes, setWastes] = useState<AdminWaste[]>([])
+  // Cadena Generador -> Subgestor -> Gestor (2026-08-09): antes la columna
+  // "Organización" solo se mostraba a platform staff, asumiendo que un
+  // actor de tenant SIEMPRE ve una única organización (la suya). Ya no es
+  // cierto -- un Subgestor ve sus propios residuos MÁS los de sus
+  // Generadores clientes (`WasteController::applyOrganizationVisibility()`).
+  // Criterio DATA-DRIVEN (sin llamada extra al API): se muestra la columna
+  // si platform staff, O si la página actual ya trae más de una
+  // organización distinta -- cubre el caso real sin depender de exponer
+  // `business_role` en el frontend (que hoy no existe, ver AuthUser).
   const [kpis, setKpis] = useState<WasteKpis>(emptyKpis)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -150,6 +159,9 @@ export function WastesListScreen() {
 
   const rangeStart = total === 0 ? 0 : (page - 1) * PER_PAGE + 1
   const rangeEnd = Math.min(page * PER_PAGE, total)
+
+  const showsOrganizationColumn =
+    isPlatformStaff || new Set(wastes.map((waste) => waste.organization_id)).size > 1
 
   const wasteCategoryFilterItems = [
     { value: allFilterValue, label: 'Todas las categorías' },
@@ -271,14 +283,14 @@ export function WastesListScreen() {
                 <TableHead>Categoría</TableHead>
                 <TableHead>Peligrosidad</TableHead>
                 <TableHead>Estado</TableHead>
-                {isPlatformStaff && <TableHead>Organización</TableHead>}
+                {showsOrganizationColumn && <TableHead>Organización</TableHead>}
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {wastes.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={isPlatformStaff ? 6 : 5} className="text-center text-muted-foreground">
+                  <TableCell colSpan={showsOrganizationColumn ? 6 : 5} className="text-center text-muted-foreground">
                     No hay residuos que coincidan con los filtros.
                   </TableCell>
                 </TableRow>
@@ -302,7 +314,7 @@ export function WastesListScreen() {
                   <TableCell>
                     <Badge variant={STATUS_BADGE_VARIANT[waste.status]}>{STATUS_LABELS[waste.status]}</Badge>
                   </TableCell>
-                  {isPlatformStaff && (
+                  {showsOrganizationColumn && (
                     <TableCell className="text-muted-foreground">{waste.organization?.legal_name ?? '—'}</TableCell>
                   )}
                   <TableCell className="text-right">

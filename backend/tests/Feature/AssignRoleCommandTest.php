@@ -33,6 +33,17 @@ test('user:assign-role acepta el código de rol en minúsculas', function () {
     expect(UserRole::query()->where('user_id', $user->id)->where('role_id', $role->id)->exists())->toBeTrue();
 });
 
+// RN-181: mismo criterio anti-mayúsculas del resto de la capa de identidad.
+test('user:assign-role encuentra al usuario por email en mayúsculas distintas a como se guardó (case-insensitive)', function () {
+    $user = User::factory()->create(['email' => 'admin.mayus@example.com']);
+    $role = Role::factory()->create(['code' => 'ADMINISTRADOR']);
+
+    $this->artisan('user:assign-role', ['email' => 'ADMIN.MAYUS@EXAMPLE.COM', 'role' => 'ADMINISTRADOR', '--force' => true])
+        ->assertExitCode(0);
+
+    expect(UserRole::query()->where('user_id', $user->id)->where('role_id', $role->id)->where('is_active', true)->exists())->toBeTrue();
+});
+
 test('user:assign-role informa si el usuario no existe', function () {
     Role::factory()->create(['code' => 'ADMINISTRADOR']);
 

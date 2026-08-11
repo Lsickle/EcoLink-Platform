@@ -51,6 +51,7 @@ use Illuminate\Support\Str;
 // necesita el FK para el motor de Workflow, no para exponer el prefijo).
 #[Fillable([
     'tenant_organization_id', 'organization_id', 'waste_id', 'branch_treatment_id',
+    'forwarded_by_organization_id',
     'unit_price', 'currency', 'billing_unit', 'minimum_quantity', 'maximum_quantity',
     'requires_lab_analysis', 'requires_sds', 'restrictions', 'commercial_notes',
     'technical_notes', 'valid_from', 'valid_until', 'detailed_notes',
@@ -234,6 +235,20 @@ class WasteTreatmentApproval extends Model
         return $this->belongsTo(BranchTreatment::class);
     }
 
+    /**
+     * Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders
+     * reales, 2026-08-09). `NULL` = solicitud creada directamente por el
+     * dueño del residuo (comportamiento anterior, sin cambios). No-`NULL` =
+     * el Subgestor que reenvió la solicitud en nombre del Generador -- ver
+     * `WasteTreatmentApprovalController::storeForWaste()` (quién la fija) y
+     * `show()`/`index()`/`indexForWaste()` (ocultamiento condicional de
+     * `waste.organization` frente al Gestor evaluador cuando no es NULL).
+     */
+    public function forwardedByOrganization(): BelongsTo
+    {
+        return $this->belongsTo(Organization::class, 'forwarded_by_organization_id');
+    }
+
     public function technicalApprovedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'technical_approved_by');
@@ -245,15 +260,21 @@ class WasteTreatmentApproval extends Model
     }
 
     /**
-     * Acceso de LECTURA -- AMBOS lados de la relación cruzada pueden ver la
-     * fila: el Gestor evaluador (`organization_id`) y el dueño del residuo
-     * (`waste->organization_id`), además de platform staff.
+     * Acceso de LECTURA -- ahora TRES vías (antes dos) pueden ver la fila:
+     * el Gestor evaluador (`organization_id`), el dueño del residuo
+     * (`waste->organization_id`), y -- cadena Generador -> Subgestor ->
+     * Gestor, confirmado por stakeholders reales 2026-08-09 -- el Subgestor
+     * que la reenvió (`forwarded_by_organization_id`), para que pueda
+     * seguir el estado de lo que reenvió en nombre de su Generador cliente.
+     * Además de platform staff. Acceso de solo LECTURA para los tres lados
+     * que no son el Gestor evaluador -- ver `isEditableBy()`, sin cambios.
      */
     public function isAccessibleBy(User $actor): bool
     {
         return $actor->isPlatformStaff()
             || $this->organization_id === $actor->tenant_organization_id
-            || $this->waste?->organization_id === $actor->tenant_organization_id;
+            || $this->waste?->organization_id === $actor->tenant_organization_id
+            || $this->forwarded_by_organization_id === $actor->tenant_organization_id;
     }
 
     /**

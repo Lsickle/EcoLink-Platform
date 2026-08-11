@@ -7,6 +7,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -61,8 +62,13 @@ class AppServiceProvider extends ServiceProvider
         // volumen de spraying posible por minuto -- no está confirmado con
         // negocio.
         RateLimiter::for('login', function (Request $request) {
+            // RN-181: mismo criterio de normalización que el limiter
+            // 'password-recovery' -- evita que variar mayúsculas del mismo
+            // login (username o email) abra baldes independientes.
+            $normalizedLogin = Str::lower(trim((string) $request->input('login')));
+
             return [
-                Limit::perMinute(10)->by($request->ip().'|'.$request->input('login')),
+                Limit::perMinute(10)->by($request->ip().'|'.$normalizedLogin),
                 Limit::perMinute(30)->by($request->ip()),
             ];
         });
@@ -103,9 +109,18 @@ class AppServiceProvider extends ServiceProvider
         // intentos entre muchos correos distintos desde el mismo origen --
         // más bajo que el de login (30) porque este flujo no tiene el
         // volumen legítimo de un login normal.
+        // RN-181 (2026-08-08): la clave del Limit #1 se normalizaba con el
+        // valor CRUDO de `email` -- dos requests con el mismo correo en
+        // distinta capitalización abrían baldes INDEPENDIENTES, duplicando
+        // de facto el presupuesto real de intentos (5/min por variación de
+        // mayúsculas, no 5/min por correo). Se normaliza igual que el resto
+        // de la capa de identidad (`Str::lower(trim(...))`) para que ambas
+        // variaciones compartan el mismo balde.
         RateLimiter::for('password-recovery', function (Request $request) {
+            $normalizedEmail = Str::lower(trim((string) $request->input('email')));
+
             return [
-                Limit::perMinute(5)->by($request->ip().'|'.$request->input('email')),
+                Limit::perMinute(5)->by($request->ip().'|'.$normalizedEmail),
                 Limit::perMinute(20)->by($request->ip()),
             ];
         });
@@ -152,6 +167,18 @@ class AppServiceProvider extends ServiceProvider
         // usuario, criterio propio de este lote.
         RateLimiter::for('treatment-approval-request', function (Request $request) {
             return Limit::perMinute(10)->by($request->user()?->id ?? $request->ip());
+        });
+
+        // Hallazgo Alto (especialista-seguridad, 2026-08-11, Carga Masiva
+        // de Generadores): a diferencia de todos los endpoints sensibles de
+        // arriba, `POST /admin/generators/bulk-import` no tenía ningún
+        // limiter dedicado -- puede crear hasta 10 000 organizaciones+
+        // usuarios ACTIVOS por request (ver `GeneratorBulkImportService::MAX_ROWS`).
+        // 5/hora por actor es una operación de "carga masiva" ocasional, no
+        // interactiva -- criterio propio de este lote, no confirmado con
+        // negocio.
+        RateLimiter::for('generator-bulk-import', function (Request $request) {
+            return Limit::perHour(5)->by($request->user()?->id ?? $request->ip());
         });
     }
 }

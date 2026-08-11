@@ -60,14 +60,15 @@ export type AdminUser = {
   updated_by?: AdminActorRef | null
 }
 
-// organization_id existe en el backend pero no hay UI de Organizaciones
-// todavía -- se omite del payload a propósito (ver contrato del lote).
-//
 // Mecanismo de invitación (CU-006.1 modificado): store() YA NO acepta
 // password/password_confirmation ni is_active_initial -- todo usuario nace
 // PENDING_ACTIVATION y activa su propia cuenta vía la invitación por correo
 // que el backend dispara automáticamente (ver UserProvisioningService::
-// createPendingUser()).
+// createPendingUser()). `organization_id` (gap de staging, 2026-08-08):
+// nullable, `exists:organizations,id` en el backend -- solo tiene efecto
+// como `tenant_organization_id` del usuario nuevo cuando el actor es
+// `isPlatformStaff()`; para cualquier otro actor es solo informativo, sin
+// efecto en el aislamiento (ver UserProvisioningService::createPendingUser()).
 export type CreateUserPayload = {
   first_name: string
   last_name: string
@@ -79,6 +80,7 @@ export type CreateUserPayload = {
   email: string
   phone?: string
   role_ids: number[]
+  organization_id?: number
 }
 
 export type UpdateUserPayload = {
@@ -925,7 +927,13 @@ export type OrganizationBranch = {
   email: string | null
   environmental_license: string | null
   license_expiration_date: string | null
-  operational_capacity: number | string | null
+  // Punto 11 del lote de correcciones (2026-08-09) -- `operational_capacity`
+  // (columna única sin unidad) se reemplazó por 3 columnas reales
+  // `DECIMAL(12,2) NULL`, una por unidad -- ver migración
+  // `2026_08_09_000001_split_branches_operational_capacity_by_unit.php`.
+  operational_capacity_kg: number | string | null
+  operational_capacity_liters: number | string | null
+  operational_capacity_m3: number | string | null
   is_active: boolean
   created_at: string
   branch_type: AdminBranchType | null
@@ -1149,7 +1157,11 @@ export type AdminBranch = {
   email: string | null
   environmental_license: string | null
   license_expiration_date: string | null
-  operational_capacity: number | string | null
+  // Punto 11 del lote de correcciones (2026-08-09) -- ver mismo comentario
+  // en `OrganizationBranch` arriba.
+  operational_capacity_kg: number | string | null
+  operational_capacity_liters: number | string | null
+  operational_capacity_m3: number | string | null
   observations: string | null
   is_active: boolean
   created_at: string
@@ -1199,7 +1211,7 @@ export type BranchKpis = {
 export type CreateBranchPayload = {
   organization_id?: number
   branch_type_id: number
-  code: string
+  code?: string
   name: string
   status?: BranchStatus
   country_id?: number
@@ -1211,7 +1223,11 @@ export type CreateBranchPayload = {
   email?: string
   environmental_license?: string
   license_expiration_date?: string
-  operational_capacity?: number
+  // Punto 11 del lote de correcciones (2026-08-09) -- ver mismo comentario
+  // en `OrganizationBranch`/`AdminBranch` arriba.
+  operational_capacity_kg?: number
+  operational_capacity_liters?: number
+  operational_capacity_m3?: number
   observations?: string
   is_active?: boolean
 }
@@ -1922,14 +1938,24 @@ export type TreatmentApprovalTechnicalStatus = 'PENDING' | 'APPROVED' | 'REJECTE
 export type TreatmentApprovalCommercialStatus = 'DRAFT' | 'QUOTED' | 'NEGOTIATING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
 
 // Ref recortado de `waste` tal como lo expone `index()`/`indexForWaste()`
-// (`waste:id,name,code,organization_id` -- SIN `waste.organization`
-// anidado). El detalle (`show()`) SÍ agrega `waste.organization:id,legal_name`
-// -- ver `AdminTreatmentApprovalDetail` abajo.
+// -- incluye `organization:id,legal_name` (fix de gap de contrato: antes
+// `index()` general solo traía `organization_id` numérico, sin resolver a
+// nombre, y la columna "Organización Generadora" de
+// `TreatmentApprovalsListScreen` mostraba "—").
+//
+// Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders
+// reales, 2026-08-09): `organization` puede venir explícitamente `null`
+// (NO ausente) cuando el actor es el Gestor evaluador Y la fila llegó vía
+// reenvío de un Subgestor (`forwarded_by_organization_id` no NULL) -- ver
+// `WasteTreatmentApprovalController::maskForwardedWasteOrganization()`. El
+// dato NO se borra en base de datos, solo se omite de esta respuesta para
+// ese actor específico.
 export type TreatmentApprovalWasteRef = {
   id: number
   name: string
   code: string | null
   organization_id: number
+  organization?: { id: number; legal_name: string } | null
 }
 
 // Ref recortado de `branch_treatment` tal como lo expone `index()` GENERAL
@@ -2000,6 +2026,12 @@ export type AdminTreatmentApproval = {
   organization?: { id: number; legal_name: string }
   waste?: TreatmentApprovalWasteRef
   branch_treatment?: TreatmentApprovalBranchTreatmentSummaryRef
+  // Cadena Generador -> Subgestor -> Gestor (2026-08-09): `null` = solicitud
+  // directa del dueño del residuo (comportamiento anterior). No-`null` = el
+  // Subgestor que reenvió -- ver `waste.organization` (arriba) para el
+  // ocultamiento condicional que acompaña a este campo.
+  forwarded_by_organization_id?: number | null
+  forwarded_by_organization?: { id: number; legal_name: string } | null
 }
 
 // GET /api/admin/wastes/{waste}/treatment-approvals -- perspectiva del
@@ -2030,7 +2062,11 @@ export type AdminTreatmentApprovalDetail = Omit<
 > & {
   organization: { id: number; legal_name: string }
   waste: TreatmentApprovalWasteRef & {
-    organization: { id: number; legal_name: string }
+    // Cadena Generador -> Subgestor -> Gestor (2026-08-09): `null` (NO
+    // ausente) cuando el actor es el Gestor evaluador y la ruta fue
+    // INDIRECTA -- ver `forwarded_by_organization` (abajo) para saber quién
+    // reenvió. Antes era siempre requerido; ahora puede ser `null`.
+    organization: { id: number; legal_name: string } | null
     // `WasteTreatmentApprovalController::show()` eager-carga estas 3
     // relaciones (fix de gap de contrato posterior al lote original) -- el
     // Gestor evaluador ve la clasificación real del residuo, unica via de
@@ -2043,6 +2079,9 @@ export type AdminTreatmentApprovalDetail = Omit<
   branch_treatment: TreatmentApprovalBranchTreatmentRef
   technical_approved_by: AdminActorRef | null
   commercial_approved_by: AdminActorRef | null
+  // Cadena Generador -> Subgestor -> Gestor (2026-08-09): ver
+  // `AdminTreatmentApproval.forwarded_by_organization` (heredado vía Omit,
+  // no redeclarado aquí -- el tipo base ya lo cubre).
 }
 
 // GET /api/admin/branch-treatments/available -- exploración PÚBLICA (para
@@ -3575,4 +3614,92 @@ export type CreateGestorCarrierAuthorizationPayload = {
   // Solo platform staff -- un tenant admin SIEMPRE autoriza desde SU PROPIA
   // organización (anti-role-smuggling, ver docblock del controller).
   gestor_organization_id?: number
+}
+
+// ---- Cadena Generador -> Subgestor -> Gestor en Declaración de Residuos ----
+// (confirmado por stakeholders reales, 2026-08-09;
+// /api/admin/generator-subgestor-relationships) -- ver docblock completo de
+// `GeneratorSubgestorRelationshipController`. MISMO PATRÓN exacto que
+// `AdminGestorCarrierAuthorization` (relación BILATERAL, un solo registro
+// VIGENTE por par, sin borrado físico), roles invertidos: aquí el
+// SUBGESTOR es quien registra/revoca Generadores clientes.
+export type AdminGeneratorSubgestorRelationship = {
+  id: number
+  uuid: string
+  generator_organization_id: number
+  subgestor_organization_id: number
+  authorized_by: number | null
+  authorized_at: string | null
+  revoked_by: number | null
+  revoked_at: string | null
+  observations: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  generator_organization?: { id: number; legal_name: string }
+  subgestor_organization?: { id: number; legal_name: string }
+}
+
+export type CreateGeneratorSubgestorRelationshipPayload = {
+  generator_organization_id: number
+  observations?: string
+  // Solo platform staff -- un tenant admin SIEMPRE registra desde SU PROPIA
+  // organización (anti-role-smuggling, ver docblock del controller).
+  subgestor_organization_id?: number
+}
+
+// Vínculo comercial DIRECTO Generador -> Gestor (Carga Masiva de
+// Generadores, confirmado por el usuario 2026-08-11;
+// /api/admin/generator-gestor-relationships) -- MISMO PATRÓN exacto que
+// `AdminGeneratorSubgestorRelationship`, roles invertidos: aquí el GESTOR
+// es quien registra/revoca Generadores clientes directos.
+export type AdminGeneratorGestorRelationship = {
+  id: number
+  uuid: string
+  generator_organization_id: number
+  gestor_organization_id: number
+  authorized_by: number | null
+  authorized_at: string | null
+  revoked_by: number | null
+  revoked_at: string | null
+  observations: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  generator_organization?: { id: number; legal_name: string }
+  gestor_organization?: { id: number; legal_name: string }
+}
+
+export type CreateGeneratorGestorRelationshipPayload = {
+  generator_organization_id: number
+  observations?: string
+  // Solo platform staff -- un tenant admin SIEMPRE registra desde SU PROPIA
+  // organización (anti-role-smuggling, ver docblock del controller).
+  gestor_organization_id?: number
+}
+
+// Carga Masiva de Generadores (CSV) por Subgestor/Gestor -- autoservicio
+// confirmado por el usuario 2026-08-11
+// (POST /api/admin/generators/bulk-import). Un solo archivo, una fila = una
+// sede; varias filas con el mismo NIT = varias sedes del mismo Generador.
+// `temporary_password` solo viene presente cuando `user_created=true` --
+// se muestra UNA SOLA VEZ en el resultado, nunca se vuelve a exponer.
+export type GeneratorBulkImportRowError = { row: number; message: string }
+
+export type GeneratorBulkImportResultItem = {
+  organization_id: number
+  legal_name: string
+  tax_id: string
+  was_existing: boolean
+  branches_created: number
+  user_created: boolean
+  username: string | null
+  temporary_password: string | null
+}
+
+export type GeneratorBulkImportResult = {
+  created: number
+  linked_existing: number
+  errors: GeneratorBulkImportRowError[]
+  generators: GeneratorBulkImportResultItem[]
 }

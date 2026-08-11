@@ -860,8 +860,6 @@ class OrganizationController extends Controller
      */
     public function search(Request $request)
     {
-        abort_unless($request->user()->isPlatformStaff(), 403, 'Solo el staff de la plataforma puede gestionar organizaciones.');
-
         $data = $request->validate([
             'q' => ['nullable', 'string'],
             'exclude_id' => ['nullable', 'integer', 'exists:organizations,id'],
@@ -871,6 +869,28 @@ class OrganizationController extends Controller
             // mismo mecanismo que Organization::hasCapability(), vía scope.
             'capability' => ['nullable', 'string', 'in:can_generate_waste,can_transport_waste,can_treat_waste,can_approve_treatments,can_issue_manifests,can_issue_disposal_certificates,requires_environmental_license,requires_transport_authorization'],
         ]);
+
+        // Hallazgo real (verificación E2E de la cadena Generador->Subgestor->
+        // Gestor, 2026-08-09, encontrado en un recorrido manual en
+        // navegador -- los tests de frontend mockean `searchOrganizations()`
+        // y nunca ejercitan el backend real, por eso no se había detectado):
+        // este endpoint nació SOLO para el selector "Organización Matriz"
+        // (platform-staff-only, ver docblock del método), pero YA se reusaba
+        // (`GestorCarrierAuthorizationsListScreen`, ahora también
+        // `GeneratorSubgestorRelationshipsListScreen`) para que un tenant
+        // admin busque una organización CONTRAPARTE por capacidad de
+        // negocio (Transportador/Generador/etc.) -- el backend nunca se
+        // actualizó para permitirlo, dejando esos flujos rotos para
+        // cualquier actor que no fuera platform staff. Se abre para
+        // CUALQUIER actor autenticado SOLO cuando filtra por `capability`
+        // (selector operativo acotado, campos ya mínimos: id/legal_name/
+        // tax_id) -- navegar el catálogo completo SIN filtrar (el caso real
+        // de "Organización Matriz") sigue siendo exclusivo de platform staff.
+        abort_unless(
+            $request->user()->isPlatformStaff() || ($data['capability'] ?? null) !== null,
+            403,
+            'Solo el staff de la plataforma puede buscar organizaciones sin filtrar por capacidad de negocio.'
+        );
 
         $organizations = Organization::query()
             ->select(['id', 'legal_name', 'tax_id'])

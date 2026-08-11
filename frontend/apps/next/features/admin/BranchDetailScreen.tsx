@@ -123,7 +123,12 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
   const [email, setEmail] = useState('')
   const [environmentalLicense, setEnvironmentalLicense] = useState('')
   const [licenseExpirationDate, setLicenseExpirationDate] = useState('')
-  const [operationalCapacity, setOperationalCapacity] = useState('')
+  // Punto 11 del lote de correcciones -- 3 campos independientes por
+  // unidad (backend: `operational_capacity_kg`/`_liters`/`_m3`), mismo
+  // criterio que CreateBranchForm.tsx.
+  const [operationalCapacityKg, setOperationalCapacityKg] = useState('')
+  const [operationalCapacityLiters, setOperationalCapacityLiters] = useState('')
+  const [operationalCapacityM3, setOperationalCapacityM3] = useState('')
   const [observations, setObservations] = useState('')
   const [isActiveField, setIsActiveField] = useState(true)
 
@@ -178,7 +183,9 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
         setEmail(b.email ?? '')
         setEnvironmentalLicense(b.environmental_license ?? '')
         setLicenseExpirationDate(b.license_expiration_date ?? '')
-        setOperationalCapacity(b.operational_capacity != null ? String(b.operational_capacity) : '')
+        setOperationalCapacityKg(b.operational_capacity_kg != null ? String(b.operational_capacity_kg) : '')
+        setOperationalCapacityLiters(b.operational_capacity_liters != null ? String(b.operational_capacity_liters) : '')
+        setOperationalCapacityM3(b.operational_capacity_m3 != null ? String(b.operational_capacity_m3) : '')
         setObservations(b.observations ?? '')
         setIsActiveField(b.is_active)
       })
@@ -313,7 +320,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
     try {
       const { branch: updated } = await updateBranch(branch.id, {
         branch_type_id: branchTypeId,
-        code,
+        code: code || undefined,
         name,
         status,
         country_id: countryId ?? undefined,
@@ -325,7 +332,9 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
         email: email || undefined,
         environmental_license: environmentalLicense || undefined,
         license_expiration_date: licenseExpirationDate || undefined,
-        operational_capacity: operationalCapacity ? Number(operationalCapacity) : undefined,
+        operational_capacity_kg: operationalCapacityKg ? Number(operationalCapacityKg) : undefined,
+        operational_capacity_liters: operationalCapacityLiters ? Number(operationalCapacityLiters) : undefined,
+        operational_capacity_m3: operationalCapacityM3 ? Number(operationalCapacityM3) : undefined,
         observations: observations || undefined,
         is_active: isActiveField,
       })
@@ -464,7 +473,9 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
                   <Input id="name" value={name} onChange={(event) => setName(event.target.value)} />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="code">Código</Label>
+                  <Label htmlFor="code">
+                    Código <span className="text-muted-foreground">(opcional)</span>
+                  </Label>
                   <Input id="code" value={code} onChange={(event) => setCode(event.target.value)} />
                 </div>
 
@@ -646,16 +657,43 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
                     onChange={(event) => setLicenseExpirationDate(event.target.value)}
                   />
                 </div>
+                {/* Punto 11 del lote de correcciones -- 3 campos
+                    independientes por unidad, mismo criterio que
+                    CreateBranchForm.tsx. */}
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="operationalCapacity">
-                    Capacidad Operativa <span className="text-muted-foreground">(opcional)</span>
+                  <Label htmlFor="operationalCapacityKg">
+                    Capacidad Operativa (KG) <span className="text-muted-foreground">(opcional)</span>
                   </Label>
                   <Input
-                    id="operationalCapacity"
+                    id="operationalCapacityKg"
                     type="number"
                     min={0}
-                    value={operationalCapacity}
-                    onChange={(event) => setOperationalCapacity(event.target.value)}
+                    value={operationalCapacityKg}
+                    onChange={(event) => setOperationalCapacityKg(event.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="operationalCapacityLiters">
+                    Capacidad Operativa (Litros) <span className="text-muted-foreground">(opcional)</span>
+                  </Label>
+                  <Input
+                    id="operationalCapacityLiters"
+                    type="number"
+                    min={0}
+                    value={operationalCapacityLiters}
+                    onChange={(event) => setOperationalCapacityLiters(event.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="operationalCapacityM3">
+                    Capacidad Operativa (M³) <span className="text-muted-foreground">(opcional)</span>
+                  </Label>
+                  <Input
+                    id="operationalCapacityM3"
+                    type="number"
+                    min={0}
+                    value={operationalCapacityM3}
+                    onChange={(event) => setOperationalCapacityM3(event.target.value)}
                   />
                 </div>
 

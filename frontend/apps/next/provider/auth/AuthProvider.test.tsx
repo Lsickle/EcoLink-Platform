@@ -6,6 +6,7 @@ import { AuthProvider, useAuth, useRequireAuth } from 'app/provider/auth'
 const meMock = vi.fn()
 const logoutMock = vi.fn()
 const replaceMock = vi.fn()
+let currentPathname = '/'
 
 vi.mock('app/features/auth/api', () => ({
   me: (...args: unknown[]) => meMock(...args),
@@ -14,8 +15,12 @@ vi.mock('app/features/auth/api', () => ({
 
 // El AuthProvider vive en packages/app (compartido con la futura app móvil),
 // pero useRequireAuth navega con solito -- en web delega en next/navigation.
+// `usePathname` es mutable por test (`currentPathname`) -- necesario para
+// probar el redirect a /change-password (Cambio de contraseña obligatorio
+// en el primer login, 2026-08-11), que depende de la ruta actual.
 vi.mock('solito/navigation', () => ({
   useRouter: () => ({ replace: replaceMock }),
+  usePathname: () => currentPathname,
 }))
 
 const testUser: AuthUser = { id: 1, uuid: 'u', username: 'ana', email: 'ana@example.com' }
@@ -225,6 +230,71 @@ describe('useRequireAuth(requiredPermission, { requirePlatformStaff })', () => {
     render(
       <AuthProvider>
         <ProtectedByPlatformStaff permission="users.create" />
+      </AuthProvider>
+    )
+
+    await waitFor(() => expect(screen.getByTestId('authorized').textContent).toBe('true'))
+    expect(replaceMock).not.toHaveBeenCalled()
+  })
+})
+
+// Cambio de contraseña obligatorio en el primer login (confirmado por el
+// usuario, 2026-08-11): `must_change_password` fuerza el redirect a
+// /change-password ANTES de evaluar requiredPermission/requirePlatformStaff,
+// sin importar qué pantalla se pidió -- y esa pantalla queda excluida del
+// redirect (si no, loop).
+describe('useRequireAuth — cambio de contraseña obligatorio en el primer login', () => {
+  function ProtectedByPermission({ permission }: { permission: string }) {
+    const { isAuthorized } = useRequireAuth(permission)
+    return <span data-testid="authorized">{String(isAuthorized)}</span>
+  }
+
+  afterEach(() => {
+    meMock.mockReset()
+    replaceMock.mockReset()
+    currentPathname = '/'
+  })
+
+  test('redirige a /change-password cuando must_change_password=true, sin importar el permiso pedido', async () => {
+    currentPathname = '/admin/wastes'
+    meMock.mockResolvedValueOnce({ user: { ...testUser, must_change_password: true, permissions: ['wastes.read'] } })
+
+    render(
+      <AuthProvider>
+        <ProtectedByPermission permission="wastes.read" />
+      </AuthProvider>
+    )
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/change-password'))
+    expect(screen.getByTestId('authorized').textContent).toBe('false')
+  })
+
+  test('NO redirige y reporta isAuthorized=true cuando ya está en /change-password, aunque must_change_password=true', async () => {
+    currentPathname = '/change-password'
+    meMock.mockResolvedValueOnce({ user: { ...testUser, must_change_password: true } })
+
+    function ProtectedNoPermission() {
+      const { isAuthorized } = useRequireAuth()
+      return <span data-testid="authorized">{String(isAuthorized)}</span>
+    }
+
+    render(
+      <AuthProvider>
+        <ProtectedNoPermission />
+      </AuthProvider>
+    )
+
+    await waitFor(() => expect(screen.getByTestId('authorized').textContent).toBe('true'))
+    expect(replaceMock).not.toHaveBeenCalled()
+  })
+
+  test('con must_change_password=false, no redirige a /change-password (comportamiento normal sin cambios)', async () => {
+    currentPathname = '/admin/wastes'
+    meMock.mockResolvedValueOnce({ user: { ...testUser, must_change_password: false, permissions: ['wastes.read'] } })
+
+    render(
+      <AuthProvider>
+        <ProtectedByPermission permission="wastes.read" />
       </AuthProvider>
     )
 

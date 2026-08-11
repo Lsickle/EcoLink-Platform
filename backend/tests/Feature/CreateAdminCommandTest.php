@@ -78,6 +78,21 @@ test('user:create-admin falla con mensaje claro si el email ya existe', function
         ->assertExitCode(1);
 });
 
+// RN-181: mismo criterio anti-mayúsculas del resto de la capa de identidad --
+// correr el comando dos veces con el mismo email en distinta capitalización
+// debe fallar la 2ª con el mensaje de "ya existe" (422 de negocio), no
+// reventar contra el índice único de BD (case-insensitive) con un error crudo.
+test('user:create-admin detecta el email ya existente sin importar la capitalización (case-insensitive)', function () {
+    $this->artisan('user:create-admin', ['email' => 'Admin.Mayus@Ejemplo.com', '--password' => 'Passw0rd123', '--force' => true])
+        ->assertExitCode(0);
+
+    $this->artisan('user:create-admin', ['email' => 'ADMIN.MAYUS@EJEMPLO.COM', '--password' => 'Passw0rd123', '--force' => true])
+        ->expectsOutputToContain('Ya existe un usuario')
+        ->assertExitCode(1);
+
+    expect(User::query()->count())->toBe(1);
+});
+
 test('user:create-admin pide confirmación y no crea nada si el usuario responde que no', function () {
     $this->artisan('user:create-admin', ['email' => 'admin3@ejemplo.com', '--password' => 'Passw0rd123'])
         ->expectsConfirmation("¿Confirmas crear el administrador 'admin3@ejemplo.com'?", 'no')

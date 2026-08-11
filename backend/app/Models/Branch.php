@@ -30,7 +30,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'organization_id', 'branch_type_id', 'code', 'name', 'status',
     'country_id', 'department_id', 'municipality_id', 'locality_id',
     'address', 'phone', 'email', 'environmental_license',
-    'license_expiration_date', 'operational_capacity', 'observations',
+    'license_expiration_date', 'operational_capacity_kg',
+    'operational_capacity_liters', 'operational_capacity_m3', 'observations',
     'is_active', 'created_by', 'updated_by',
 ])]
 class Branch extends Model
@@ -43,7 +44,9 @@ class Branch extends Model
         return [
             'is_active' => 'boolean',
             'license_expiration_date' => 'date',
-            'operational_capacity' => 'decimal:2',
+            'operational_capacity_kg' => 'decimal:2',
+            'operational_capacity_liters' => 'decimal:2',
+            'operational_capacity_m3' => 'decimal:2',
         ];
     }
 

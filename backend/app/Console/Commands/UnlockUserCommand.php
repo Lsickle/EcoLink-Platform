@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\SecurityLog;
 use App\Models\User;
 use Illuminate\Console\Command;
+use Illuminate\Support\Str;
 
 /**
  * RN-033: "Los usuarios bloqueados solo podrán ser habilitados por personal
@@ -26,9 +27,11 @@ class UnlockUserCommand extends Command
     {
         $login = $this->argument('login');
 
+        // RN-181: mismo criterio anti-mayúsculas que AuthController::login()
+        // -- `username` NO se toca, fuera de alcance de este lote.
         $user = User::query()
             ->where('username', $login)
-            ->orWhere('email', $login)
+            ->orWhereRaw('LOWER(email) = ?', [Str::lower(trim($login))])
             ->first();
 
         if (! $user) {

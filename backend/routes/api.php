@@ -11,6 +11,9 @@ use App\Http\Controllers\Api\Admin\CountryController;
 use App\Http\Controllers\Api\Admin\DepartmentController;
 use App\Http\Controllers\Api\Admin\FileController;
 use App\Http\Controllers\Api\Admin\GenerationFrequencyController;
+use App\Http\Controllers\Api\Admin\GeneratorBulkImportController;
+use App\Http\Controllers\Api\Admin\GeneratorGestorRelationshipController;
+use App\Http\Controllers\Api\Admin\GeneratorSubgestorRelationshipController;
 use App\Http\Controllers\Api\Admin\GestorCarrierAuthorizationController;
 use App\Http\Controllers\Api\Admin\HazardCharacteristicController;
 use App\Http\Controllers\Api\Admin\LocalityController;
@@ -88,9 +91,13 @@ Route::post('/password/reset', [PasswordRecoveryController::class, 'reset'])->mi
 // EnsureUserIsActive. Corre para TODO el grupo (incluye logout/me/password),
 // no solo Admin/*.
 Route::middleware(['auth:sanctum', 'active'])->group(function () {
-    Route::post('/logout', [AuthController::class, 'logout']);
-    Route::get('/user', [AuthController::class, 'me']);
-    Route::put('/password', [AuthController::class, 'changePassword']);
+    // Cambio de contraseña obligatorio en el primer login (confirmado por
+    // el usuario, 2026-08-11): estas 3 rutas quedan explícitamente
+    // nombradas para que `EnsureUserIsActive` las deje pasar aunque
+    // `must_change_password` esté en true -- ver docblock del middleware.
+    Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+    Route::get('/user', [AuthController::class, 'me'])->name('user.me');
+    Route::put('/password', [AuthController::class, 'changePassword'])->name('password.update');
 
     // CU-006/007/008 (Gestionar Usuarios/Roles/Permisos) -- gateadas por
     // Policy (App\Policies), que a su vez delega en User::hasPermission().
@@ -502,6 +509,30 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('gestor-carrier-authorizations', [GestorCarrierAuthorizationController::class, 'store'])->name('gestor-carrier-authorizations.store');
         Route::get('gestor-carrier-authorizations/{authorization}', [GestorCarrierAuthorizationController::class, 'show'])->name('gestor-carrier-authorizations.show');
         Route::post('gestor-carrier-authorizations/{authorization}/revoke', [GestorCarrierAuthorizationController::class, 'revoke'])->name('gestor-carrier-authorizations.revoke');
+
+        // Cadena Generador -> Subgestor -> Gestor en Declaración de Residuos
+        // (confirmado por stakeholders reales, 2026-08-09) --
+        // `generator_subgestor_relationships`: un Subgestor registra
+        // explícitamente qué organizaciones Generadoras son sus clientes.
+        // Ver docblock de GeneratorSubgestorRelationshipController.
+        Route::get('generator-subgestor-relationships', [GeneratorSubgestorRelationshipController::class, 'index'])->name('generator-subgestor-relationships.index');
+        Route::post('generator-subgestor-relationships', [GeneratorSubgestorRelationshipController::class, 'store'])->name('generator-subgestor-relationships.store');
+        Route::get('generator-subgestor-relationships/{relationship}', [GeneratorSubgestorRelationshipController::class, 'show'])->name('generator-subgestor-relationships.show');
+        Route::post('generator-subgestor-relationships/{relationship}/revoke', [GeneratorSubgestorRelationshipController::class, 'revoke'])->name('generator-subgestor-relationships.revoke');
+
+        // Vínculo comercial DIRECTO Generador -> Gestor (Carga Masiva de
+        // Generadores, confirmado por el usuario 2026-08-11) -- mismo
+        // patrón que generator-subgestor-relationships, roles invertidos.
+        // Ver docblock de GeneratorGestorRelationshipController.
+        Route::get('generator-gestor-relationships', [GeneratorGestorRelationshipController::class, 'index'])->name('generator-gestor-relationships.index');
+        Route::post('generator-gestor-relationships', [GeneratorGestorRelationshipController::class, 'store'])->name('generator-gestor-relationships.store');
+        Route::get('generator-gestor-relationships/{relationship}', [GeneratorGestorRelationshipController::class, 'show'])->name('generator-gestor-relationships.show');
+        Route::post('generator-gestor-relationships/{relationship}/revoke', [GeneratorGestorRelationshipController::class, 'revoke'])->name('generator-gestor-relationships.revoke');
+
+        // Carga Masiva de Generadores (CSV) -- autoservicio de
+        // Subgestor/Gestor, confirmado por el usuario 2026-08-11. Ver
+        // docblock de GeneratorBulkImportController.
+        Route::post('generators/bulk-import', [GeneratorBulkImportController::class, 'store'])->name('generators.bulk-import')->middleware('throttle:generator-bulk-import');
 
         // CRUD de Conductores (`transport_personnel`, CU-030/D-PRG-03/D-PRG-04)
         // -- gap real: `TransportScheduleController` ya exigía

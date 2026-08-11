@@ -15,6 +15,7 @@ use App\Services\UserProvisioningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -55,7 +56,13 @@ use Illuminate\Validation\ValidationException;
  * actor; `show/update/activate/deactivate` heredan el filtro desde la
  * Policy (ver UserPolicy). `store()` fija `tenant_organization_id` del
  * usuario creado al del actor -- server-side, no aceptado como input del
- * cliente (evita que un admin cree usuarios bajo el tenant de otro).
+ * cliente (evita que un admin cree usuarios bajo el tenant de otro). ÚNICA
+ * excepción (gap de staging 2026-08-08, `UserProvisioningService::
+ * resolveTenantOrganizationId()`): staff de la organización Plataforma
+ * (`User::isPlatformStaff()`) puede fijar `tenant_organization_id` al
+ * `organization_id` enviado -- habilita sembrar el primer administrador de
+ * una organización cliente nueva. Un admin de tenant normal sigue sin poder
+ * hacerlo bajo ninguna circunstancia.
  * `resendInvitation()` delega en `UserPolicy::resendInvitation()`
  * (`Gate::authorize('resendInvitation', $user)`, vía route model binding) --
  * mismo mecanismo que `show/update/activate/deactivate`. Hasta 2026-07-14
@@ -94,11 +101,20 @@ class UserManagementController extends Controller
         $direction = strtolower((string) $request->input('direction')) === 'asc' ? 'asc' : 'desc';
 
         $users = User::query()
-            ->when(
-                $actorTenantId === null,
-                fn ($q) => $q->whereNull('tenant_organization_id'),
-                fn ($q) => $q->where('tenant_organization_id', $actorTenantId),
-            )
+            // Hallazgo Alto (especialista-seguridad, 2026-08-08): el staff de
+            // la organización Plataforma (`isPlatformStaff()`) queda exento
+            // del filtro de tenant -- puede ver/filtrar usuarios de
+            // CUALQUIER organización, no solo la suya (Plataforma). Un admin
+            // de tenant normal sigue viendo solo su propio tenant, sin
+            // cambios (ver UserPolicy para el mismo criterio en show/update/
+            // activate/deactivate/resendInvitation/resetPassword).
+            ->when(! $request->user()->isPlatformStaff(), function ($q) use ($actorTenantId) {
+                $q->when(
+                    $actorTenantId === null,
+                    fn ($q) => $q->whereNull('tenant_organization_id'),
+                    fn ($q) => $q->where('tenant_organization_id', $actorTenantId),
+                );
+            })
             ->when($search, function ($query) use ($search) {
                 $query->where(function ($query) use ($search) {
                     $query->where('email', 'ILIKE', "%{$search}%")
@@ -125,6 +141,17 @@ class UserManagementController extends Controller
     {
         Gate::authorize('create', User::class);
 
+        // RN-181: se normaliza el input ANTES de validar -- así
+        // `unique:users,email`/`unique:people,email` comparan un valor ya en
+        // minúsculas contra datos que, gracias al mutator `email()` de
+        // `User`/`Person`, están garantizados en minúsculas también. Sin
+        // esto, un email con mayúsculas distintas al ya guardado pasaría la
+        // validación de Laravel y reventaría después contra el índice único
+        // funcional de BD (`UNIQUE (LOWER(email))`) con un 500.
+        if ($request->filled('email')) {
+            $request->merge(['email' => Str::lower(trim((string) $request->input('email')))]);
+        }
+
         $data = $request->validate([
             'first_name' => ['required', 'string', 'max:100'],
             'middle_name' => ['nullable', 'string', 'max:100'],
@@ -138,7 +165,14 @@ class UserManagementController extends Controller
             // RN-027 (CU-006.7): todo usuario debe tener al menos un rol.
             'role_ids' => ['required', 'array', 'min:1'],
             'role_ids.*' => ['integer', 'distinct', 'exists:roles,id'],
-            'organization_id' => ['nullable', 'integer', 'exists:organizations,id'],
+            // Hallazgo Medio (especialista-seguridad, 2026-08-08): `exists:organizations,id`
+            // no excluía organizaciones soft-deleted (`Organization` usa
+            // `SoftDeletes`) -- una organización ELIMINADA no debe ser un
+            // destino válido para un admin nuevo. Decisión de negocio
+            // confirmada: una organización SUSPENDIDA/INACTIVA (`is_active
+            // = false`, pero no eliminada) SÍ puede recibirlo -- no se exige
+            // `is_active = true` a propósito.
+            'organization_id' => ['nullable', 'integer', Rule::exists('organizations', 'id')->whereNull('deleted_at')],
         ]);
 
         // Punto de reutilización (ver docblock de clase): el bloque
@@ -223,12 +257,18 @@ class UserManagementController extends Controller
     {
         Gate::authorize('update', $user);
 
+        // RN-181: mismo criterio que store() -- ver ese comentario.
+        if ($request->filled('email')) {
+            $request->merge(['email' => Str::lower(trim((string) $request->input('email')))]);
+        }
+
         $data = $request->validate([
             'email' => ['sometimes', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'phone' => ['sometimes', 'nullable', 'string', 'max:50'],
             'first_name' => ['sometimes', 'string', 'max:100'],
             'last_name' => ['sometimes', 'string', 'max:100'],
-            'organization_id' => ['sometimes', 'nullable', 'integer', 'exists:organizations,id'],
+            // Hallazgo Medio (especialista-seguridad, 2026-08-08): ver store() -- mismo criterio.
+            'organization_id' => ['sometimes', 'nullable', 'integer', Rule::exists('organizations', 'id')->whereNull('deleted_at')],
         ]);
 
         $before = $user->only(['email', 'organization_id']);
@@ -333,6 +373,14 @@ class UserManagementController extends Controller
      * model binding) debe ser accesible por el actor (`Role::isAccessibleBy()`,
      * global o de su mismo tenant) y el USUARIO objetivo debe pertenecer al
      * mismo tenant que el actor (`User::isSameTenantAs()`).
+     *
+     * Fix de consistencia (especialista-seguridad, seguimiento 2026-08-08):
+     * el chequeo del USUARIO objetivo gana la misma excepción
+     * `isPlatformStaff()` que `UserPolicy` (Fix 1) -- antes quedaba
+     * inconsistente (no era una fuga, fallaba cerrado: un platform staff no
+     * podía revocar un rol de un usuario de otro tenant, aunque sí podía
+     * verlo/editarlo/activarlo/desactivarlo). Un admin de tenant NORMAL
+     * sigue exactamente igual de bloqueado que antes.
      */
     public function revokeRole(Request $request, User $user, Role $role)
     {
@@ -344,7 +392,7 @@ class UserManagementController extends Controller
             ]);
         }
 
-        if (! $request->user()->isSameTenantAs($user)) {
+        if (! $request->user()->isSameTenantAs($user) && ! $request->user()->isPlatformStaff()) {
             throw ValidationException::withMessages([
                 'user' => ['El usuario indicado no pertenece a tu organización.'],
             ]);
@@ -460,23 +508,31 @@ class UserManagementController extends Controller
      *
      * AVISO -- guarda de aislamiento tipo "rol GLOBAL" (la que
      * `RoleController::activity()` sí necesitó, ver `isPlatformStaff()`):
-     * NO aplica aquí. `User` no tiene equivalente de "usuario global" --
-     * `User::isSameTenantAs()` ya compara `tenant_organization_id` exacto
-     * INCLUYENDO NULL=NULL como "mismo grupo" (caso posible vía factory sin
-     * override explícito de `tenant_organization_id`; `DatabaseSeeder` ya no
-     * siembra ningún usuario con ese valor NULL desde 2026-07-16 -- ver
+     * NO aplica aquí en ese sentido -- `User` no tiene equivalente de
+     * "usuario global". `User::isSameTenantAs()` ya compara
+     * `tenant_organization_id` exacto INCLUYENDO NULL=NULL como "mismo
+     * grupo" (caso posible vía factory sin override explícito de
+     * `tenant_organization_id`; `DatabaseSeeder` ya no siembra ningún
+     * usuario con ese valor NULL desde 2026-07-16 -- ver
      * `PlatformAdminSeeder`), por lo que un actor con tenant real (id no
-     * nulo) NUNCA hace match contra un usuario NULL ni viceversa. El mismo
-     * chequeo manual de `show()`/`update()`/`activate()`/`deactivate()`
-     * (`Gate::authorize('view', $user)` -> `UserPolicy::view()` ->
-     * `isSameTenantAs()`) ya es SUFICIENTE por sí solo para este endpoint
-     * -- verificado, no asumido.
+     * nulo) NUNCA hace match contra un usuario NULL ni viceversa.
+     *
+     * ACTUALIZADO (fix de consistencia, especialista-seguridad, seguimiento
+     * 2026-08-08): el razonamiento anterior ("el chequeo manual de
+     * isSameTenantAs() ya es SUFICIENTE por sí solo") quedó desactualizado
+     * en cuanto `UserPolicy` ganó la excepción `isPlatformStaff()` (Fix 1) --
+     * dejaba a `activity()` como la única acción de esta clase SIN esa
+     * excepción, bloqueando a un platform staff de ver la actividad de un
+     * usuario de otro tenant que sí podía ver/editar/activar/desactivar. Se
+     * agrega aquí el mismo `|| isPlatformStaff()`, coherente con el resto de
+     * la clase. Un admin de tenant NORMAL sigue exactamente igual de
+     * bloqueado que antes.
      */
     public function activity(Request $request, User $user)
     {
         abort_unless($request->user()->hasPermission('audit.read'), 403, 'No tiene permiso para consultar la auditoría de usuarios.');
 
-        if (! $request->user()->isSameTenantAs($user)) {
+        if (! $request->user()->isSameTenantAs($user) && ! $request->user()->isPlatformStaff()) {
             throw ValidationException::withMessages([
                 'user' => ['El usuario indicado no pertenece a tu organización.'],
             ]);

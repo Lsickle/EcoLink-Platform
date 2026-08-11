@@ -217,6 +217,32 @@ test('code es único por organización y EXCLUYE sedes soft-eliminadas', functio
     ])->assertCreated();
 });
 
+test('store crea la sede exitosamente sin code (esquema-bd: branches.code VARCHAR(50) NULL, RN-BRA-004 / T-04)', function () {
+    $organization = Organization::factory()->create();
+    $branchType = BranchType::factory()->create();
+    $actor = branchActor(['branches.create'], $organization->id);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'name' => 'Sede Sin Código',
+    ])->assertCreated();
+
+    expect($response->json('branch.code'))->toBeNull();
+});
+
+test('dos sedes SIN code en la misma organización no chocan con el índice único parcial (varios NULL no colisionan)', function () {
+    $organization = Organization::factory()->create();
+    $branchType = BranchType::factory()->create();
+    $actor = branchActor(['branches.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'name' => 'Primera Sin Código',
+    ])->assertCreated();
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'name' => 'Segunda Sin Código',
+    ])->assertCreated();
+});
+
 test('el mismo code SÍ puede repetirse en organizaciones DISTINTAS', function () {
     $organizationA = Organization::factory()->create();
     $organizationB = Organization::factory()->create();
@@ -394,6 +420,96 @@ test('activity exige AMBOS: audit.read Y accesibilidad de la sede, y filtra por 
         ->and($events)->toContain('BRANCH_ACTIVATED')
         ->and($events)->toContain('BRANCH_DEACTIVATED')
         ->and($events->count())->toBe(3);
+});
+
+// ---- operational_capacity_kg/_liters/_m3 (split de operational_capacity por unidad) ----
+
+test('store acepta cualquier combinación de operational_capacity_kg/_liters/_m3 (todas opcionales)', function () {
+    $organization = Organization::factory()->create();
+    $branchType = BranchType::factory()->create();
+    $actor = branchActor(['branches.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'code' => 'CAP-NONE', 'name' => 'Sin capacidad',
+    ])->assertCreated()
+        ->assertJsonPath('branch.operational_capacity_kg', null)
+        ->assertJsonPath('branch.operational_capacity_liters', null)
+        ->assertJsonPath('branch.operational_capacity_m3', null);
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'code' => 'CAP-ONE', 'name' => 'Solo KG',
+        'operational_capacity_kg' => 500,
+    ])->assertCreated()->assertJsonPath('branch.operational_capacity_kg', '500.00');
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'code' => 'CAP-TWO', 'name' => 'KG y litros',
+        'operational_capacity_kg' => 500,
+        'operational_capacity_liters' => 200,
+    ])->assertCreated()
+        ->assertJsonPath('branch.operational_capacity_kg', '500.00')
+        ->assertJsonPath('branch.operational_capacity_liters', '200.00');
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'code' => 'CAP-THREE', 'name' => 'Las 3 unidades',
+        'operational_capacity_kg' => 500,
+        'operational_capacity_liters' => 200,
+        'operational_capacity_m3' => 3.5,
+    ])->assertCreated()
+        ->assertJsonPath('branch.operational_capacity_kg', '500.00')
+        ->assertJsonPath('branch.operational_capacity_liters', '200.00')
+        ->assertJsonPath('branch.operational_capacity_m3', '3.50');
+});
+
+test('store rechaza con 422 valores negativos en cualquiera de las 3 unidades de capacidad operativa', function () {
+    $organization = Organization::factory()->create();
+    $branchType = BranchType::factory()->create();
+    $actor = branchActor(['branches.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'code' => 'CAP-NEG-KG', 'name' => 'KG negativo',
+        'operational_capacity_kg' => -1,
+    ])->assertUnprocessable()->assertJsonValidationErrors('operational_capacity_kg');
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'code' => 'CAP-NEG-L', 'name' => 'Litros negativo',
+        'operational_capacity_liters' => -1,
+    ])->assertUnprocessable()->assertJsonValidationErrors('operational_capacity_liters');
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'code' => 'CAP-NEG-M3', 'name' => 'M3 negativo',
+        'operational_capacity_m3' => -1,
+    ])->assertUnprocessable()->assertJsonValidationErrors('operational_capacity_m3');
+});
+
+test('update permite fijar/actualizar las 3 unidades de capacidad operativa de forma independiente', function () {
+    $organization = Organization::factory()->create();
+    $branch = Branch::factory()->create([
+        'organization_id' => $organization->id,
+        'operational_capacity_kg' => null,
+        'operational_capacity_liters' => null,
+        'operational_capacity_m3' => null,
+    ]);
+
+    $actor = branchActor(['branches.update'], $organization->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/branches/{$branch->id}", [
+        'operational_capacity_liters' => 150.75,
+    ])->assertOk()->assertJsonPath('branch.operational_capacity_liters', '150.75');
+
+    expect($branch->fresh()->operational_capacity_kg)->toBeNull();
+    expect((float) $branch->fresh()->operational_capacity_liters)->toBe(150.75);
+    expect($branch->fresh()->operational_capacity_m3)->toBeNull();
+});
+
+test('update rechaza con 422 un valor negativo de capacidad operativa', function () {
+    $organization = Organization::factory()->create();
+    $branch = Branch::factory()->create(['organization_id' => $organization->id]);
+
+    $actor = branchActor(['branches.update'], $organization->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/branches/{$branch->id}", [
+        'operational_capacity_m3' => -5,
+    ])->assertUnprocessable()->assertJsonValidationErrors('operational_capacity_m3');
 });
 
 // ---- KPIs ----

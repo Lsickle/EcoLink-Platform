@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -80,9 +81,12 @@ class AuthController extends Controller
             'device_name' => ['sometimes', 'string', 'max:255'],
         ]);
 
+        // RN-181: el email es insensible a mayúsculas (mismo patrón que
+        // PasswordRecoveryController::findUserByEmail()) -- `username` NO se
+        // toca a propósito, mismo problema pero fuera de alcance de este lote.
         $user = User::query()
             ->where('username', $credentials['login'])
-            ->orWhere('email', $credentials['login'])
+            ->orWhereRaw('LOWER(email) = ?', [Str::lower(trim($credentials['login']))])
             ->first();
 
         if (! $user) {
@@ -231,7 +235,12 @@ class AuthController extends Controller
         // revokeOtherWebSessions() sobre por qué el orden importa aquí.
         $this->revokeOtherWebSessions($data['current_password']);
 
-        $user->forceFill(['password_hash' => $data['password']])->save();
+        // Cambio de contraseña obligatorio en el primer login (confirmado
+        // por el usuario, 2026-08-11): un cambio exitoso -- sea porque el
+        // usuario lo hizo voluntariamente o porque `EnsureUserIsActive` lo
+        // obligó -- siempre limpia el flag. `must_change_password` ya era
+        // `false` para la inmensa mayoría de los usuarios (queda en no-op).
+        $user->forceFill(['password_hash' => $data['password'], 'must_change_password' => false])->save();
 
         PasswordHistory::query()->create([
             'user_id' => $user->id,

@@ -37,9 +37,20 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }))
 
-let currentUser: { id: number; is_platform_staff: boolean; permissions: string[] } | null = {
+let currentUser: {
+  id: number
+  is_platform_staff: boolean
+  permissions: string[]
+  tenant_organization_id?: number | null
+} | null = {
   id: 1,
   is_platform_staff: false,
+  // Cadena Generador -> Subgestor -> Gestor (2026-08-09): coincide con
+  // `baseWaste().organization_id` (1) por defecto -- el actor por defecto
+  // de esta suite es el DUEÑO del residuo, preservando el comportamiento
+  // que todos los tests preexistentes ya asumían (ver `isOwner`/`canEditWaste`
+  // en el componente). Los tests de "vista Subgestor" lo pisan explícitamente.
+  tenant_organization_id: 1,
   permissions: [
     'wastes.read',
     'wastes.update',
@@ -115,6 +126,7 @@ describe('WasteDetailScreen', () => {
     currentUser = {
       id: 1,
       is_platform_staff: false,
+      tenant_organization_id: 1,
       permissions: [
         'wastes.read',
         'wastes.update',
@@ -397,6 +409,7 @@ describe('WasteDetailScreen', () => {
     currentUser = {
       id: 1,
       is_platform_staff: false,
+      tenant_organization_id: 1,
       permissions: ['wastes.read', 'treatment_approvals.read'],
     }
     render(<WasteDetailScreen wasteId={20} />)
@@ -404,6 +417,77 @@ describe('WasteDetailScreen', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
     await screen.findByText(/Sin evaluaciones de tratamiento/i)
 
+    expect(screen.queryByRole('button', { name: 'Solicitar Evaluación' })).not.toBeInTheDocument()
+  })
+
+  test('hides "Inactivar" without wastes.deactivate', async () => {
+    currentUser = { id: 1, is_platform_staff: false, tenant_organization_id: 1, permissions: ['wastes.read'] }
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+    expect(screen.queryByRole('button', { name: 'Inactivar' })).not.toBeInTheDocument()
+  })
+
+  test('shows "Inactivar" when the actor has wastes.deactivate', async () => {
+    currentUser = { id: 1, is_platform_staff: false, tenant_organization_id: 1, permissions: ['wastes.read', 'wastes.deactivate'] }
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+    expect(screen.getByRole('button', { name: 'Inactivar' })).toBeInTheDocument()
+  })
+
+  test('shows "Activar" (not "Inactivar") for an inactive waste when the actor has wastes.activate', async () => {
+    fetchWasteMock.mockResolvedValue({ waste: baseWaste({ is_active: false }) })
+    currentUser = { id: 1, is_platform_staff: false, tenant_organization_id: 1, permissions: ['wastes.read', 'wastes.activate'] }
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+    expect(screen.getByRole('button', { name: 'Activar' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Inactivar' })).not.toBeInTheDocument()
+  })
+
+  // ---- Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders reales, 2026-08-09) ----
+
+  test('Subgestor viendo el residuo de un Generador cliente: sin acciones de edición, con banner informativo', async () => {
+    // tenant_organization_id (99) DISTINTO de baseWaste().organization_id (1)
+    // -- si la pantalla cargó (200), el backend ya confirmó que es un
+    // Subgestor autorizado (WastePolicy::view()).
+    currentUser = {
+      id: 1,
+      is_platform_staff: false,
+      tenant_organization_id: 99,
+      permissions: [
+        'wastes.read',
+        'wastes.update',
+        'wastes.review',
+        'wastes.classify',
+        'wastes.reject',
+        'wastes.activate',
+        'wastes.deactivate',
+        'treatment_approvals.read',
+        'treatment_approvals.create',
+      ],
+    }
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+
+    expect(screen.getByRole('status')).toHaveTextContent(/viendo el residuo de un Generador cliente/i)
+    expect(screen.queryByRole('button', { name: 'Enviar a Revisión' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Rechazar' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Inactivar' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Activar' })).not.toBeInTheDocument()
+  })
+
+  test('Subgestor con SOLO treatment_approvals.create (sin wastes.update) puede reenviar -- botón dice "Reenviar a Gestor"', async () => {
+    currentUser = {
+      id: 1,
+      is_platform_staff: false,
+      tenant_organization_id: 99,
+      permissions: ['wastes.read', 'treatment_approvals.read', 'treatment_approvals.create'],
+    }
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+    fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
+    await screen.findByText(/Sin evaluaciones de tratamiento/i)
+
+    expect(screen.getByRole('button', { name: 'Reenviar a Gestor' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Solicitar Evaluación' })).not.toBeInTheDocument()
   })
 })

@@ -971,7 +971,16 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
               <div className="flex flex-col gap-2 border-b border-border pb-4">
                 <span className="text-xs font-semibold text-muted-foreground">FOTOGRAFÍAS DEL RESIDUO</span>
                 <p className="text-xs text-muted-foreground">Obligatorio · Mínimo 1 foto, máximo {MAX_PHOTOS}</p>
-                <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-blue-300 bg-blue-50/40 p-4 text-center dark:bg-blue-950/10">
+                <label
+                  className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-blue-300 bg-blue-50/40 p-4 text-center dark:bg-blue-950/10"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragEnter={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    handleUploadPhotos(event.dataTransfer.files)
+                  }}
+                >
                   <span className="text-sm font-medium">Arrastra fotos aquí o haz clic para seleccionar</span>
                   <span className="text-xs text-muted-foreground">JPG, PNG · Máx. 10 MB</span>
                   <input
@@ -1011,13 +1020,31 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
                   {sdsFile ? (
                     <div className="flex items-center justify-between rounded-lg border border-emerald-300 bg-emerald-50 p-2 text-sm dark:bg-emerald-950/20">
                       <span>{sdsFile.original_filename}</span>
-                      <label className="cursor-pointer text-xs font-medium text-primary hover:underline">
+                      <label
+                        className="cursor-pointer text-xs font-medium text-primary hover:underline"
+                        onDragOver={(event) => event.preventDefault()}
+                        onDragEnter={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          handleUploadSds(event.dataTransfer.files)
+                        }}
+                      >
                         Reemplazar
                         <input type="file" accept="application/pdf" className="sr-only" onChange={(event) => handleUploadSds(event.target.files)} />
                       </label>
                     </div>
                   ) : (
-                    <label className="cursor-pointer rounded-lg border border-dashed border-border p-3 text-center text-sm text-muted-foreground">
+                    <label
+                      className="cursor-pointer rounded-lg border border-dashed border-border p-3 text-center text-sm text-muted-foreground"
+                      onDragOver={(event) => event.preventDefault()}
+                      onDragEnter={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        handleUploadSds(event.dataTransfer.files)
+                      }}
+                    >
                       📎 Adjuntar Ficha de Seguridad (PDF)
                       <input
                         type="file"
@@ -1034,7 +1061,16 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-semibold text-muted-foreground">DOCUMENTOS ADICIONALES</span>
                 <p className="text-xs text-muted-foreground">Manifiestos, permisos, autorizaciones (Opcional)</p>
-                <label className="cursor-pointer rounded-lg border border-dashed border-border p-3 text-center text-sm text-muted-foreground">
+                <label
+                  className="cursor-pointer rounded-lg border border-dashed border-border p-3 text-center text-sm text-muted-foreground"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragEnter={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    handleUploadAdditionalDocument(event.dataTransfer.files)
+                  }}
+                >
                   📎 Adjuntar documento adicional
                   <input
                     type="file"
