@@ -20,6 +20,74 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Error inesperado.'
 }
 
+type BulkImportFieldDoc = {
+  column: string
+  required: boolean
+  format: string
+  notes?: string
+}
+
+// Fuente única de las 12 columnas reconocidas por `GeneratorBulkImportService`
+// (backend/app/Services/GeneratorBulkImportService.php) -- alimenta la
+// plantilla descargable, la tabla de referencia y el hint de columnas, para
+// que las 3 no puedan desincronizarse entre sí. Verificado contra el
+// backend real (REQUIRED_COLUMNS, assertValidTaxIdType(), y las migraciones
+// de organizations/branches/users) al pedido del usuario, 2026-08-11.
+const BULK_IMPORT_FIELDS: BulkImportFieldDoc[] = [
+  {
+    column: 'tax_id',
+    required: true,
+    format: 'Texto, máx. 30 caracteres',
+    notes: 'Junto con tax_id_type identifica al Generador; si el par ya existe, esta fila solo vincula -- no se editan sus datos.',
+  },
+  { column: 'tax_id_type', required: true, format: 'NIT, CC, CE, Pasaporte o Tax ID' },
+  { column: 'legal_name', required: true, format: 'Texto, máx. 255 caracteres', notes: 'Razón social; se ignora si el NIT ya existe.' },
+  { column: 'trade_name', required: false, format: 'Texto, máx. 255 caracteres', notes: 'Nombre comercial.' },
+  { column: 'organization_email', required: false, format: 'Correo electrónico' },
+  { column: 'organization_phone', required: false, format: 'Texto, máx. 30 caracteres' },
+  {
+    column: 'username',
+    required: false,
+    format: 'Texto, máx. 100 caracteres, único',
+    notes: 'Solo se lee de la primera fila de cada NIT nuevo; si se omite, se genera automáticamente.',
+  },
+  { column: 'branch_name', required: true, format: 'Texto, máx. 255 caracteres', notes: 'Nombre de la sede -- una fila = una sede.' },
+  { column: 'branch_code', required: false, format: 'Texto, único por organización' },
+  { column: 'branch_address', required: false, format: 'Texto libre' },
+  { column: 'environmental_license', required: false, format: 'Texto, máx. 255 caracteres' },
+  { column: 'license_expiration_date', required: false, format: 'Fecha AAAA-MM-DD', notes: 'Ej: 2027-12-31.' },
+]
+
+const BULK_IMPORT_EXAMPLE_ROW: Record<string, string> = {
+  tax_id: '900123456-1',
+  tax_id_type: 'NIT',
+  legal_name: 'Generador de Ejemplo S.A.S.',
+  branch_name: 'Sede Principal',
+  branch_code: 'SP01',
+  branch_address: 'Cra 1 #2-3, Bogotá',
+}
+
+// Escapado CSV mínimo (RFC 4180) -- necesario porque `branch_address` de
+// ejemplo (y cualquier dirección/nombre real que un usuario diligencie)
+// puede traer comas: sin esto, "Cra 1 #2-3, Bogotá" se parte en dos campos
+// y desalinea el resto de la fila al re-subirla (mismo `fgetcsv()` del
+// backend, que sí respeta comillas).
+function csvField(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+}
+
+function downloadBulkImportTemplate() {
+  const header = BULK_IMPORT_FIELDS.map((field) => csvField(field.column)).join(',')
+  const example = BULK_IMPORT_FIELDS.map((field) => csvField(BULK_IMPORT_EXAMPLE_ROW[field.column] ?? '')).join(',')
+  const blob = new Blob([`${header}\n${example}\n`], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'plantilla-carga-masiva-generadores.csv'
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 /**
  * Carga Masiva de Generadores (CSV) por Subgestor/Gestor -- autoservicio
  * confirmado por el usuario, 2026-08-11. Un archivo, una fila = una sede;
@@ -143,7 +211,12 @@ export function GeneratorBulkImportScreen() {
         )}
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="generatorBulkImport-file">Archivo CSV</Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="generatorBulkImport-file">Archivo CSV</Label>
+            <Button type="button" variant="outline" size="sm" onClick={downloadBulkImportTemplate}>
+              Descargar plantilla CSV
+            </Button>
+          </div>
           <Input
             id="generatorBulkImport-file"
             type="file"
@@ -151,9 +224,32 @@ export function GeneratorBulkImportScreen() {
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
           <p className="text-xs text-muted-foreground">
-            Columnas: <code>tax_id,tax_id_type,legal_name,trade_name,organization_email,organization_phone,username,branch_name,branch_code,branch_address,environmental_license,license_expiration_date</code>
-            . Máximo 5MB. Una fila = una sede; repite el NIT para declarar varias sedes del mismo Generador.
+            Máximo 5MB. Una fila = una sede; repite el NIT para declarar varias sedes del mismo Generador. Formato de
+            cada columna abajo.
           </p>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Columna</TableHead>
+                <TableHead>Obligatoria</TableHead>
+                <TableHead>Formato / valores válidos</TableHead>
+                <TableHead>Nota</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {BULK_IMPORT_FIELDS.map((field) => (
+                <TableRow key={field.column}>
+                  <TableCell className="font-mono text-xs">{field.column}</TableCell>
+                  <TableCell>{field.required ? 'Sí' : 'No'}</TableCell>
+                  <TableCell>{field.format}</TableCell>
+                  <TableCell className="text-muted-foreground">{field.notes ?? '—'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
 
         {error && (

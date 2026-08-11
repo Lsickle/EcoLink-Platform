@@ -2,6 +2,20 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { GeneratorBulkImportScreen } from './GeneratorBulkImportScreen'
 
+function splitCsvLine(line: string): string[] {
+  const fields = line.split(',')
+  const merged: string[] = []
+  for (const field of fields) {
+    const isContinuation = merged.length > 0 && (merged[merged.length - 1].match(/"/g)?.length ?? 0) % 2 === 1
+    if (isContinuation) {
+      merged[merged.length - 1] += `,${field}`
+    } else {
+      merged.push(field)
+    }
+  }
+  return merged
+}
+
 const importGeneratorsBulkMock = vi.fn()
 const searchOrganizationsMock = vi.fn()
 
@@ -145,5 +159,62 @@ describe('GeneratorBulkImportScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cargar Generadores' }))
 
     expect(await screen.findByText('Fila 2: NIT inválido.')).toBeInTheDocument()
+  })
+
+  // Plantilla CSV descargable + tabla de referencia de campos (pedido por
+  // el usuario, 2026-08-11) -- fuente única BULK_IMPORT_FIELDS en el
+  // componente, ver su docblock.
+  describe('plantilla descargable y tabla de referencia de campos', () => {
+    test('muestra la tabla de referencia con las 12 columnas y su Obligatorio/valores válidos correctos', () => {
+      render(<GeneratorBulkImportScreen />)
+
+      expect(screen.getByRole('columnheader', { name: 'Columna' })).toBeInTheDocument()
+      expect(screen.getByText('tax_id')).toBeInTheDocument()
+      expect(screen.getByText('NIT, CC, CE, Pasaporte o Tax ID')).toBeInTheDocument()
+      expect(screen.getByText('branch_name')).toBeInTheDocument()
+      expect(screen.getByText('license_expiration_date')).toBeInTheDocument()
+      // tax_id, tax_id_type, legal_name, branch_name son las 4 obligatorias.
+      expect(screen.getAllByText('Sí')).toHaveLength(4)
+    })
+
+    test('el botón "Descargar plantilla CSV" dispara la descarga de un archivo con encabezado + fila de ejemplo', () => {
+      const createObjectURLMock = vi.fn().mockReturnValue('blob:mock-url')
+      const revokeObjectURLMock = vi.fn()
+      // jsdom no implementa createObjectURL/revokeObjectURL.
+      URL.createObjectURL = createObjectURLMock
+      URL.revokeObjectURL = revokeObjectURLMock
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+      render(<GeneratorBulkImportScreen />)
+      fireEvent.click(screen.getByRole('button', { name: 'Descargar plantilla CSV' }))
+
+      expect(createObjectURLMock).toHaveBeenCalledTimes(1)
+      const blob = createObjectURLMock.mock.calls[0][0] as Blob
+      expect(blob.type).toBe('text/csv;charset=utf-8;')
+      expect(clickSpy).toHaveBeenCalledTimes(1)
+      expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:mock-url')
+
+      clickSpy.mockRestore()
+    })
+
+    test('escapa correctamente los campos con comas (RFC 4180) para no desalinear el CSV', async () => {
+      const createObjectURLMock = vi.fn().mockReturnValue('blob:mock-url')
+      URL.createObjectURL = createObjectURLMock
+      URL.revokeObjectURL = vi.fn()
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+      render(<GeneratorBulkImportScreen />)
+      fireEvent.click(screen.getByRole('button', { name: 'Descargar plantilla CSV' }))
+
+      const blob = createObjectURLMock.mock.calls[0][0] as Blob
+      const text = await blob.text()
+      const [, exampleLine] = text.trim().split('\n')
+      const fields = splitCsvLine(exampleLine)
+
+      expect(fields).toHaveLength(12)
+      expect(exampleLine).toContain('"Cra 1 #2-3, Bogotá"')
+
+      clickSpy.mockRestore()
+    })
   })
 })
