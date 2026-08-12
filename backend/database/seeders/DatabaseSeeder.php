@@ -125,6 +125,13 @@ class DatabaseSeeder extends Seeder
         // RoleSeeder (rol LOGÍSTICA, ya sembrado arriba).
         $this->call(DemoUsersSeeder::class);
 
+        // Vincula a Immetal (Generador) con LogVerde (Subgestor) y EcoTrata
+        // (Gestor) -- habilita probar en staging la visibilidad cross-tenant
+        // Subgestor/Gestor->Generador (pedido explícito del usuario,
+        // 2026-08-11) sin crear la relación a mano. Debe correr DESPUÉS de
+        // DemoUsersSeeder (usa a Ricardo Peña/Diana López como actor).
+        $this->call(DemoGeneratorRelationshipsSeeder::class);
+
         // Módulo Solicitudes de Servicio, Fase 1a (D-S02/D-S04/D-S09/D-S10):
         // 4 catálogos globales nuevos (sin dependencias entre sí) + el
         // workflow BASE "Solicitud de Servicio" (entity_type=SERVICE) --
