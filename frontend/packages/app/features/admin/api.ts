@@ -176,6 +176,7 @@ import type {
   UploadFilePayload,
   UserActivityEvent,
   VehicleKpis,
+  WasteBulkImportResult,
   WasteFileCategory,
   WasteFilesByCategory,
   WasteKpis,
@@ -3146,6 +3147,23 @@ export async function importGeneratorsBulk(
   }
   if (options.linkAs) formData.append('link_as', options.linkAs)
   return apiFetch('/api/admin/generators/bulk-import', { method: 'POST', body: formData })
+}
+
+// Carga Masiva de Residuos (CSV) -- pedido explícito del usuario,
+// 2026-08-11. `onBehalfOfOrganizationId` solo tiene efecto si el actor es
+// platform staff o tiene una relación Subgestor/Gestor ACTIVA hacia esa
+// organización Generador -- la autorización real la resuelve el backend
+// (WasteBulkImportController::store()).
+export async function importWastesBulk(
+  file: File,
+  options: { onBehalfOfOrganizationId?: number } = {}
+): Promise<WasteBulkImportResult> {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (options.onBehalfOfOrganizationId) {
+    formData.append('on_behalf_of_organization_id', String(options.onBehalfOfOrganizationId))
+  }
+  return apiFetch('/api/admin/wastes/bulk-import', { method: 'POST', body: formData })
 }
 
 export type * from './types'

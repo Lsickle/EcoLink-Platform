@@ -3746,3 +3746,24 @@ export type GeneratorBulkImportResult = {
   errors: GeneratorBulkImportRowError[]
   generators: GeneratorBulkImportResultItem[]
 }
+
+// Carga Masiva de Residuos (CSV) -- pedido explícito del usuario,
+// 2026-08-11 (POST /api/admin/wastes/bulk-import). Cada fila del CSV es un
+// residuo (a diferencia de Generadores, que agrupa filas por NIT) -- sin
+// `linked_existing` porque cada fila siempre crea un residuo nuevo, nunca
+// vincula uno existente.
+export type WasteBulkImportRowError = { row: number; message: string }
+
+export type WasteBulkImportResultItem = {
+  id: number
+  name: string
+  code: string | null
+  branch_name: string | null
+  waste_danger: string | null
+}
+
+export type WasteBulkImportResult = {
+  created: number
+  errors: WasteBulkImportRowError[]
+  wastes: WasteBulkImportResultItem[]
+}

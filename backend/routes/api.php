@@ -42,6 +42,7 @@ use App\Http\Controllers\Api\Admin\UnloadRequestController;
 use App\Http\Controllers\Api\Admin\UserManagementController;
 use App\Http\Controllers\Api\Admin\VehicleController;
 use App\Http\Controllers\Api\Admin\VehicleTypeController;
+use App\Http\Controllers\Api\Admin\WasteBulkImportController;
 use App\Http\Controllers\Api\Admin\WasteCategoryController;
 use App\Http\Controllers\Api\Admin\WasteController;
 use App\Http\Controllers\Api\Admin\WasteOperationalStatusController;
@@ -392,6 +393,11 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         // mismo patrón exacto que Sedes/Vehículos/Tratamientos por Sede.
         Route::get('wastes', [WasteController::class, 'index'])->name('wastes.index');
         Route::post('wastes', [WasteController::class, 'store'])->name('wastes.store');
+        // Carga Masiva de Residuos (CSV) -- pedido explícito del usuario,
+        // 2026-08-11. Registrada ANTES de `wastes/{waste}` para evitar
+        // colisión de route-model-binding con el segmento "bulk-import"
+        // (mismo cuidado que `waste-streams/import`/`un-codes/import`).
+        Route::post('wastes/bulk-import', [WasteBulkImportController::class, 'store'])->name('wastes.bulk-import')->middleware('throttle:waste-bulk-import');
         Route::get('wastes/{waste}', [WasteController::class, 'show'])->name('wastes.show');
         Route::put('wastes/{waste}', [WasteController::class, 'update'])->name('wastes.update');
         Route::post('wastes/{waste}/activate', [WasteController::class, 'activate'])->name('wastes.activate');

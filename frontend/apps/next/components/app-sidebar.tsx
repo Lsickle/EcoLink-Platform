@@ -188,6 +188,15 @@ const data = {
       icon: <ClipboardListIcon />,
       permission: "wastes.read",
     },
+    // Carga Masiva de Residuos (CSV) -- pedido explícito del usuario,
+    // 2026-08-11, mismo criterio de permiso que el formulario manual
+    // (`wastes.create`, sin restricción de business_role).
+    {
+      title: "Carga Masiva de Residuos",
+      url: "/admin/wastes/bulk-import",
+      icon: <UploadCloudIcon />,
+      permission: "wastes.create",
+    },
     // "Residuos Preaprobados" (`wastes.waste_type_id=PREAPPROVED`, RN-191,
     // ver docblock completo de `PreapprovedWasteController`) -- gateado
     // SOLO por `preapproved_wastes.read`, MISMO criterio EXACTO que

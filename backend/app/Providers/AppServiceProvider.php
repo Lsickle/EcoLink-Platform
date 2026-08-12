@@ -180,5 +180,13 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('generator-bulk-import', function (Request $request) {
             return Limit::perHour(5)->by($request->user()?->id ?? $request->ip());
         });
+
+        // Mismo criterio que `generator-bulk-import` de arriba -- `POST
+        // /admin/wastes/bulk-import` puede crear hasta 10 000 residuos por
+        // request (ver `WasteBulkImportService::MAX_ROWS`), operación
+        // ocasional, no interactiva.
+        RateLimiter::for('waste-bulk-import', function (Request $request) {
+            return Limit::perHour(5)->by($request->user()?->id ?? $request->ip());
+        });
     }
 }
