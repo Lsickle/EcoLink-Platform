@@ -62,12 +62,14 @@ function wbiCsvFile(string $content): UploadedFile
     return UploadedFile::fake()->createWithContent('residuos.csv', $content);
 }
 
+// Encabezados del CSV en español (decisión del usuario, 2026-08-13, corte
+// limpio) -- mismo orden/mapeo que `WasteBulkImportService::REQUIRED_COLUMNS`.
 const WBI_CSV_COLUMNS = [
-    'name', 'branch_code', 'waste_category_code', 'physical_state_code', 'measurement_unit_code',
-    'quantity', 'average_weight', 'generation_frequency_code', 'generation_date',
-    'hazard_characteristics_codes', 'waste_stream_codes', 'un_code_codes',
-    'code', 'description', 'internal_reference', 'operational_notes',
-    'requires_special_transport', 'requires_special_ppe',
+    'nombre', 'codigo_sede', 'codigo_categoria_residuo', 'codigo_estado_fisico', 'codigo_unidad_medida',
+    'cantidad', 'peso_promedio', 'codigo_frecuencia_generacion', 'fecha_generacion',
+    'codigos_caracteristicas_peligrosidad', 'codigos_corrientes', 'codigos_un',
+    'codigo_residuo', 'descripcion', 'referencia_interna', 'observaciones_operativas',
+    'requiere_transporte_especial', 'requiere_epp_especial',
 ];
 
 function wbiCsvRow(array $values): string
@@ -94,8 +96,8 @@ test('un Generador declara masivamente sus propios residuos', function () {
 
     $response = $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
         'file' => wbiCsvFile(wbiCsv(
-            ['name' => 'Chatarra Metálica'],
-            ['name' => 'Aceite Usado'],
+            ['nombre' => 'Chatarra Metálica'],
+            ['nombre' => 'Aceite Usado'],
         )),
     ])->assertOk();
 
@@ -110,7 +112,7 @@ test('un Subgestor SIN capacidad can_generate_waste declara residuos para sí mi
     $actor = wbiActor(['wastes.create'], $subgestor->id);
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo Propio del Subgestor'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo Propio del Subgestor'])),
     ])->assertOk()->assertJsonPath('created', 1);
 
     expect(Waste::query()->where('organization_id', $subgestor->id)->where('name', 'Residuo Propio del Subgestor')->exists())->toBeTrue();
@@ -120,7 +122,7 @@ test('sin el permiso wastes.create responde 403', function () {
     $actor = wbiActor([], Organization::factory()->create()->id);
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo'])),
     ])->assertForbidden();
 });
 
@@ -136,7 +138,7 @@ test('un Subgestor con relación ACTIVA declara residuos a nombre del Generador 
 
     $response = $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
         'on_behalf_of_organization_id' => $generator->id,
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo del Generador'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo del Generador'])),
     ])->assertOk();
 
     $response->assertJsonPath('created', 1);
@@ -153,7 +155,7 @@ test('un Gestor con relación ACTIVA declara residuos a nombre del Generador vin
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
         'on_behalf_of_organization_id' => $generator->id,
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo del Generador (Gestor)'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo del Generador (Gestor)'])),
     ])->assertOk()->assertJsonPath('created', 1);
 });
 
@@ -164,7 +166,7 @@ test('un Subgestor SIN relación activa hacia el Generador indicado recibe 403',
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
         'on_behalf_of_organization_id' => $generator->id,
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo No Autorizado'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo No Autorizado'])),
     ])->assertForbidden();
 
     expect(Waste::query()->where('organization_id', $generator->id)->exists())->toBeFalse();
@@ -180,7 +182,7 @@ test('una relación REVOCADA ya no habilita declarar a nombre del Generador', fu
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
         'on_behalf_of_organization_id' => $generator->id,
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo'])),
     ])->assertForbidden();
 });
 
@@ -188,7 +190,7 @@ test('platform staff exige on_behalf_of_organization_id explícito (422 si falta
     $actor = wbiPlatformStaffActor(['wastes.create']);
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo'])),
     ])->assertUnprocessable()->assertJsonValidationErrors('on_behalf_of_organization_id');
 });
 
@@ -201,7 +203,7 @@ test('una fila con características de peligrosidad marca requires_sds=true auto
     HazardCharacteristic::factory()->create(['code' => 'EXP', 'risk_level' => 9]);
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo Peligroso', 'hazard_characteristics_codes' => 'COR;EXP'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo Peligroso', 'codigos_caracteristicas_peligrosidad' => 'COR;EXP'])),
     ])->assertOk()->assertJsonPath('created', 1);
 
     $waste = Waste::query()->where('name', 'Residuo Peligroso')->firstOrFail();
@@ -215,7 +217,7 @@ test('una fila SIN características de peligrosidad NO fuerza requires_sds', fun
     $actor = wbiActor(['wastes.create'], $organization->id);
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo Inofensivo'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo Inofensivo'])),
     ])->assertOk();
 
     $waste = Waste::query()->where('name', 'Residuo Inofensivo')->firstOrFail();
@@ -235,9 +237,9 @@ test('resuelve branch_code/waste_category_code/physical_state_code/measurement_u
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
         'file' => wbiCsvFile(wbiCsv([
-            'name' => 'Residuo Completo', 'branch_code' => 'SEDE01', 'waste_category_code' => 'INDUSTRIAL',
-            'physical_state_code' => 'SOLIDO', 'measurement_unit_code' => 'TON', 'quantity' => '12.5',
-            'generation_frequency_code' => 'DAILY',
+            'nombre' => 'Residuo Completo', 'codigo_sede' => 'SEDE01', 'codigo_categoria_residuo' => 'INDUSTRIAL',
+            'codigo_estado_fisico' => 'SOLIDO', 'codigo_unidad_medida' => 'TON', 'cantidad' => '12.5',
+            'codigo_frecuencia_generacion' => 'DAILY',
         ])),
     ])->assertOk()->assertJsonPath('created', 1);
 
@@ -259,7 +261,7 @@ test('resuelve waste_stream_codes/un_code_codes (separados por ;) y sincroniza l
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
         'file' => wbiCsvFile(wbiCsv([
-            'name' => 'Residuo Clasificado', 'waste_stream_codes' => 'Y1;Y2', 'un_code_codes' => 'UN1230',
+            'nombre' => 'Residuo Clasificado', 'codigos_corrientes' => 'Y1;Y2', 'codigos_un' => 'UN1230',
         ])),
     ])->assertOk()->assertJsonPath('created', 1);
 
@@ -286,7 +288,7 @@ test('un Subgestor NO puede usar sus propias corrientes/códigos UN PRIVADOS al 
 
     $response = $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
         'on_behalf_of_organization_id' => $generator->id,
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo Con Corriente Ajena', 'waste_stream_codes' => 'Y-PRIVADO-SUBGESTOR'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo Con Corriente Ajena', 'codigos_corrientes' => 'Y-PRIVADO-SUBGESTOR'])),
     ])->assertOk();
 
     $response->assertJsonPath('created', 0);
@@ -299,7 +301,7 @@ test('el mismo Subgestor SÍ puede usar esa corriente privada al declarar para S
     $stream = WasteStream::factory()->create(['code' => 'Y-PRIVADO-SUBGESTOR', 'tenant_organization_id' => $subgestor->id]);
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo Propio Con Corriente Privada', 'waste_stream_codes' => 'Y-PRIVADO-SUBGESTOR'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo Propio Con Corriente Privada', 'codigos_corrientes' => 'Y-PRIVADO-SUBGESTOR'])),
     ])->assertOk()->assertJsonPath('created', 1);
 
     $waste = Waste::query()->where('name', 'Residuo Propio Con Corriente Privada')->firstOrFail();
@@ -315,7 +317,7 @@ test('un intento SIN relación activa hacia on_behalf_of_organization_id queda r
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
         'on_behalf_of_organization_id' => $generator->id,
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo No Autorizado'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo No Autorizado'])),
     ])->assertForbidden();
 
     $log = \App\Models\SecurityLog::query()->where('event_type', 'WASTE_BULK_IMPORT_EXECUTED')->where('result', 'FAILURE')->first();
@@ -332,8 +334,8 @@ test('un código de catálogo inválido genera un error de fila SIN abortar el r
 
     $response = $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
         'file' => wbiCsvFile(wbiCsv(
-            ['name' => 'Residuo Válido'],
-            ['name' => 'Residuo Con Categoría Inválida', 'waste_category_code' => 'NO_EXISTE'],
+            ['nombre' => 'Residuo Válido'],
+            ['nombre' => 'Residuo Con Categoría Inválida', 'codigo_categoria_residuo' => 'NO_EXISTE'],
         )),
     ])->assertOk();
 
@@ -349,7 +351,7 @@ test('un code duplicado en la misma organización genera un error de fila amigab
     $actor = wbiActor(['wastes.create'], $organization->id);
 
     $response = $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo Duplicado', 'code' => 'RES-001'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo Duplicado', 'codigo_residuo' => 'RES-001'])),
     ])->assertOk();
 
     $response->assertJsonPath('created', 0);
@@ -361,7 +363,7 @@ test('name faltante en una fila genera error de fila', function () {
     $actor = wbiActor(['wastes.create'], $organization->id);
 
     $response = $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
-        'file' => wbiCsvFile(implode("\n", [implode(',', WBI_CSV_COLUMNS), wbiCsvRow(['name' => ''])])),
+        'file' => wbiCsvFile(implode("\n", [implode(',', WBI_CSV_COLUMNS), wbiCsvRow(['nombre' => ''])])),
     ])->assertOk();
 
     $response->assertJsonPath('created', 0);
@@ -376,11 +378,11 @@ test('el rate limiter de carga masiva de residuos (5/hora por actor) responde 42
 
     foreach (range(1, 5) as $attempt) {
         $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
-            'file' => wbiCsvFile(wbiCsv(['name' => "Residuo {$attempt}"])),
+            'file' => wbiCsvFile(wbiCsv(['nombre' => "Residuo {$attempt}"])),
         ])->assertOk();
     }
 
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
-        'file' => wbiCsvFile(wbiCsv(['name' => 'Residuo 6'])),
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo 6'])),
     ])->assertStatus(429);
 });

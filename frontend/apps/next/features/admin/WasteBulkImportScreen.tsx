@@ -36,48 +36,48 @@ type BulkImportFieldDoc = {
 // catálogos, y assertValidTaxIdType()-equivalente para cada código) al
 // pedido del usuario, 2026-08-11.
 const BULK_IMPORT_FIELDS: BulkImportFieldDoc[] = [
-  { column: 'name', required: true, format: 'Texto, máx. 255 caracteres' },
-  { column: 'branch_code', required: false, format: 'Código de una sede existente en la organización' },
+  { column: 'nombre', required: true, format: 'Texto, máx. 255 caracteres' },
+  { column: 'codigo_sede', required: false, format: 'Código de una sede existente en la organización' },
   {
-    column: 'waste_category_code',
+    column: 'codigo_categoria_residuo',
     required: false,
     format: 'INDUSTRIAL, HOSPITALARIO_Y_SIMILARES, APROVECHABLE, ORGANICO, POSCONSUMO, RCD, ESPECIAL, ORDINARIO',
   },
   {
-    column: 'physical_state_code',
+    column: 'codigo_estado_fisico',
     required: false,
     format:
       'SOLIDO, LIQUIDO, GASEOSO, SEMISOLIDO, LODO, PASTA, GEL, AEROSOL, MEZCLA_SOLIDO_LIQUIDO, MEZCLA_LIQUIDO_LODO, POLVO, GRANULADO, CENIZA, EMULSION, SUSPENSION, NO_DETERMINADO',
   },
-  { column: 'measurement_unit_code', required: false, format: 'KG, TON, LT, M3, LB', notes: 'Por defecto KG si se omite.' },
-  { column: 'quantity', required: false, format: 'Numérico, mayor o igual a 0' },
-  { column: 'average_weight', required: false, format: 'Numérico, mayor o igual a 0' },
-  { column: 'generation_frequency_code', required: false, format: 'DAILY, WEEKLY, MONTHLY, OCCASIONAL' },
-  { column: 'generation_date', required: false, format: 'Fecha AAAA-MM-DD' },
+  { column: 'codigo_unidad_medida', required: false, format: 'KG, TON, LT, M3, LB', notes: 'Por defecto KG si se omite.' },
+  { column: 'cantidad', required: false, format: 'Numérico, mayor o igual a 0' },
+  { column: 'peso_promedio', required: false, format: 'Numérico, mayor o igual a 0' },
+  { column: 'codigo_frecuencia_generacion', required: false, format: 'DAILY, WEEKLY, MONTHLY, OCCASIONAL' },
+  { column: 'fecha_generacion', required: false, format: 'Fecha AAAA-MM-DD' },
   {
-    column: 'hazard_characteristics_codes',
+    column: 'codigos_caracteristicas_peligrosidad',
     required: false,
     format: 'COR, INF, TOX, EXP, REA, INFEC, RAD, ECO, IRR -- separados por ;',
     notes: 'Si trae alguno, la ficha de seguridad (SDS) queda marcada como obligatoria automáticamente.',
   },
-  { column: 'waste_stream_codes', required: false, format: 'Códigos de Corrientes Y/A, separados por ;' },
-  { column: 'un_code_codes', required: false, format: 'Códigos UN, separados por ;' },
-  { column: 'code', required: false, format: 'Texto, único por organización' },
-  { column: 'description', required: false, format: 'Texto libre' },
-  { column: 'internal_reference', required: false, format: 'Texto, máx. 100 caracteres' },
-  { column: 'operational_notes', required: false, format: 'Texto libre' },
-  { column: 'requires_special_transport', required: false, format: 'true / false' },
-  { column: 'requires_special_ppe', required: false, format: 'true / false' },
+  { column: 'codigos_corrientes', required: false, format: 'Códigos de Corrientes Y/A, separados por ;' },
+  { column: 'codigos_un', required: false, format: 'Códigos UN, separados por ;' },
+  { column: 'codigo_residuo', required: false, format: 'Texto, único por organización' },
+  { column: 'descripcion', required: false, format: 'Texto libre' },
+  { column: 'referencia_interna', required: false, format: 'Texto, máx. 100 caracteres' },
+  { column: 'observaciones_operativas', required: false, format: 'Texto libre' },
+  { column: 'requiere_transporte_especial', required: false, format: 'true / false' },
+  { column: 'requiere_epp_especial', required: false, format: 'true / false' },
 ]
 
 const BULK_IMPORT_EXAMPLE_ROW: Record<string, string> = {
-  name: 'Residuo de Ejemplo',
-  branch_code: 'SP01',
-  waste_category_code: 'INDUSTRIAL',
-  physical_state_code: 'SOLIDO',
-  measurement_unit_code: 'KG',
-  quantity: '150',
-  hazard_characteristics_codes: 'COR;INF',
+  nombre: 'Residuo de Ejemplo',
+  codigo_sede: 'SP01',
+  codigo_categoria_residuo: 'INDUSTRIAL',
+  codigo_estado_fisico: 'SOLIDO',
+  codigo_unidad_medida: 'KG',
+  cantidad: '150',
+  codigos_caracteristicas_peligrosidad: 'COR;INF',
 }
 
 // Escapado CSV mínimo (RFC 4180), mismo helper que

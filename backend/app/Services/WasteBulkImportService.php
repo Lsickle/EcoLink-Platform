@@ -48,7 +48,9 @@ class WasteBulkImportService
 {
     private const MAX_ROWS = 10000;
 
-    private const REQUIRED_COLUMNS = ['name'];
+    // Encabezado del CSV en español (decisión del usuario, 2026-08-13, corte
+    // limpio -- el nombre en inglés usado antes ya NO se reconoce).
+    private const REQUIRED_COLUMNS = ['nombre'];
 
     /**
      * Códigos múltiples dentro de una misma celda CSV (`hazard_characteristics_codes`/
@@ -134,7 +136,7 @@ class WasteBulkImportService
     private function processRow(array $rowData, Organization $actingOrganization, User $actor): Waste
     {
         $data = $this->resolveAttributes($rowData, $actingOrganization, $actor);
-        $hazardCharacteristicIds = $this->resolveCodes($rowData['hazard_characteristics_codes'] ?? null, HazardCharacteristic::class, 'hazard_characteristics_codes');
+        $hazardCharacteristicIds = $this->resolveCodes($rowData['codigos_caracteristicas_peligrosidad'] ?? null, HazardCharacteristic::class, 'codigos_caracteristicas_peligrosidad');
 
         if ($hazardCharacteristicIds !== []) {
             $data['requires_sds'] = true;
@@ -144,12 +146,12 @@ class WasteBulkImportService
             $waste = Waste::query()->create($data);
         } catch (UniqueConstraintViolationException) {
             throw ValidationException::withMessages([
-                'code' => ['Ya existe un residuo con este código en la organización.'],
+                'codigo_residuo' => ['Ya existe un residuo con este código en la organización.'],
             ]);
         }
 
-        $wasteStreamIds = $this->resolveWasteStreamIds($rowData['waste_stream_codes'] ?? null, $actingOrganization->id);
-        $unCodeIds = $this->resolveUnCodeIds($rowData['un_code_codes'] ?? null, $actingOrganization->id);
+        $wasteStreamIds = $this->resolveWasteStreamIds($rowData['codigos_corrientes'] ?? null, $actingOrganization->id);
+        $unCodeIds = $this->resolveUnCodeIds($rowData['codigos_un'] ?? null, $actingOrganization->id);
 
         if ($wasteStreamIds !== []) {
             $waste->wasteStreams()->sync(collect($wasteStreamIds)->mapWithKeys(fn ($id) => [$id => [
@@ -191,21 +193,21 @@ class WasteBulkImportService
     {
         $data = [
             'organization_id' => $actingOrganization->id,
-            'name' => trim((string) $rowData['name']),
-            'code' => $this->nullableTrim($rowData['code'] ?? null),
-            'description' => $this->nullableTrim($rowData['description'] ?? null),
-            'internal_reference' => $this->nullableTrim($rowData['internal_reference'] ?? null),
-            'operational_notes' => $this->nullableTrim($rowData['operational_notes'] ?? null),
-            'branch_id' => $this->resolveBranchId($rowData['branch_code'] ?? null, $actingOrganization),
-            'waste_category_id' => $this->resolveCatalogId($rowData['waste_category_code'] ?? null, WasteCategory::class, 'waste_category_code'),
-            'physical_state_id' => $this->resolveCatalogId($rowData['physical_state_code'] ?? null, PhysicalState::class, 'physical_state_code'),
-            'generation_frequency_id' => $this->resolveCatalogId($rowData['generation_frequency_code'] ?? null, GenerationFrequency::class, 'generation_frequency_code'),
-            'quantity' => $this->nullableFloat($rowData['quantity'] ?? null, 'quantity'),
-            'average_weight' => $this->nullableFloat($rowData['average_weight'] ?? null, 'average_weight'),
-            'generation_date' => $this->nullableDate($rowData['generation_date'] ?? null),
-            'requires_special_transport' => $this->nullableBoolean($rowData['requires_special_transport'] ?? null),
-            'requires_special_ppe' => $this->nullableBoolean($rowData['requires_special_ppe'] ?? null),
-            'measurement_unit_id' => $this->resolveCatalogId($rowData['measurement_unit_code'] ?? null, MeasurementUnit::class, 'measurement_unit_code')
+            'name' => trim((string) $rowData['nombre']),
+            'code' => $this->nullableTrim($rowData['codigo_residuo'] ?? null),
+            'description' => $this->nullableTrim($rowData['descripcion'] ?? null),
+            'internal_reference' => $this->nullableTrim($rowData['referencia_interna'] ?? null),
+            'operational_notes' => $this->nullableTrim($rowData['observaciones_operativas'] ?? null),
+            'branch_id' => $this->resolveBranchId($rowData['codigo_sede'] ?? null, $actingOrganization),
+            'waste_category_id' => $this->resolveCatalogId($rowData['codigo_categoria_residuo'] ?? null, WasteCategory::class, 'codigo_categoria_residuo'),
+            'physical_state_id' => $this->resolveCatalogId($rowData['codigo_estado_fisico'] ?? null, PhysicalState::class, 'codigo_estado_fisico'),
+            'generation_frequency_id' => $this->resolveCatalogId($rowData['codigo_frecuencia_generacion'] ?? null, GenerationFrequency::class, 'codigo_frecuencia_generacion'),
+            'quantity' => $this->nullableFloat($rowData['cantidad'] ?? null, 'cantidad'),
+            'average_weight' => $this->nullableFloat($rowData['peso_promedio'] ?? null, 'peso_promedio'),
+            'generation_date' => $this->nullableDate($rowData['fecha_generacion'] ?? null),
+            'requires_special_transport' => $this->nullableBoolean($rowData['requiere_transporte_especial'] ?? null),
+            'requires_special_ppe' => $this->nullableBoolean($rowData['requiere_epp_especial'] ?? null),
+            'measurement_unit_id' => $this->resolveCatalogId($rowData['codigo_unidad_medida'] ?? null, MeasurementUnit::class, 'codigo_unidad_medida')
                 ?? $this->defaultCatalogId(MeasurementUnit::class, 'KG'),
             'waste_type_id' => $this->defaultCatalogId(WasteType::class, 'OPERATIONAL'),
             'operational_status_id' => $this->defaultCatalogId(WasteOperationalStatus::class, 'ACTIVE'),
@@ -235,7 +237,7 @@ class WasteBulkImportService
 
         if ($branchId === null) {
             throw ValidationException::withMessages([
-                'branch_code' => ["No existe una sede con código '{$code}' en esta organización."],
+                'codigo_sede' => ["No existe una sede con código '{$code}' en esta organización."],
             ]);
         }
 
@@ -312,7 +314,7 @@ class WasteBulkImportService
      */
     private function resolveWasteStreamIds(mixed $rawValue, int $actingOrganizationId): array
     {
-        $ids = $this->resolveCodes($rawValue, WasteStream::class, 'waste_stream_codes');
+        $ids = $this->resolveCodes($rawValue, WasteStream::class, 'codigos_corrientes');
 
         if ($ids === []) {
             return [];
@@ -324,7 +326,7 @@ class WasteBulkImportService
 
         if ($accessibleCount !== count($ids)) {
             throw ValidationException::withMessages([
-                'waste_stream_codes' => ['Una o más corrientes indicadas no son accesibles para esta organización.'],
+                'codigos_corrientes' => ['Una o más corrientes indicadas no son accesibles para esta organización.'],
             ]);
         }
 
@@ -339,7 +341,7 @@ class WasteBulkImportService
      */
     private function resolveUnCodeIds(mixed $rawValue, int $actingOrganizationId): array
     {
-        $ids = $this->resolveCodes($rawValue, UnCode::class, 'un_code_codes');
+        $ids = $this->resolveCodes($rawValue, UnCode::class, 'codigos_un');
 
         if ($ids === []) {
             return [];
@@ -351,7 +353,7 @@ class WasteBulkImportService
 
         if ($accessibleCount !== count($ids)) {
             throw ValidationException::withMessages([
-                'un_code_codes' => ['Uno o más códigos UN indicados no son accesibles para esta organización.'],
+                'codigos_un' => ['Uno o más códigos UN indicados no son accesibles para esta organización.'],
             ]);
         }
 
@@ -425,7 +427,7 @@ class WasteBulkImportService
 
         if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $trimmed) || strtotime($trimmed) === false) {
             throw ValidationException::withMessages([
-                'generation_date' => ['generation_date debe tener formato AAAA-MM-DD.'],
+                'fecha_generacion' => ['fecha_generacion debe tener formato AAAA-MM-DD.'],
             ]);
         }
 

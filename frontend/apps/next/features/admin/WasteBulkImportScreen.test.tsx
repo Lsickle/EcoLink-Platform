@@ -32,7 +32,7 @@ vi.mock('app/provider/auth', () => ({
 const emptyPage = { data: [], current_page: 1, last_page: 1, total: 0, per_page: 100 }
 
 function csvFile() {
-  return new File(['name\nResiduo de Prueba'], 'residuos.csv', { type: 'text/csv' })
+  return new File(['nombre\nResiduo de Prueba'], 'residuos.csv', { type: 'text/csv' })
 }
 
 function bulkImportResult(overrides: Partial<Record<string, unknown>> = {}) {
@@ -70,10 +70,10 @@ describe('WasteBulkImportScreen', () => {
     render(<WasteBulkImportScreen />)
 
     expect(await screen.findByRole('columnheader', { name: 'Columna' })).toBeInTheDocument()
-    expect(screen.getByText('name')).toBeInTheDocument()
-    expect(screen.getByText('hazard_characteristics_codes')).toBeInTheDocument()
-    expect(screen.getByText('un_code_codes')).toBeInTheDocument()
-    // name es la única columna obligatoria.
+    expect(screen.getByText('nombre')).toBeInTheDocument()
+    expect(screen.getByText('codigos_caracteristicas_peligrosidad')).toBeInTheDocument()
+    expect(screen.getByText('codigos_un')).toBeInTheDocument()
+    // nombre es la única columna obligatoria.
     expect(screen.getAllByText('Sí')).toHaveLength(1)
   })
 
@@ -138,7 +138,7 @@ describe('WasteBulkImportScreen', () => {
 
   test('muestra los errores por fila devueltos por el backend', async () => {
     importWastesBulkMock.mockResolvedValue(
-      bulkImportResult({ created: 0, wastes: [], errors: [{ row: 2, message: "'XYZ' no es un valor válido para waste_category_code." }] })
+      bulkImportResult({ created: 0, wastes: [], errors: [{ row: 2, message: "'XYZ' no es un valor válido para codigo_categoria_residuo." }] })
     )
     render(<WasteBulkImportScreen />)
 
