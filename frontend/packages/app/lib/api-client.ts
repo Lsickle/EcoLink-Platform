@@ -47,8 +47,29 @@ function readCookie(name: string): string | null {
   return match ? decodeURIComponent(match.split('=').slice(1).join('=')) : null
 }
 
+// Comparte la petición EN VUELO entre llamadas concurrentes (no la
+// memoiza más allá de eso): antes, dos `apiFetch()` en paralelo (ej.
+// `WastesListScreen` pidiendo categorías + residuos al mismo tiempo)
+// disparaban 2 peticiones `/sanctum/csrf-cookie` redundantes -- ahora la
+// segunda reutiliza la promesa de la primera en vez de pedir la cookie de
+// nuevo. Se limpia con `finally()` apenas resuelve (éxito o error) -- cada
+// `apiFetch()` posterior, no concurrente, sigue pidiendo su propia cookie
+// (igual que antes; no se vuelve una caché de sesión completa, que además
+// rompería el patrón `fetchMock.mock.calls[0]=csrf, [1]=endpoint` que ya
+// asumen los tests existentes de este cliente). Detectado midiendo el
+// desglose real de carga de una pantalla (2026-08-13).
+let inFlightCsrfCookie: Promise<void> | null = null
+
 async function ensureCsrfCookie(): Promise<void> {
-  await fetch(`${API_URL}/sanctum/csrf-cookie`, { credentials: 'include' })
+  if (!inFlightCsrfCookie) {
+    inFlightCsrfCookie = fetch(`${API_URL}/sanctum/csrf-cookie`, { credentials: 'include' })
+      .then(() => undefined)
+      .finally(() => {
+        inFlightCsrfCookie = null
+      })
+  }
+
+  return inFlightCsrfCookie
 }
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
