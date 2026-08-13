@@ -76,6 +76,7 @@ function validOrganizationPayload(array $overrides = []): array
         'timezone' => 'America/Bogota',
         'country_code' => $country->iso_code,
         'currency_code' => 'COP',
+        'email' => fake()->unique()->safeEmail(),
     ], $overrides);
 }
 
@@ -419,6 +420,20 @@ test('store rechaza parent_organization_id inexistente (422)', function () {
         ->assertJsonValidationErrors('parent_organization_id');
 });
 
+// Decisión del usuario, 2026-08-13: `email` se vuelve obligatorio SOLO al
+// crear -- ver `OrganizationController::validationRules()`. Contexto:
+// `GeneratorRelationshipCreatedNotification` necesitaba un destino real de
+// correo a nivel organización.
+test('store rechaza una organización sin email (422)', function () {
+    $actor = organizationTestActor();
+    $payload = validOrganizationPayload();
+    unset($payload['email']);
+
+    $this->actingAs($actor)->postJson('/api/admin/organizations', $payload)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('email');
+});
+
 // ---- update() ----
 
 test('update ignora cambios a tax_id/tax_id_type (no editables tras creación)', function () {
@@ -438,6 +453,23 @@ test('update ignora cambios a tax_id/tax_id_type (no editables tras creación)',
         ->and($organization->updated_by)->toBe($actor->id);
 
     expect(SecurityLog::query()->where('event_type', 'ORGANIZATION_UPDATED')->where('metadata->organization_id', $organization->id)->exists())->toBeTrue();
+});
+
+// Asimetría A PROPÓSITO (2026-08-13): `email` es obligatorio SOLO al crear
+// (ver test 'store rechaza una organización sin email' arriba) -- `update()`
+// sigue aceptando que se omita, no se fuerza retroactivamente a una
+// organización ya existente que no lo tenga.
+test('update SIGUE aceptando omitir email (a diferencia de store)', function () {
+    $actor = organizationTestActor();
+    $organization = Organization::factory()->create(['email' => null]);
+    $payload = validOrganizationPayload(['legal_name' => 'Sin Correo Actualizada S.A.S.']);
+    unset($payload['email']);
+
+    $this->actingAs($actor)->putJson("/api/admin/organizations/{$organization->id}", $payload)
+        ->assertOk()
+        ->assertJsonPath('organization.legal_name', 'Sin Correo Actualizada S.A.S.');
+
+    expect($organization->refresh()->email)->toBeNull();
 });
 
 test('update rechaza parent_organization_id apuntando a sí misma (auto-referencia, 422)', function () {

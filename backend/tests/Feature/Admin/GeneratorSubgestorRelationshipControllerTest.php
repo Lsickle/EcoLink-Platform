@@ -9,6 +9,8 @@ use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
 use App\Models\UserRole;
+use App\Notifications\GeneratorRelationshipCreatedNotification;
+use Illuminate\Support\Facades\Notification;
 
 // Cadena Generador -> Subgestor -> Gestor en Declaración de Residuos
 // (confirmado por stakeholders reales, 2026-08-09) -- `generator_subgestor_relationships`.
@@ -286,4 +288,81 @@ test('index(): un Subgestor ve las relaciones que ÉL registró; un Generador ve
     $foreignActor = gsrActor(['generator_subgestor_relationships.read'], $foreign->id);
     $viewForeign = $this->actingAs($foreignActor)->getJson('/api/admin/generator-subgestor-relationships')->assertOk();
     expect($viewForeign->json('total'))->toBe(0);
+});
+
+// ---- Notificación al Generador (hallazgo de especialista-seguridad, 2026-08-12) ----
+// El vínculo se crea de forma UNILATERAL por el Subgestor -- se le da al
+// Generador VISIBILIDAD (correo), no control (sigue sin poder revocar, ver
+// test de arriba). Ver `GeneratorRelationshipCreatedNotification`.
+
+test('store() notifica por correo a los usuarios del Generador con generator_subgestor_relationships.read, no a los del Subgestor', function () {
+    Notification::fake();
+
+    $subgestor = gsrSubgestorOrganization();
+    $generator = gsrGeneratorOrganization();
+    $actor = gsrActor(['generator_subgestor_relationships.create'], $subgestor->id);
+    $generatorReader = gsrActor(['generator_subgestor_relationships.read'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-subgestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    Notification::assertSentTo($generatorReader, GeneratorRelationshipCreatedNotification::class);
+    Notification::assertNotSentTo($actor, GeneratorRelationshipCreatedNotification::class);
+});
+
+test('store() NO notifica a un usuario del Generador SIN el permiso generator_subgestor_relationships.read', function () {
+    Notification::fake();
+
+    $subgestor = gsrSubgestorOrganization();
+    $generator = gsrGeneratorOrganization();
+    $actor = gsrActor(['generator_subgestor_relationships.create'], $subgestor->id);
+    $generatorUserWithoutPermission = gsrActor(['wastes.read'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-subgestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    Notification::assertNotSentTo($generatorUserWithoutPermission, GeneratorRelationshipCreatedNotification::class);
+});
+
+test('reactivar (tras revocar) vuelve a notificar al Generador', function () {
+    Notification::fake();
+
+    $subgestor = gsrSubgestorOrganization();
+    $generator = gsrGeneratorOrganization();
+    $actor = gsrActor(['generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke'], $subgestor->id);
+    $generatorReader = gsrActor(['generator_subgestor_relationships.read'], $generator->id);
+
+    $created = $this->actingAs($actor)->postJson('/api/admin/generator-subgestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    $relationshipId = $created->json('generator_subgestor_relationship.id');
+    $this->actingAs($actor)->postJson("/api/admin/generator-subgestor-relationships/{$relationshipId}/revoke")->assertOk();
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-subgestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    expect(Notification::sent($generatorReader, GeneratorRelationshipCreatedNotification::class))->toHaveCount(2);
+});
+
+test('store() rechazado (par ya vigente) NO reenvía la notificación', function () {
+    Notification::fake();
+
+    $subgestor = gsrSubgestorOrganization();
+    $generator = gsrGeneratorOrganization();
+    $actor = gsrActor(['generator_subgestor_relationships.create'], $subgestor->id);
+    $generatorReader = gsrActor(['generator_subgestor_relationships.read'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-subgestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-subgestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertUnprocessable();
+
+    expect(Notification::sent($generatorReader, GeneratorRelationshipCreatedNotification::class))->toHaveCount(1);
 });

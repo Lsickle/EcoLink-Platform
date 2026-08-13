@@ -39,7 +39,9 @@ class GeneratorBulkImportService
 {
     private const MAX_ROWS = 10000;
 
-    private const REQUIRED_COLUMNS = ['tax_id', 'tax_id_type', 'legal_name', 'branch_name'];
+    // Encabezados del CSV en español (decisión del usuario, 2026-08-13, corte
+    // limpio -- los nombres en inglés usados antes ya NO se reconocen).
+    private const REQUIRED_COLUMNS = ['identificacion', 'tipo_identificacion', 'razon_social', 'nombre_sede'];
 
     /**
      * @return array{created: int, linked_existing: int, errors: list<array{row: int, message: string}>, generators: list<array<string, mixed>>}
@@ -105,8 +107,8 @@ class GeneratorBulkImportService
                 continue;
             }
 
-            $taxId = trim((string) $data['tax_id']);
-            $taxIdType = trim((string) $data['tax_id_type']);
+            $taxId = trim((string) $data['identificacion']);
+            $taxIdType = trim((string) $data['tipo_identificacion']);
             $key = $taxId.'|'.$taxIdType;
 
             $groups[$key]['tax_id'] ??= $taxId;
@@ -127,7 +129,7 @@ class GeneratorBulkImportService
     private function processGenerator(array $group, Organization $actingOrganization, User $actor, ?string $linkAs): array
     {
         $firstRowData = $group['rows'][0]['data'];
-        $legalName = trim((string) ($firstRowData['legal_name'] ?? ''));
+        $legalName = trim((string) ($firstRowData['razon_social'] ?? ''));
 
         $existing = Organization::query()
             ->where('tax_id', $group['tax_id'])
@@ -146,7 +148,7 @@ class GeneratorBulkImportService
                 // están en EcoLink y bajo qué perfil, sin relación alguna
                 // con ellas.
                 throw ValidationException::withMessages([
-                    'tax_id' => ['No fue posible vincular esta fila.'],
+                    'identificacion' => ['No fue posible vincular esta fila.'],
                 ]);
             }
 
@@ -156,6 +158,7 @@ class GeneratorBulkImportService
             $organization = $existing;
         } else {
             $this->assertValidTaxIdType($group['tax_id_type']);
+            $this->assertOrganizationEmailProvided($firstRowData);
             $organization = $this->createOrganization($group['tax_id'], $group['tax_id_type'], $legalName, $firstRowData, $actor);
             $branchesCreated = $this->createBranches($organization, $group['rows'], $actor);
         }
@@ -196,15 +199,15 @@ class GeneratorBulkImportService
 
         $organization = Organization::query()->create([
             'legal_name' => $legalName,
-            'trade_name' => $this->nullableTrim($rowData['trade_name'] ?? null),
+            'trade_name' => $this->nullableTrim($rowData['nombre_comercial'] ?? null),
             'tax_id' => $taxId,
             'tax_id_type' => $taxIdType,
             'organization_status_id' => $activeStatus->id,
             'timezone' => 'America/Bogota',
             'country_code' => 'CO',
             'currency_code' => 'COP',
-            'email' => $this->nullableTrim($rowData['organization_email'] ?? null),
-            'phone' => $this->nullableTrim($rowData['organization_phone'] ?? null),
+            'email' => $this->nullableTrim($rowData['correo_organizacion'] ?? null),
+            'phone' => $this->nullableTrim($rowData['telefono_organizacion'] ?? null),
             'risk_level' => 'bajo',
             'is_active' => true,
             'custom_fields_enabled' => true,
@@ -241,11 +244,11 @@ class GeneratorBulkImportService
             Branch::query()->create([
                 'organization_id' => $organization->id,
                 'branch_type_id' => $branchType->id,
-                'name' => trim((string) $rowData['branch_name']),
-                'code' => $this->nullableTrim($rowData['branch_code'] ?? null),
-                'address' => $this->nullableTrim($rowData['branch_address'] ?? null),
-                'environmental_license' => $this->nullableTrim($rowData['environmental_license'] ?? null),
-                'license_expiration_date' => $this->nullableTrim($rowData['license_expiration_date'] ?? null),
+                'name' => trim((string) $rowData['nombre_sede']),
+                'code' => $this->nullableTrim($rowData['codigo_sede'] ?? null),
+                'address' => $this->nullableTrim($rowData['direccion_sede'] ?? null),
+                'environmental_license' => $this->nullableTrim($rowData['licencia_ambiental'] ?? null),
+                'license_expiration_date' => $this->nullableTrim($rowData['fecha_vencimiento_licencia'] ?? null),
                 'status' => 'ACTIVE',
                 'is_active' => true,
                 'created_by' => $actor->id,
@@ -270,7 +273,32 @@ class GeneratorBulkImportService
 
         if (! in_array($taxIdType, $allowed, true)) {
             throw ValidationException::withMessages([
-                'tax_id_type' => ['tax_id_type debe ser uno de: '.implode(', ', $allowed).'.'],
+                'tipo_identificacion' => ['tipo_identificacion debe ser uno de: '.implode(', ', $allowed).'.'],
+            ]);
+        }
+    }
+
+    /**
+     * Decisión del usuario, 2026-08-13: `correo_organizacion` se vuelve
+     * obligatorio SOLO para un Generador NUEVO (mismo criterio que
+     * `assertValidTaxIdType()` de arriba -- ambos se invocan únicamente en el
+     * branch `else` de `processGenerator()`, nunca para una organización
+     * deduplicada, cuyos datos no se tocan). Sin este correo, el admin
+     * autoprovisionado (`UserProvisioningService::createActiveAdminForOrganization()`)
+     * queda con un correo placeholder no funcional y el aviso de vínculo
+     * comercial (`GeneratorRelationshipCreatedNotification`) no tiene a dónde
+     * llegar -- ver el respaldo en `GeneratorGestorRelationshipController`/
+     * `GeneratorSubgestorRelationshipController::createOrReactivate()`.
+     *
+     * @param  array<string, mixed>  $rowData
+     */
+    private function assertOrganizationEmailProvided(array $rowData): void
+    {
+        $email = $this->nullableTrim($rowData['correo_organizacion'] ?? null);
+
+        if ($email === null || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            throw ValidationException::withMessages([
+                'correo_organizacion' => ['correo_organizacion es obligatorio y debe ser un correo válido para un Generador nuevo.'],
             ]);
         }
     }
@@ -292,7 +320,7 @@ class GeneratorBulkImportService
             return null;
         }
 
-        $requestedUsername = $this->nullableTrim($rowData['username'] ?? null);
+        $requestedUsername = $this->nullableTrim($rowData['nombre_usuario'] ?? null);
 
         return UserProvisioningService::createActiveAdminForOrganization($organization->id, $legalName, $requestedUsername, $actor);
     }

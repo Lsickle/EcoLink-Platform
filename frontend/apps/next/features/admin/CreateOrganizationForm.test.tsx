@@ -102,6 +102,21 @@ describe('CreateOrganizationForm', () => {
     expect(createOrganizationMock).not.toHaveBeenCalled()
   })
 
+  // `email` REQUERIDO desde la creación (decisión del usuario, 2026-08-13) --
+  // ver docblock de `createOrganizationSchema` en schemas.ts.
+  test('shows a validation error when email is missing', async () => {
+    render(<CreateOrganizationForm />)
+    await screen.findByLabelText('Razón Social')
+    await screen.findByRole('checkbox', { name: 'Generador' })
+
+    fireEvent.change(screen.getByLabelText('Razón Social'), { target: { value: 'EcoRecicla S.A.S.' } })
+    fireEvent.change(screen.getByLabelText('NIT / Identificación Tributaria'), { target: { value: '900123456-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Crear Organización' }))
+
+    expect(await screen.findByText('Ingresa el correo electrónico.')).toBeInTheDocument()
+    expect(createOrganizationMock).not.toHaveBeenCalled()
+  })
+
   test('submits the form with the required fields and navigates to the new detail screen', async () => {
     createOrganizationMock.mockResolvedValueOnce({ organization: { id: 42, legal_name: 'EcoRecicla S.A.S.' } })
     render(<CreateOrganizationForm />)
@@ -110,6 +125,7 @@ describe('CreateOrganizationForm', () => {
 
     fireEvent.change(screen.getByLabelText('Razón Social'), { target: { value: 'EcoRecicla S.A.S.' } })
     fireEvent.change(screen.getByLabelText('NIT / Identificación Tributaria'), { target: { value: '900123456-1' } })
+    fireEvent.change(screen.getByLabelText('Correo Electrónico'), { target: { value: 'contacto@ecorecicla.com' } })
 
     fireEvent.click(screen.getByRole('button', { name: 'Crear Organización' }))
 
@@ -119,6 +135,7 @@ describe('CreateOrganizationForm', () => {
         legal_name: 'EcoRecicla S.A.S.',
         tax_id: '900123456-1',
         tax_id_type: 'NIT',
+        email: 'contacto@ecorecicla.com',
         timezone: 'America/Bogota',
         currency_code: 'COP',
       })
@@ -136,6 +153,7 @@ describe('CreateOrganizationForm', () => {
 
     fireEvent.change(screen.getByLabelText('Razón Social'), { target: { value: 'EcoRecicla S.A.S.' } })
     fireEvent.change(screen.getByLabelText('NIT / Identificación Tributaria'), { target: { value: '900123456-1' } })
+    fireEvent.change(screen.getByLabelText('Correo Electrónico'), { target: { value: 'contacto@ecorecicla.com' } })
     fireEvent.click(screen.getByRole('button', { name: 'Crear Organización' }))
 
     expect(await screen.findByText('Ya existe una organización con este NIT.')).toBeInTheDocument()

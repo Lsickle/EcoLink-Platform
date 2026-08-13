@@ -49,6 +49,24 @@ use Illuminate\Validation\ValidationException;
 class UserProvisioningService
 {
     /**
+     * Dominio del correo placeholder que `createActiveAdminForOrganization()`
+     * genera para el admin autoprovisionado (ver docblock ahí) -- TLD
+     * `.invalid` reservado por RFC 2606, SIEMPRE rebota si se le envía correo
+     * real. Expuesto aquí (junto a donde se genera) para que cualquier
+     * llamador pueda reconocer un correo placeholder sin duplicar el dominio
+     * mágico -- ver `hasPlaceholderEmail()` abajo, usado por
+     * `GeneratorGestorRelationshipController`/
+     * `GeneratorSubgestorRelationshipController::createOrReactivate()` para
+     * decidir si el aviso de vínculo comercial debe caer en un respaldo.
+     */
+    public const PLACEHOLDER_EMAIL_DOMAIN = 'sin-correo.invalid';
+
+    public static function hasPlaceholderEmail(User $user): bool
+    {
+        return str_ends_with((string) $user->email, '@'.self::PLACEHOLDER_EMAIL_DOMAIN);
+    }
+
+    /**
      * @param  array{first_name: string, middle_name?: ?string, last_name: string, second_last_name?: ?string, document_type: string, document_number: string, email: string, phone?: ?string, username?: ?string, role_ids: array<int, int>, organization_id?: ?int}  $data
      */
     public static function createPendingUser(array $data, User $actor): User
@@ -157,7 +175,7 @@ class UserProvisioningService
             $resolvedUsername = $username !== null && $username !== ''
                 ? self::assertUsernameAvailable($username)
                 : self::generateUniqueUsernameFromSeed($legalName);
-            $placeholderEmail = "{$resolvedUsername}@sin-correo.invalid";
+            $placeholderEmail = "{$resolvedUsername}@".self::PLACEHOLDER_EMAIL_DOMAIN;
 
             $person = Person::query()->create([
                 'document_type' => 'CC',

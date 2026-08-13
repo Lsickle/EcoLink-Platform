@@ -35,36 +35,42 @@ type BulkImportFieldDoc = {
 // de organizations/branches/users) al pedido del usuario, 2026-08-11.
 const BULK_IMPORT_FIELDS: BulkImportFieldDoc[] = [
   {
-    column: 'tax_id',
+    column: 'identificacion',
     required: true,
     format: 'Texto, máx. 30 caracteres',
-    notes: 'Junto con tax_id_type identifica al Generador; si el par ya existe, esta fila solo vincula -- no se editan sus datos.',
+    notes: 'Junto con tipo_identificacion identifica al Generador; si el par ya existe, esta fila solo vincula -- no se editan sus datos.',
   },
-  { column: 'tax_id_type', required: true, format: 'NIT, CC, CE, Pasaporte o Tax ID' },
-  { column: 'legal_name', required: true, format: 'Texto, máx. 255 caracteres', notes: 'Razón social; se ignora si el NIT ya existe.' },
-  { column: 'trade_name', required: false, format: 'Texto, máx. 255 caracteres', notes: 'Nombre comercial.' },
-  { column: 'organization_email', required: false, format: 'Correo electrónico' },
-  { column: 'organization_phone', required: false, format: 'Texto, máx. 30 caracteres' },
+  { column: 'tipo_identificacion', required: true, format: 'NIT, CC, CE, Pasaporte o Tax ID' },
+  { column: 'razon_social', required: true, format: 'Texto, máx. 255 caracteres', notes: 'Razón social; se ignora si el NIT ya existe.' },
+  { column: 'nombre_comercial', required: false, format: 'Texto, máx. 255 caracteres', notes: 'Nombre comercial.' },
   {
-    column: 'username',
+    column: 'correo_organizacion',
+    required: true,
+    format: 'Correo electrónico',
+    notes: 'Obligatorio SOLO cuando el NIT es de un Generador nuevo; si el NIT ya existe en el sistema, esta columna se ignora.',
+  },
+  { column: 'telefono_organizacion', required: false, format: 'Texto, máx. 30 caracteres' },
+  {
+    column: 'nombre_usuario',
     required: false,
     format: 'Texto, máx. 100 caracteres, único',
     notes: 'Solo se lee de la primera fila de cada NIT nuevo; si se omite, se genera automáticamente.',
   },
-  { column: 'branch_name', required: true, format: 'Texto, máx. 255 caracteres', notes: 'Nombre de la sede -- una fila = una sede.' },
-  { column: 'branch_code', required: false, format: 'Texto, único por organización' },
-  { column: 'branch_address', required: false, format: 'Texto libre' },
-  { column: 'environmental_license', required: false, format: 'Texto, máx. 255 caracteres' },
-  { column: 'license_expiration_date', required: false, format: 'Fecha AAAA-MM-DD', notes: 'Ej: 2027-12-31.' },
+  { column: 'nombre_sede', required: true, format: 'Texto, máx. 255 caracteres', notes: 'Nombre de la sede -- una fila = una sede.' },
+  { column: 'codigo_sede', required: false, format: 'Texto, único por organización' },
+  { column: 'direccion_sede', required: false, format: 'Texto libre' },
+  { column: 'licencia_ambiental', required: false, format: 'Texto, máx. 255 caracteres' },
+  { column: 'fecha_vencimiento_licencia', required: false, format: 'Fecha AAAA-MM-DD', notes: 'Ej: 2027-12-31.' },
 ]
 
 const BULK_IMPORT_EXAMPLE_ROW: Record<string, string> = {
-  tax_id: '900123456-1',
-  tax_id_type: 'NIT',
-  legal_name: 'Generador de Ejemplo S.A.S.',
-  branch_name: 'Sede Principal',
-  branch_code: 'SP01',
-  branch_address: 'Cra 1 #2-3, Bogotá',
+  identificacion: '900123456-1',
+  tipo_identificacion: 'NIT',
+  razon_social: 'Generador de Ejemplo S.A.S.',
+  correo_organizacion: 'contacto@empresa-generadora.com',
+  nombre_sede: 'Sede Principal',
+  codigo_sede: 'SP01',
+  direccion_sede: 'Cra 1 #2-3, Bogotá',
 }
 
 // Escapado CSV mínimo (RFC 4180) -- necesario porque `branch_address` de

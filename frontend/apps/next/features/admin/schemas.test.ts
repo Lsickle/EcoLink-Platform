@@ -10,6 +10,7 @@ const validOrganizationPayload = {
   legalName: 'EcoRecicla S.A.S.',
   taxId: '900123456-1',
   taxIdType: 'NIT' as const,
+  email: 'contacto@ecorecicla.com',
   organizationStatusId: 1,
   timezone: 'America/Bogota' as const,
   countryCode: 'CO',
@@ -115,5 +116,32 @@ describe('admin schemas', () => {
     })
 
     expect(result.success).toBe(true)
+  })
+
+  // `email` obligatorio SOLO al crear (decisión del usuario, 2026-08-13) --
+  // ver docblock en schemas.ts. `update()` sigue sin usar este schema.
+  test('createOrganizationSchema rejects a missing email', () => {
+    // El form siempre manda `email` como string (useState('')) -- una cadena
+    // vacía es el caso real de "no diligenciado", no una key ausente.
+    const result = createOrganizationSchema.safeParse({ ...validOrganizationPayload, email: '' })
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const emailIssue = result.error.issues.find((issue) => issue.path[0] === 'email')
+      expect(emailIssue?.message).toBe('Ingresa el correo electrónico.')
+    }
+  })
+
+  test('createOrganizationSchema rejects an invalid email format', () => {
+    const result = createOrganizationSchema.safeParse({
+      ...validOrganizationPayload,
+      email: 'no-es-un-correo',
+    })
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const emailIssue = result.error.issues.find((issue) => issue.path[0] === 'email')
+      expect(emailIssue?.message).toBe('Ingresa un correo válido.')
+    }
   })
 })

@@ -420,9 +420,7 @@ export function CreateOrganizationForm() {
             <SectionHeading>Contacto</SectionHeading>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="email">
-                  Correo Electrónico <span className="text-muted-foreground">(opcional)</span>
-                </Label>
+                <Label htmlFor="email">Correo Electrónico</Label>
                 <Input
                   id="email"
                   type="email"

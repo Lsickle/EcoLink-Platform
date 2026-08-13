@@ -249,7 +249,15 @@ export const createOrganizationSchema = z
     customerSince: z.string().trim().optional().or(z.literal('')),
     economicActivityCode: z.string().trim().optional().or(z.literal('')),
     economicActivityName: z.string().trim().optional().or(z.literal('')),
-    email: z.string().trim().email('Ingresa un correo válido.').optional().or(z.literal('')),
+    // `email` -- REQUERIDO desde la creación (decisión del usuario,
+    // 2026-08-13): el correo de contacto de la organización sirve de
+    // respaldo cuando el usuario admin autoprovisionado nace con un correo
+    // placeholder sintético (`{username}@sin-correo.invalid`, ver Carga
+    // Masiva de Generadores) que siempre rebota. Asimetría A PROPÓSITO con
+    // `update()` -- OrganizationDetailScreen.tsx no usa este schema Zod (ni
+    // ningún otro) para el campo `email`, así que este cambio no afecta la
+    // edición de una organización ya existente.
+    email: z.string().trim().min(1, 'Ingresa el correo electrónico.').email('Ingresa un correo válido.'),
     billingEmail: z.string().trim().email('Ingresa un correo válido.').optional().or(z.literal('')),
     supportEmail: z.string().trim().email('Ingresa un correo válido.').optional().or(z.literal('')),
     phone: z.string().trim().optional().or(z.literal('')),

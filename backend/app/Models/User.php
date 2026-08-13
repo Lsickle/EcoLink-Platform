@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
@@ -315,5 +316,44 @@ class User extends Authenticatable
             : $query->where('users.tenant_organization_id', $tenantId);
 
         return $query->exists();
+    }
+
+    /**
+     * Resuelve los usuarios ACTIVOS de una organización que tienen un
+     * permiso dado -- mismo criterio de joins/estado que
+     * `tenantHasOtherActiveUserWithPermission()` de arriba, pero devolviendo
+     * los modelos `User` (para notificar) en vez de un booleano. Usado por
+     * `GeneratorGestorRelationshipController`/
+     * `GeneratorSubgestorRelationshipController::createOrReactivate()` para
+     * avisarle al Generador cuando un Gestor/Subgestor se vincula a él
+     * (hallazgo de `especialista-seguridad`, 2026-08-12: el vínculo se crea
+     * hoy de forma unilateral, sin aviso).
+     *
+     * @return Collection<int, self>
+     */
+    public static function activeUsersInOrganizationWithPermission(int $organizationId, string $permissionCode): Collection
+    {
+        return static::query()
+            ->join('user_roles', 'user_roles.user_id', '=', 'users.id')
+            ->join('roles', 'roles.id', '=', 'user_roles.role_id')
+            ->join('role_permissions', 'role_permissions.role_id', '=', 'roles.id')
+            ->join('permissions', 'permissions.id', '=', 'role_permissions.permission_id')
+            ->where('users.tenant_organization_id', $organizationId)
+            ->where('users.is_active', true)
+            ->whereNull('users.deleted_at')
+            ->where('user_roles.is_active', true)
+            ->whereNull('user_roles.deleted_at')
+            ->where(fn ($q) => $q->whereNull('user_roles.expires_at')->orWhere('user_roles.expires_at', '>', now()))
+            ->where('roles.is_active', true)
+            ->whereNull('roles.deleted_at')
+            ->where('role_permissions.is_active', true)
+            ->whereNull('role_permissions.deleted_at')
+            ->where(fn ($q) => $q->whereNull('role_permissions.expires_at')->orWhere('role_permissions.expires_at', '>', now()))
+            ->where('permissions.code', $permissionCode)
+            ->where('permissions.is_active', true)
+            ->whereNull('permissions.deleted_at')
+            ->select('users.*')
+            ->distinct()
+            ->get();
     }
 }

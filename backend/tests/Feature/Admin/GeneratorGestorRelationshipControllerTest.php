@@ -9,6 +9,8 @@ use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
 use App\Models\UserRole;
+use App\Notifications\GeneratorRelationshipCreatedNotification;
+use Illuminate\Support\Facades\Notification;
 
 // Vínculo comercial DIRECTO Generador -> Gestor (Carga Masiva de
 // Generadores, confirmado por el usuario 2026-08-11) -- `generator_gestor_relationships`.
@@ -272,4 +274,142 @@ test('index(): un Gestor ve las relaciones que ÉL registró; un Generador ve la
     $foreignActor = ggrActor(['generator_gestor_relationships.read'], $foreign->id);
     $viewForeign = $this->actingAs($foreignActor)->getJson('/api/admin/generator-gestor-relationships')->assertOk();
     expect($viewForeign->json('total'))->toBe(0);
+});
+
+// ---- Notificación al Generador (hallazgo de especialista-seguridad, 2026-08-12) ----
+// El vínculo se crea de forma UNILATERAL por el Gestor -- se le da al
+// Generador VISIBILIDAD (correo), no control (sigue sin poder revocar,
+// ver test de arriba). Ver `GeneratorRelationshipCreatedNotification`.
+
+test('store() notifica por correo a los usuarios del Generador con generator_gestor_relationships.read, no a los del Gestor', function () {
+    Notification::fake();
+
+    $gestor = ggrGestorOrganization();
+    $generator = ggrGeneratorOrganization();
+    $actor = ggrActor(['generator_gestor_relationships.create'], $gestor->id);
+    $generatorReader = ggrActor(['generator_gestor_relationships.read'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-gestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    Notification::assertSentTo($generatorReader, GeneratorRelationshipCreatedNotification::class);
+    Notification::assertNotSentTo($actor, GeneratorRelationshipCreatedNotification::class);
+});
+
+test('store() NO notifica a un usuario del Generador SIN el permiso generator_gestor_relationships.read', function () {
+    Notification::fake();
+
+    $gestor = ggrGestorOrganization();
+    $generator = ggrGeneratorOrganization();
+    $actor = ggrActor(['generator_gestor_relationships.create'], $gestor->id);
+    $generatorUserWithoutPermission = ggrActor(['wastes.read'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-gestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    Notification::assertNotSentTo($generatorUserWithoutPermission, GeneratorRelationshipCreatedNotification::class);
+});
+
+test('reactivar (tras revocar) vuelve a notificar al Generador', function () {
+    Notification::fake();
+
+    $gestor = ggrGestorOrganization();
+    $generator = ggrGeneratorOrganization();
+    $actor = ggrActor(['generator_gestor_relationships.create', 'generator_gestor_relationships.revoke'], $gestor->id);
+    $generatorReader = ggrActor(['generator_gestor_relationships.read'], $generator->id);
+
+    $created = $this->actingAs($actor)->postJson('/api/admin/generator-gestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    $relationshipId = $created->json('generator_gestor_relationship.id');
+    $this->actingAs($actor)->postJson("/api/admin/generator-gestor-relationships/{$relationshipId}/revoke")->assertOk();
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-gestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    expect(Notification::sent($generatorReader, GeneratorRelationshipCreatedNotification::class))->toHaveCount(2);
+});
+
+test('store() rechazado (par ya vigente) NO reenvía la notificación', function () {
+    Notification::fake();
+
+    $gestor = ggrGestorOrganization();
+    $generator = ggrGeneratorOrganization();
+    $actor = ggrActor(['generator_gestor_relationships.create'], $gestor->id);
+    $generatorReader = ggrActor(['generator_gestor_relationships.read'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-gestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-gestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertUnprocessable();
+
+    expect(Notification::sent($generatorReader, GeneratorRelationshipCreatedNotification::class))->toHaveCount(1);
+});
+
+// ---- Respaldo cuando el único destinatario resuelto tiene correo placeholder (2026-08-13) ----
+// Escenario de un Generador YA EXISTENTE cuyo único usuario tiene correo
+// placeholder (dato legado, de antes de que `correo_organizacion` fuera
+// obligatorio en Carga Masiva -- el flujo normal ya NO puede producir un
+// Generador nuevo así). Se simula directamente (sin pasar por Carga Masiva)
+// para poder controlar el correo del usuario y el de la organización.
+
+test('store(): si el único destinatario resuelto tiene correo placeholder, el aviso cae en Organization.email en vez de en ese usuario', function () {
+    Notification::fake();
+
+    $gestor = ggrGestorOrganization();
+    $generator = ggrGeneratorOrganization();
+    $generator->forceFill(['email' => 'contacto@generador-legado.example.com'])->save();
+
+    $role = Role::factory()->create();
+    $permission = Permission::query()->firstOrCreate(['code' => 'generator_gestor_relationships.read'], [
+        'name' => 'generator_gestor_relationships.read', 'module' => 'generator_gestor_relationships', 'action' => 'read',
+        'scope' => 'tenant', 'is_system' => true, 'is_active' => true,
+    ]);
+    RolePermission::query()->create(['role_id' => $role->id, 'permission_id' => $permission->id, 'is_active' => true]);
+    $placeholderUser = User::factory()->create(['tenant_organization_id' => $generator->id, 'email' => 'admin.legado@sin-correo.invalid']);
+    UserRole::query()->create(['user_id' => $placeholderUser->id, 'role_id' => $role->id, 'is_active' => true]);
+
+    $actor = ggrActor(['generator_gestor_relationships.create'], $gestor->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-gestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    Notification::assertNotSentTo($placeholderUser, GeneratorRelationshipCreatedNotification::class);
+    Notification::assertSentOnDemand(
+        GeneratorRelationshipCreatedNotification::class,
+        fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === 'contacto@generador-legado.example.com'
+    );
+});
+
+test('store(): si el único destinatario resuelto tiene correo placeholder Y la organización TAMPOCO tiene email (dato legado), no se envía nada -- sin excepción', function () {
+    Notification::fake();
+
+    $gestor = ggrGestorOrganization();
+    $generator = ggrGeneratorOrganization();
+    $generator->forceFill(['email' => null])->save();
+
+    $role = Role::factory()->create();
+    $permission = Permission::query()->firstOrCreate(['code' => 'generator_gestor_relationships.read'], [
+        'name' => 'generator_gestor_relationships.read', 'module' => 'generator_gestor_relationships', 'action' => 'read',
+        'scope' => 'tenant', 'is_system' => true, 'is_active' => true,
+    ]);
+    RolePermission::query()->create(['role_id' => $role->id, 'permission_id' => $permission->id, 'is_active' => true]);
+    $placeholderUser = User::factory()->create(['tenant_organization_id' => $generator->id, 'email' => 'admin.legado@sin-correo.invalid']);
+    UserRole::query()->create(['user_id' => $placeholderUser->id, 'role_id' => $role->id, 'is_active' => true]);
+
+    $actor = ggrActor(['generator_gestor_relationships.create'], $gestor->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/generator-gestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
+
+    Notification::assertNothingSent();
 });

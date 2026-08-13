@@ -40,9 +40,13 @@ vi.mock('app/provider/auth', () => ({
 }))
 
 function csvFile() {
-  return new File(['tax_id,tax_id_type,legal_name,branch_name\n900111222,NIT,Generador X,Sede Principal'], 'generadores.csv', {
-    type: 'text/csv',
-  })
+  return new File(
+    ['identificacion,tipo_identificacion,razon_social,nombre_sede\n900111222,NIT,Generador X,Sede Principal'],
+    'generadores.csv',
+    {
+      type: 'text/csv',
+    }
+  )
 }
 
 function bulkImportResult(overrides: Partial<Record<string, unknown>> = {}) {
@@ -169,12 +173,26 @@ describe('GeneratorBulkImportScreen', () => {
       render(<GeneratorBulkImportScreen />)
 
       expect(screen.getByRole('columnheader', { name: 'Columna' })).toBeInTheDocument()
-      expect(screen.getByText('tax_id')).toBeInTheDocument()
+      expect(screen.getByText('identificacion')).toBeInTheDocument()
       expect(screen.getByText('NIT, CC, CE, Pasaporte o Tax ID')).toBeInTheDocument()
-      expect(screen.getByText('branch_name')).toBeInTheDocument()
-      expect(screen.getByText('license_expiration_date')).toBeInTheDocument()
-      // tax_id, tax_id_type, legal_name, branch_name son las 4 obligatorias.
-      expect(screen.getAllByText('Sí')).toHaveLength(4)
+      expect(screen.getByText('nombre_sede')).toBeInTheDocument()
+      expect(screen.getByText('fecha_vencimiento_licencia')).toBeInTheDocument()
+      // identificacion, tipo_identificacion, razon_social, nombre_sede,
+      // correo_organizacion son las 5 obligatorias -- correo_organizacion
+      // pasó a requerida (decisión del usuario, 2026-08-13, solo cuando el
+      // NIT es nuevo).
+      expect(screen.getAllByText('Sí')).toHaveLength(5)
+    })
+
+    // correo_organizacion requerida SOLO cuando el NIT es de un Generador
+    // nuevo (ver GeneratorBulkImportService::assertOrganizationEmailProvided()).
+    test('muestra "Sí" en la fila de correo_organizacion de la tabla de columnas', () => {
+      render(<GeneratorBulkImportScreen />)
+
+      const row = screen.getByText('correo_organizacion').closest('tr')
+      expect(row).not.toBeNull()
+      expect(row).toHaveTextContent('Sí')
+      expect(row).toHaveTextContent('Obligatorio SOLO cuando el NIT es de un Generador nuevo')
     })
 
     test('el botón "Descargar plantilla CSV" dispara la descarga de un archivo con encabezado + fila de ejemplo', () => {

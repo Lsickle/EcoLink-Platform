@@ -280,6 +280,10 @@ class OrganizationController extends Controller
 
         $rules = $this->validationRules($request);
         unset($rules['tax_id'], $rules['tax_id_type']);
+        // `email` vuelve a `nullable` aquí -- la obligatoriedad es solo para
+        // el ALTA (ver docblock de `validationRules()`), no se le exige
+        // retroactivamente a una organización ya existente que no lo tenga.
+        $rules['email'] = ['nullable', 'email', 'max:255'];
         $rules['parent_organization_id'][] = Rule::notIn([$organization->id]);
 
         $data = $request->validate($rules);
@@ -973,7 +977,17 @@ class OrganizationController extends Controller
             'customer_since' => ['nullable', 'date'],
             'economic_activity_code' => ['nullable', 'string', 'max:20'],
             'economic_activity_name' => ['nullable', 'string', 'max:255'],
-            'email' => ['nullable', 'email', 'max:255'],
+            // Obligatorio SOLO al crear (ver `update()`, que lo devuelve a
+            // `nullable` -- mismo patrón que ya excluye `tax_id`/
+            // `tax_id_type`): decisión del usuario, 2026-08-13, tras el
+            // hallazgo de que el aviso de vínculo comercial
+            // (`GeneratorRelationshipCreatedNotification`) no tenía a dónde
+            // llegar para un Generador recién creado por Carga Masiva -- su
+            // admin autoprovisionado nace con un correo placeholder
+            // (`UserProvisioningService::PLACEHOLDER_EMAIL_DOMAIN`). Con esto,
+            // toda organización NUEVA (por esta vía o por `store()`) tiene
+            // garantizado un correo de contacto real desde el alta.
+            'email' => ['required', 'email', 'max:255'],
             'billing_email' => ['nullable', 'email', 'max:255'],
             'support_email' => ['nullable', 'email', 'max:255'],
             'phone' => ['nullable', 'string', 'max:30'],

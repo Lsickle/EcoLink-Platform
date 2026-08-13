@@ -6,8 +6,11 @@ use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
 use App\Models\GeneratorGestorRelationship;
 use App\Models\Organization;
+use App\Notifications\GeneratorRelationshipCreatedNotification;
 use App\Policies\GeneratorGestorRelationshipPolicy;
+use App\Services\UserProvisioningService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -125,6 +128,14 @@ class GeneratorGestorRelationshipController extends Controller
      * `GeneratorBulkImportService` -- ahí SÍ es válido (idempotente) volver
      * a "crear" un vínculo que ya está vigente (recargar el mismo CSV no
      * debe fallar).
+     *
+     * Notifica por correo a los usuarios del Generador con
+     * `generator_gestor_relationships.read` (hallazgo de
+     * `especialista-seguridad`, 2026-08-12 -- ver
+     * `GeneratorRelationshipCreatedNotification`) cada vez que el vínculo
+     * pasa de no-vigente a vigente (creación o reactivación) -- NO se
+     * reenvía en el caso idempotente de arriba (par ya vigente), para no
+     * reenviar el mismo aviso en cada recarga de un CSV.
      */
     public static function createOrReactivate(int $generatorOrganizationId, int $gestorOrganizationId, \App\Models\User $actor, ?string $observations = null, ?array $metadata = null): GeneratorGestorRelationship
     {
@@ -154,6 +165,31 @@ class GeneratorGestorRelationshipController extends Controller
             'updated_by' => $actor->id,
         ]);
         $relationship->save();
+
+        $gestorOrganization = Organization::query()->find($gestorOrganizationId);
+        $recipients = \App\Models\User::activeUsersInOrganizationWithPermission($generatorOrganizationId, 'generator_gestor_relationships.read');
+        $reachableRecipients = $recipients->reject(fn ($user) => UserProvisioningService::hasPlaceholderEmail($user));
+
+        if ($gestorOrganization !== null && $reachableRecipients->isNotEmpty()) {
+            Notification::send($reachableRecipients, new GeneratorRelationshipCreatedNotification($gestorOrganization, 'Gestor'));
+        } elseif ($gestorOrganization !== null && $recipients->isNotEmpty()) {
+            // Respaldo (decisión del usuario, 2026-08-13): los ÚNICOS
+            // destinatarios resueltos tienen correo placeholder (típico de un
+            // Generador recién autoprovisionado por Carga Masiva, ver
+            // `UserProvisioningService::createActiveAdminForOrganization()`)
+            // -- se cae al correo de la ORGANIZACIÓN (ahora obligatorio al
+            // crearla, ver `GeneratorBulkImportService::assertOrganizationEmailProvided()`/
+            // `OrganizationController::validationRules()`), vía notificación
+            // "on-demand" (sin `User` de por medio). Si tampoco hay
+            // `email` de organización (dato legado, de antes de esta
+            // decisión), no se envía nada -- no hay a dónde.
+            $generatorOrganization = Organization::query()->find($generatorOrganizationId);
+
+            if ($generatorOrganization?->email !== null) {
+                Notification::route('mail', $generatorOrganization->email)
+                    ->notify(new GeneratorRelationshipCreatedNotification($gestorOrganization, 'Gestor'));
+            }
+        }
 
         return $relationship;
     }

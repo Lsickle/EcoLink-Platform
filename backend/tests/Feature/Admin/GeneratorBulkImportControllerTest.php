@@ -11,11 +11,13 @@ use App\Models\RolePermission;
 use App\Models\User;
 use App\Models\UserRole;
 use App\Models\UserStatus;
+use App\Notifications\GeneratorRelationshipCreatedNotification;
 use App\Services\GeneratorBulkImportService;
 use Database\Seeders\BranchTypeSeeder;
 use Database\Seeders\BusinessRoleSeeder;
 use Database\Seeders\OrganizationStatusSeeder;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Notification;
 
 // Carga Masiva de Generadores (CSV) por Subgestor/Gestor -- autoservicio
 // confirmado por el usuario, 2026-08-11. Ver docblock de
@@ -96,9 +98,11 @@ function gbiCsvFile(string $csvContent): UploadedFile
     return UploadedFile::fake()->createWithContent('generadores.csv', $csvContent);
 }
 
+// Encabezados del CSV en español (decisión del usuario, 2026-08-13, corte
+// limpio) -- mismo orden/mapeo que `GeneratorBulkImportService::REQUIRED_COLUMNS`.
 const GBI_CSV_COLUMNS = [
-    'tax_id', 'tax_id_type', 'legal_name', 'trade_name', 'organization_email', 'organization_phone',
-    'username', 'branch_name', 'branch_code', 'branch_address', 'environmental_license', 'license_expiration_date',
+    'identificacion', 'tipo_identificacion', 'razon_social', 'nombre_comercial', 'correo_organizacion', 'telefono_organizacion',
+    'nombre_usuario', 'nombre_sede', 'codigo_sede', 'direccion_sede', 'licencia_ambiental', 'fecha_vencimiento_licencia',
 ];
 
 /**
@@ -111,12 +115,14 @@ function gbiCsvRow(array $values): string
     return implode(',', array_map(fn ($column) => (string) ($values[$column] ?? ''), GBI_CSV_COLUMNS));
 }
 
-function gbiOneNewGeneratorCsv(string $taxId = '900111222'): string
+// `correo_organizacion` (2026-08-13): obligatorio SOLO para la primera fila
+// de un Generador NUEVO -- ver `GeneratorBulkImportService::assertOrganizationEmailProvided()`.
+function gbiOneNewGeneratorCsv(string $taxId = '900111222', ?string $organizationEmail = 'contacto@generador-nuevo.example.com'): string
 {
     return implode("\n", [
         implode(',', GBI_CSV_COLUMNS),
-        gbiCsvRow(['tax_id' => $taxId, 'tax_id_type' => 'NIT', 'legal_name' => 'Generador Nuevo S.A.S.', 'branch_name' => 'Sede Principal', 'branch_code' => 'SP01', 'branch_address' => 'Calle 1 #2-3']),
-        gbiCsvRow(['tax_id' => $taxId, 'tax_id_type' => 'NIT', 'legal_name' => 'Generador Nuevo S.A.S.', 'branch_name' => 'Sede Norte', 'branch_code' => 'SN01', 'branch_address' => 'Calle 4 #5-6']),
+        gbiCsvRow(['identificacion' => $taxId, 'tipo_identificacion' => 'NIT', 'razon_social' => 'Generador Nuevo S.A.S.', 'correo_organizacion' => $organizationEmail, 'nombre_sede' => 'Sede Principal', 'codigo_sede' => 'SP01', 'direccion_sede' => 'Calle 1 #2-3']),
+        gbiCsvRow(['identificacion' => $taxId, 'tipo_identificacion' => 'NIT', 'razon_social' => 'Generador Nuevo S.A.S.', 'nombre_sede' => 'Sede Norte', 'codigo_sede' => 'SN01', 'direccion_sede' => 'Calle 4 #5-6']),
     ]);
 }
 
@@ -323,8 +329,8 @@ test('una fila con columnas faltantes se reporta como error sin bloquear los dem
 
     $csv = implode("\n", [
         implode(',', GBI_CSV_COLUMNS),
-        gbiCsvRow(['tax_id_type' => 'NIT', 'legal_name' => 'Sin NIT', 'branch_name' => 'Sede']), // fila inválida (tax_id vacío)
-        gbiCsvRow(['tax_id' => '900333444', 'tax_id_type' => 'NIT', 'legal_name' => 'Generador Válido S.A.S.', 'branch_name' => 'Sede Única']),
+        gbiCsvRow(['tipo_identificacion' => 'NIT', 'razon_social' => 'Sin NIT', 'nombre_sede' => 'Sede']), // fila inválida (identificacion vacía)
+        gbiCsvRow(['identificacion' => '900333444', 'tipo_identificacion' => 'NIT', 'razon_social' => 'Generador Válido S.A.S.', 'correo_organizacion' => 'contacto@generador-valido.example.com', 'nombre_sede' => 'Sede Única']),
     ]);
 
     $response = $this->actingAs($actor)->postJson('/api/admin/generators/bulk-import', [
@@ -334,6 +340,80 @@ test('una fila con columnas faltantes se reporta como error sin bloquear los dem
     $response->assertJsonPath('created', 1);
     expect($response->json('errors'))->toHaveCount(1);
     expect(Organization::query()->where('tax_id', '900333444')->exists())->toBeTrue();
+});
+
+// ---- correo_organizacion obligatorio SOLO para Generador NUEVO (2026-08-13) ----
+
+test('una fila de Generador NUEVO sin correo_organizacion se reporta como error de esa fila, sin bloquear otros Generadores del archivo', function () {
+    $subgestor = gbiSubgestorOrganization();
+    $actor = gbiActor(['generator_subgestor_relationships.create'], $subgestor->id);
+
+    $csv = implode("\n", [
+        implode(',', GBI_CSV_COLUMNS),
+        gbiCsvRow(['identificacion' => '900333555', 'tipo_identificacion' => 'NIT', 'razon_social' => 'Sin Correo S.A.S.', 'nombre_sede' => 'Sede']), // sin correo_organizacion
+        gbiCsvRow(['identificacion' => '900333444', 'tipo_identificacion' => 'NIT', 'razon_social' => 'Generador Válido S.A.S.', 'correo_organizacion' => 'contacto@generador-valido.example.com', 'nombre_sede' => 'Sede Única']),
+    ]);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/generators/bulk-import', [
+        'file' => gbiCsvFile($csv),
+    ])->assertOk();
+
+    $response->assertJsonPath('created', 1);
+    expect($response->json('errors'))->toHaveCount(1);
+    expect(Organization::query()->where('tax_id', '900333555')->exists())->toBeFalse();
+    expect(Organization::query()->where('tax_id', '900333444')->exists())->toBeTrue();
+});
+
+test('una fila de Generador YA EXISTENTE (dedup) sigue sin exigir correo_organizacion', function () {
+    $subgestor = gbiSubgestorOrganization();
+    $actor = gbiActor(['generator_subgestor_relationships.create'], $subgestor->id);
+    gbiGeneratorOrganization('900111222');
+
+    $csv = implode("\n", [
+        implode(',', GBI_CSV_COLUMNS),
+        gbiCsvRow(['identificacion' => '900111222', 'tipo_identificacion' => 'NIT', 'razon_social' => 'Generador Nuevo S.A.S.', 'nombre_sede' => 'Sede Principal']), // sin correo_organizacion -- dedupe, no debería exigirlo
+    ]);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/generators/bulk-import', [
+        'file' => gbiCsvFile($csv),
+    ])->assertOk();
+
+    $response->assertJsonPath('created', 0)->assertJsonPath('linked_existing', 1)->assertJsonPath('errors', []);
+});
+
+// ---- Respaldo del aviso de vínculo cuando el admin autoprovisionado tiene correo placeholder (2026-08-13) ----
+
+test('Generador nuevo por Carga Masiva: el aviso de vínculo cae en Organization.email, NO en el admin con correo placeholder', function () {
+    Notification::fake();
+
+    // El admin autoprovisionado (`UserProvisioningService::createActiveAdminForOrganization()`)
+    // recibe el rol REAL 'ADMINISTRADOR' -- se le agrega el permiso de
+    // lectura directamente a ESE rol (no a uno ad hoc de `gbiActor()`) para
+    // que `User::activeUsersInOrganizationWithPermission()` lo resuelva
+    // como destinatario, igual que en producción (`RolePermissionSeeder`).
+    $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
+    $permission = Permission::query()->firstOrCreate(['code' => 'generator_subgestor_relationships.read'], [
+        'name' => 'generator_subgestor_relationships.read', 'module' => 'generator_subgestor_relationships', 'action' => 'read',
+        'scope' => 'tenant', 'is_system' => true, 'is_active' => true,
+    ]);
+    RolePermission::query()->create(['role_id' => $administrador->id, 'permission_id' => $permission->id, 'is_active' => true]);
+
+    $subgestor = gbiSubgestorOrganization();
+    $actor = gbiActor(['generator_subgestor_relationships.create'], $subgestor->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/generators/bulk-import', [
+        'file' => gbiCsvFile(gbiOneNewGeneratorCsv('900111222', 'contacto@generador-nuevo.example.com')),
+    ])->assertOk();
+
+    $generator = Organization::query()->where('tax_id', '900111222')->firstOrFail();
+    $adminUser = $generator->users()->firstOrFail();
+    expect($adminUser->email)->toEndWith('@sin-correo.invalid');
+
+    Notification::assertNotSentTo($adminUser, GeneratorRelationshipCreatedNotification::class);
+    Notification::assertSentOnDemand(
+        GeneratorRelationshipCreatedNotification::class,
+        fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === 'contacto@generador-nuevo.example.com'
+    );
 });
 
 // ---- Gestor directo (sin Subgestor de por medio) ----

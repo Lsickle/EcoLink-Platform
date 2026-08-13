@@ -6,8 +6,11 @@ use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
 use App\Models\GeneratorSubgestorRelationship;
 use App\Models\Organization;
+use App\Notifications\GeneratorRelationshipCreatedNotification;
 use App\Policies\GeneratorSubgestorRelationshipPolicy;
+use App\Services\UserProvisioningService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -127,6 +130,14 @@ class GeneratorSubgestorRelationshipController extends Controller
      * `GeneratorBulkImportService` -- ahí SÍ es válido (idempotente) volver
      * a "crear" un vínculo que ya está vigente (recargar el mismo CSV no
      * debe fallar).
+     *
+     * Notifica por correo a los usuarios del Generador con
+     * `generator_subgestor_relationships.read` (hallazgo de
+     * `especialista-seguridad`, 2026-08-12 -- ver
+     * `GeneratorRelationshipCreatedNotification`) cada vez que el vínculo
+     * pasa de no-vigente a vigente (creación o reactivación) -- NO se
+     * reenvía en el caso idempotente de arriba (par ya vigente), para no
+     * reenviar el mismo aviso en cada recarga de un CSV.
      */
     public static function createOrReactivate(int $generatorOrganizationId, int $subgestorOrganizationId, \App\Models\User $actor, ?string $observations = null, ?array $metadata = null): GeneratorSubgestorRelationship
     {
@@ -156,6 +167,23 @@ class GeneratorSubgestorRelationshipController extends Controller
             'updated_by' => $actor->id,
         ]);
         $relationship->save();
+
+        $subgestorOrganization = Organization::query()->find($subgestorOrganizationId);
+        $recipients = \App\Models\User::activeUsersInOrganizationWithPermission($generatorOrganizationId, 'generator_subgestor_relationships.read');
+        $reachableRecipients = $recipients->reject(fn ($user) => UserProvisioningService::hasPlaceholderEmail($user));
+
+        if ($subgestorOrganization !== null && $reachableRecipients->isNotEmpty()) {
+            Notification::send($reachableRecipients, new GeneratorRelationshipCreatedNotification($subgestorOrganization, 'Subgestor'));
+        } elseif ($subgestorOrganization !== null && $recipients->isNotEmpty()) {
+            // Respaldo (decisión del usuario, 2026-08-13) -- ver docblock
+            // gemelo en `GeneratorGestorRelationshipController::createOrReactivate()`.
+            $generatorOrganization = Organization::query()->find($generatorOrganizationId);
+
+            if ($generatorOrganization?->email !== null) {
+                Notification::route('mail', $generatorOrganization->email)
+                    ->notify(new GeneratorRelationshipCreatedNotification($subgestorOrganization, 'Subgestor'));
+            }
+        }
 
         return $relationship;
     }
