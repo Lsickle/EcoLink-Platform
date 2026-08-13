@@ -25,6 +25,7 @@ import {
   createWasteTreatmentApprovalRequest,
   deactivateWaste,
   fetchAvailableBranchTreatments,
+  fetchBranchTreatments,
   fetchWaste,
   fetchWasteActivity,
   fetchWasteFiles,
@@ -136,7 +137,7 @@ function TreatmentApprovalRequestDialog({
   wasteStreamIds,
   unCodeIds,
   onCreated,
-  isForwarding = false,
+  mode,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -144,11 +145,15 @@ function TreatmentApprovalRequestDialog({
   wasteStreamIds: number[]
   unCodeIds: number[]
   onCreated: () => void
-  // Cadena Generador -> Subgestor -> Gestor (2026-08-09): mismo diálogo/
+  // Cadena Generador -> Subgestor -> Gestor (2026-08-09) + Gestor con
+  // relación comercial activa ofreciendo su propio tratamiento
+  // (2026-08-12, ver `Waste::treatment_approval_mode`): mismo diálogo/
   // mismo endpoint (POST .../treatment-approvals) -- solo cambia el
-  // título/descripción/botón para dejar explícito que un Subgestor está
-  // reenviando en nombre de su Generador cliente, no solicitando para sí.
-  isForwarding?: boolean
+  // título/descripción/botón, y en el caso 'offer' además la FUENTE de
+  // opciones (catálogo propio del Gestor vía `fetchBranchTreatments()` en
+  // vez del catálogo cruzado de cualquier Gestor vía
+  // `fetchAvailableBranchTreatments()`).
+  mode: 'owner' | 'forward' | 'offer'
 }) {
   const [options, setOptions] = useState<AvailableBranchTreatment[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -160,12 +165,32 @@ function TreatmentApprovalRequestDialog({
     if (!open) return
     setIsLoading(true)
     setError(null)
+    if (mode === 'offer') {
+      fetchBranchTreatments({ perPage: 100 })
+        .then((result) =>
+          setOptions(
+            result.data
+              .filter((branchTreatment) => branchTreatment.is_active)
+              .map((branchTreatment) => ({
+                id: branchTreatment.id,
+                treatment_name: branchTreatment.treatment?.name ?? '—',
+                organization_name: branchTreatment.organization?.legal_name ?? '—',
+                branch_name: branchTreatment.branch?.name ?? '—',
+                max_capacity: branchTreatment.max_capacity,
+                capacity_unit: branchTreatment.capacity_unit,
+              }))
+          )
+        )
+        .catch(() => setOptions([]))
+        .finally(() => setIsLoading(false))
+      return
+    }
     fetchAvailableBranchTreatments({ wasteStreamIds, unCodeIds })
       .then((result) => setOptions(result.branch_treatments))
       .catch(() => setOptions([]))
       .finally(() => setIsLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [open, mode])
 
   async function handleConfirm() {
     if (!selectedId) return
@@ -183,16 +208,26 @@ function TreatmentApprovalRequestDialog({
     }
   }
 
+  const dialogTitle =
+    mode === 'forward'
+      ? 'Reenviar Residuo a un Gestor'
+      : mode === 'offer'
+        ? 'Ofrecer mi Tratamiento'
+        : 'Solicitar Evaluación de Tratamiento'
+  const dialogDescription =
+    mode === 'forward'
+      ? 'Elige un tratamiento de sede de un Gestor compatible con las corrientes/códigos UN de este residuo. Estás reenviando en nombre de tu Generador cliente -- el Gestor evaluará la solicitud sin conocer su identidad.'
+      : mode === 'offer'
+        ? 'Estás ofreciendo uno de tus propios tratamientos habilitados para este residuo del Generador vinculado.'
+        : 'Elige un tratamiento de sede de un Gestor compatible con las corrientes/códigos UN de este residuo. Esta elección es la invitación -- el Gestor evaluará la solicitud.'
+  const confirmLabel = isSubmitting ? 'Enviando…' : mode === 'forward' ? 'Confirmar Reenvío' : mode === 'offer' ? 'Confirmar Oferta' : 'Confirmar Solicitud'
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isForwarding ? 'Reenviar Residuo a un Gestor' : 'Solicitar Evaluación de Tratamiento'}</DialogTitle>
-          <DialogDescription>
-            {isForwarding
-              ? 'Elige un tratamiento de sede de un Gestor compatible con las corrientes/códigos UN de este residuo. Estás reenviando en nombre de tu Generador cliente -- el Gestor evaluará la solicitud sin conocer su identidad.'
-              : 'Elige un tratamiento de sede de un Gestor compatible con las corrientes/códigos UN de este residuo. Esta elección es la invitación -- el Gestor evaluará la solicitud.'}
-          </DialogDescription>
+          <DialogTitle>{dialogTitle}</DialogTitle>
+          <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
         {isLoading ? (
           <p className="text-sm text-muted-foreground" role="status">
@@ -238,7 +273,7 @@ function TreatmentApprovalRequestDialog({
             Cancelar
           </Button>
           <Button disabled={!selectedId || isSubmitting} onClick={handleConfirm}>
-            {isSubmitting ? 'Enviando…' : isForwarding ? 'Confirmar Reenvío' : 'Confirmar Solicitud'}
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -263,15 +298,13 @@ function TreatmentApprovalRequestDialog({
 // sugerencias de "Tratamiento Preaprobado Detectado" cuando existen matches
 // sin solicitar todavía para este residuo.
 //
-// GAP de backend documentado (no se resuelve aquí, ver resumen del lote):
-// `Waste::hasViableTreatment()` existe en el modelo pero `WasteController::
-// show()` NO lo agrega a la respuesta JSON (sin `$appends`/accessor
-// serializado) -- por eso NO hay badge de "Tratamiento Viable" en este
-// header. Deliberadamente NO se reconstruye ese booleano en el frontend a
-// partir de la lista de evaluaciones ya cargada (aunque la definición es
-// conocida) para no duplicar una regla de negocio que podría desincronizarse
-// si el backend la cambia -- se señala aquí para que el hilo principal decida
-// si pide agregar el accessor al backend.
+// `waste.has_viable_treatment`/`waste.treatment_approval_mode` (2026-08-12):
+// `WasteController::show()` ya agrega ambos campos a la respuesta JSON.
+// `treatment_approval_mode` gobierna directamente el texto de los botones/
+// diálogo de esta pantalla (ver `treatmentApprovalMode` abajo). NO se agrega
+// una badge de "Tratamiento Viable" en el header con `has_viable_treatment`
+// -- fuera de alcance de este lote, el campo queda disponible en el tipo
+// para cuando se pida.
 export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
   const router = useRouter()
   const { user } = useAuth()
@@ -509,21 +542,29 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
 
   const permissions = user?.permissions ?? []
   const isPlatformStaff = Boolean(user?.is_platform_staff)
-  // Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders
-  // reales, 2026-08-09): si esta pantalla cargó (200), el actor es el
-  // dueño, platform staff, o un Subgestor autorizado -- `WastePolicy::view()`
-  // ya lo garantiza en el backend. `isForwardingSubgestor` distingue el
-  // tercer caso: puede VER pero nunca editar/clasificar/rechazar/(des)activar
-  // el residuo de su Generador cliente, ver `WastePolicy::requestEvaluation()`.
+  // Cadena Generador -> Subgestor -> Gestor + Gestor con relación comercial
+  // activa (confirmado por stakeholders reales, 2026-08-09/2026-08-12): si
+  // esta pantalla cargó (200), el actor es el dueño, platform staff, un
+  // Subgestor autorizado, o un Gestor vinculado -- `WastePolicy::view()` ya
+  // lo garantiza en el backend. `canEditWaste` distingue solo
+  // dueño/platform staff: cualquier otro actor con acceso de lectura puede
+  // VER pero nunca editar/clasificar/rechazar/(des)activar el residuo de su
+  // Generador cliente. Cuál acción de evaluación puede tomar ese actor (si
+  // alguna) lo determina `treatmentApprovalMode`, no `canEditWaste`.
   const isOwner = waste.organization_id === user?.tenant_organization_id
   const canEditWaste = isOwner || isPlatformStaff
-  const isForwardingSubgestor = !canEditWaste
+  // 'owner' (dueño/platform staff), 'forward' (Subgestor reenviando a un
+  // Gestor externo), 'offer' (Gestor con relación comercial activa
+  // ofreciendo uno de sus propios tratamientos habilitados), null (el
+  // actor puede VER el residuo pero no solicitar evaluación) -- ver
+  // `WasteController::show()`/`WastePolicy::requestEvaluation()`. El
+  // backend YA gatea el permiso `treatment_approvals.create` al calcularlo.
+  const treatmentApprovalMode = waste.treatment_approval_mode
   const canReview = canEditWaste && permissions.includes('wastes.review')
   const canClassify = canEditWaste && permissions.includes('wastes.classify')
   const canReject = canEditWaste && permissions.includes('wastes.reject')
   const canEditDraft = canEditWaste && permissions.includes('wastes.update') && (waste.status === 'BR' || waste.status === 'RCH')
-  const canRequestTreatmentApproval =
-    permissions.includes('treatment_approvals.create') && (isForwardingSubgestor || permissions.includes('wastes.update'))
+  const canRequestTreatmentApproval = treatmentApprovalMode !== null
   const canToggleActive =
     canEditWaste &&
     (waste.is_active ? permissions.includes('wastes.deactivate') : permissions.includes('wastes.activate'))
@@ -591,10 +632,11 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 pb-4">
-          {isForwardingSubgestor && (
+          {!canEditWaste && (
             <p className="rounded-lg border border-border bg-muted/40 p-2.5 text-sm text-muted-foreground" role="status">
-              Estás viendo el residuo de un Generador cliente. Solo puedes consultarlo y reenviarlo a un Gestor -- no
-              puedes editarlo, clasificarlo ni rechazarlo.
+              {treatmentApprovalMode === 'offer'
+                ? 'Estás viendo el residuo de un Generador cliente vinculado. Solo puedes consultarlo y ofrecer uno de tus propios tratamientos -- no puedes editarlo, clasificarlo ni rechazarlo.'
+                : 'Estás viendo el residuo de un Generador cliente. Solo puedes consultarlo y reenviarlo a un Gestor -- no puedes editarlo, clasificarlo ni rechazarlo.'}
             </p>
           )}
           {isRejecting && (
@@ -762,7 +804,11 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
                           </div>
                           {canRequestTreatmentApproval && (
                             <Button size="sm" disabled={isUsingMatch} onClick={() => handleUsePreapprovedMatch(match.id)}>
-                              {isForwardingSubgestor ? 'Reenviar con este tratamiento' : 'Usar este tratamiento'}
+                              {treatmentApprovalMode === 'forward'
+                                ? 'Reenviar con este tratamiento'
+                                : treatmentApprovalMode === 'offer'
+                                  ? 'Ofrecer con este tratamiento'
+                                  : 'Usar este tratamiento'}
                             </Button>
                           )}
                         </div>
@@ -784,7 +830,11 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
                     <h3 className="text-sm font-semibold">Evaluaciones de Tratamiento</h3>
                     {canRequestTreatmentApproval && (
                       <Button size="sm" onClick={() => setIsRequestDialogOpen(true)}>
-                        {isForwardingSubgestor ? 'Reenviar a Gestor' : 'Solicitar Evaluación'}
+                        {treatmentApprovalMode === 'forward'
+                          ? 'Reenviar a Gestor'
+                          : treatmentApprovalMode === 'offer'
+                            ? 'Ofrecer mi Tratamiento'
+                            : 'Solicitar Evaluación'}
                       </Button>
                     )}
                   </div>
@@ -849,7 +899,7 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
                     wasteStreamIds={wasteStreamIds}
                     unCodeIds={unCodeIds}
                     onCreated={refreshTreatmentApprovals}
-                    isForwarding={isForwardingSubgestor}
+                    mode={treatmentApprovalMode ?? 'owner'}
                   />
                 </>
               )}

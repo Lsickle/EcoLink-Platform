@@ -462,7 +462,10 @@ test('un Subgestor con relación ACTIVA puede VER (show) el residuo de su Genera
     $subgestorOrganization = Organization::factory()->create();
     wasteSubgestorRelationship($generatorOrganization->id, $subgestorOrganization->id);
 
-    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    // 'status' => 'DEC': la visibilidad cruzada arranca en "Declarado", no
+    // mientras el residuo sigue en Borrador (corrección 2026-08-12, ver
+    // `Waste::isForwardableBySubgestor()`).
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
     $actor = wasteActor(['wastes.read'], $subgestorOrganization->id);
 
     $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}")->assertOk();
@@ -477,6 +480,20 @@ test('un Subgestor SIN relación activa NO puede ver el residuo de un Generador 
     $actor = wasteActor(['wastes.read'], $subgestorOrganization->id);
 
     $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}")->assertForbidden();
+});
+
+test('un Subgestor CON relación activa NO puede ver un residuo que sigue en Borrador (BR) -- la visibilidad cruzada arranca en Declarado', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    wasteSubgestorRelationship($generatorOrganization->id, $subgestorOrganization->id);
+
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'BR']);
+    $actor = wasteActor(['wastes.read'], $subgestorOrganization->id);
+
+    $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}")->assertForbidden();
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/wastes')->assertOk();
+    expect(collect($response->json('data'))->pluck('id'))->not->toContain($waste->id);
 });
 
 test('un Subgestor con relación activa NO puede editar/clasificar/rechazar el residuo de su Generador cliente -- solo VER', function () {
@@ -497,7 +514,7 @@ test('index() de un Subgestor incluye los residuos de sus Generadores clientes, 
     $subgestorOrganization = Organization::factory()->create();
     wasteSubgestorRelationship($generatorOrganization->id, $subgestorOrganization->id);
 
-    Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'name' => 'Residuo del Generador cliente']);
+    Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'name' => 'Residuo del Generador cliente', 'status' => 'DEC']);
     Waste::factory()->create(['organization_id' => $subgestorOrganization->id, 'name' => 'Residuo propio del Subgestor']);
 
     $otherOrganization = Organization::factory()->create();
@@ -527,6 +544,156 @@ test('index() NO incluye residuos de un Generador cuya relación con el Subgesto
 
     $response = $this->actingAs($actor)->getJson('/api/admin/wastes')->assertOk();
     expect(collect($response->json('data'))->pluck('name'))->not->toContain('Residuo del ex-cliente');
+});
+
+// Corrección del modelo de negocio, 2026-08-12: mismo bloque de arriba,
+// espejado para Gestor (relación directa `generator_gestor_relationships`,
+// SIN Subgestor de por medio) -- la declaración debe ser visible de
+// inmediato, sin que nadie solicite evaluación primero.
+
+function wasteGestorRelationship(int $generatorOrganizationId, int $gestorOrganizationId): void
+{
+    $gestorBusinessRole = \App\Models\BusinessRole::factory()->create(['can_treat_waste' => true]);
+    \App\Models\OrganizationBusinessRole::query()->create([
+        'organization_id' => $gestorOrganizationId,
+        'business_role_id' => $gestorBusinessRole->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    \App\Models\GeneratorGestorRelationship::query()->create([
+        'generator_organization_id' => $generatorOrganizationId,
+        'gestor_organization_id' => $gestorOrganizationId,
+        'authorized_at' => now(),
+        'is_active' => true,
+    ]);
+}
+
+test('un Gestor con relación ACTIVA puede VER (show) el residuo de su Generador cliente, SIN que nadie haya solicitado evaluación', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $gestorOrganization = Organization::factory()->create();
+    wasteGestorRelationship($generatorOrganization->id, $gestorOrganization->id);
+
+    // 'status' => 'DEC': la visibilidad cruzada arranca en "Declarado", no
+    // mientras el residuo sigue en Borrador (corrección 2026-08-12, ver
+    // `Waste::isForwardableByGestor()`).
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
+    $actor = wasteActor(['wastes.read'], $gestorOrganization->id);
+
+    $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}")->assertOk();
+});
+
+test('un Gestor SIN relación activa NO puede ver el residuo de un Generador ajeno', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $gestorOrganization = Organization::factory()->create();
+    // Sin wasteGestorRelationship() -- ninguna relación registrada.
+
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $actor = wasteActor(['wastes.read'], $gestorOrganization->id);
+
+    $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}")->assertForbidden();
+});
+
+test('un Gestor CON relación activa NO puede ver un residuo que sigue en Borrador (BR) -- la visibilidad cruzada arranca en Declarado', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $gestorOrganization = Organization::factory()->create();
+    wasteGestorRelationship($generatorOrganization->id, $gestorOrganization->id);
+
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'BR']);
+    $actor = wasteActor(['wastes.read'], $gestorOrganization->id);
+
+    $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}")->assertForbidden();
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/wastes')->assertOk();
+    expect(collect($response->json('data'))->pluck('id'))->not->toContain($waste->id);
+});
+
+test('un Gestor con relación activa NO puede editar/clasificar/rechazar el residuo de su Generador cliente -- solo VER/ofrecer tratamiento', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $gestorOrganization = Organization::factory()->create();
+    wasteGestorRelationship($generatorOrganization->id, $gestorOrganization->id);
+
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
+    $actor = wasteActor([...WASTE_ALL_PERMISSIONS, ...WASTE_WORKFLOW_PERMISSIONS], $gestorOrganization->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/wastes/{$waste->id}", ['name' => 'Editado por Gestor'])->assertForbidden();
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/start-review")->assertForbidden();
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/reject", ['reason' => 'x'])->assertForbidden();
+});
+
+test('index() de un Gestor incluye los residuos de sus Generadores clientes, además de los suyos propios', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $gestorOrganization = Organization::factory()->create();
+    wasteGestorRelationship($generatorOrganization->id, $gestorOrganization->id);
+
+    Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'name' => 'Residuo del Generador cliente (Gestor)', 'status' => 'DEC']);
+    Waste::factory()->create(['organization_id' => $gestorOrganization->id, 'name' => 'Residuo propio del Gestor']);
+
+    $otherOrganization = Organization::factory()->create();
+    Waste::factory()->create(['organization_id' => $otherOrganization->id, 'name' => 'Residuo ajeno sin relación (Gestor)']);
+
+    $actor = wasteActor(['wastes.read'], $gestorOrganization->id);
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/wastes')->assertOk();
+    $names = collect($response->json('data'))->pluck('name');
+
+    expect($names)->toContain('Residuo del Generador cliente (Gestor)')
+        ->toContain('Residuo propio del Gestor')
+        ->not->toContain('Residuo ajeno sin relación (Gestor)');
+});
+
+test('index() NO incluye residuos de un Generador cuya relación con el Gestor fue REVOCADA', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $gestorOrganization = Organization::factory()->create();
+    wasteGestorRelationship($generatorOrganization->id, $gestorOrganization->id);
+    \App\Models\GeneratorGestorRelationship::query()
+        ->where('generator_organization_id', $generatorOrganization->id)
+        ->update(['is_active' => false]);
+
+    Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'name' => 'Residuo del ex-cliente (Gestor)']);
+
+    $actor = wasteActor(['wastes.read'], $gestorOrganization->id);
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/wastes')->assertOk();
+    expect(collect($response->json('data'))->pluck('name'))->not->toContain('Residuo del ex-cliente (Gestor)');
+});
+
+test('index() con pending_evaluation=1 excluye residuos que YA tienen un tratamiento viable', function () {
+    $organization = Organization::factory()->create();
+    $wasteWithTreatment = Waste::factory()->create(['organization_id' => $organization->id, 'name' => 'Residuo con tratamiento viable']);
+    Waste::factory()->create(['organization_id' => $organization->id, 'name' => 'Residuo pendiente']);
+
+    \App\Models\WasteTreatmentApproval::factory()->create([
+        'waste_id' => $wasteWithTreatment->id,
+        'technical_status' => 'APPROVED',
+        'commercial_status' => 'APPROVED',
+        'is_active' => true,
+    ]);
+
+    $actor = wasteActor(['wastes.read'], $organization->id);
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/wastes?pending_evaluation=1')->assertOk();
+    $names = collect($response->json('data'))->pluck('name');
+
+    expect($names)->toContain('Residuo pendiente')->not->toContain('Residuo con tratamiento viable');
+});
+
+test('show expone treatment_approval_mode: owner para el dueño, forward para el Subgestor, offer para el Gestor', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    $gestorOrganization = Organization::factory()->create();
+    wasteSubgestorRelationship($generatorOrganization->id, $subgestorOrganization->id);
+    wasteGestorRelationship($generatorOrganization->id, $gestorOrganization->id);
+
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
+
+    $owner = wasteActor(['wastes.read', 'wastes.update', 'treatment_approvals.create'], $generatorOrganization->id);
+    $subgestor = wasteActor(['wastes.read', 'treatment_approvals.create'], $subgestorOrganization->id);
+    $gestor = wasteActor(['wastes.read', 'treatment_approvals.create'], $gestorOrganization->id);
+
+    $this->actingAs($owner)->getJson("/api/admin/wastes/{$waste->id}")->assertOk()->assertJsonPath('waste.treatment_approval_mode', 'owner');
+    $this->actingAs($subgestor)->getJson("/api/admin/wastes/{$waste->id}")->assertOk()->assertJsonPath('waste.treatment_approval_mode', 'forward');
+    $this->actingAs($gestor)->getJson("/api/admin/wastes/{$waste->id}")->assertOk()->assertJsonPath('waste.treatment_approval_mode', 'offer');
 });
 
 test('startReview transiciona DEC->REV', function () {

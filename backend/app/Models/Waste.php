@@ -208,13 +208,38 @@ class Waste extends Model
      * clasificar/rechazar -- ver `WastePolicy::view()`/`requestEvaluation()`).
      * `true` si existe una relación `generator_subgestor_relationships`
      * ACTIVA donde este residuo pertenece al Generador y el actor pertenece
-     * al Subgestor autorizado.
+     * al Subgestor autorizado, Y el residuo ya salió de Borrador (`status !=
+     * 'BR'`, corrección confirmada por el usuario 2026-08-12 tras la pasada
+     * de `especialista-seguridad`: la visibilidad cruzada arranca en
+     * "Declarado", no mientras el Generador todavía lo está armando).
      */
     public function isForwardableBySubgestor(User $actor): bool
     {
-        return GeneratorSubgestorRelationship::query()
+        return $this->status !== 'BR' && GeneratorSubgestorRelationship::query()
             ->where('generator_organization_id', $this->organization_id)
             ->where('subgestor_organization_id', $actor->tenant_organization_id)
+            ->where('is_active', true)
+            ->exists();
+    }
+
+    /**
+     * Corrección del modelo de negocio confirmada por el usuario, 2026-08-12:
+     * un residuo YA DECLARADO (`status != 'BR'`, ver docblock de
+     * `isForwardableBySubgestor()`) debe ser visible automáticamente para
+     * CUALQUIER Gestor con relación comercial ACTIVA hacia el Generador dueño
+     * -- sin que nadie tenga que "solicitar evaluación" primero. Mismo patrón
+     * exacto que `isForwardableBySubgestor()` de arriba, pero consultando
+     * `generator_gestor_relationships` -- y, a diferencia del Subgestor (que
+     * solo puede REENVIAR el residuo a un Gestor ajeno), el Gestor con esta
+     * relación puede además OFRECER su propio tratamiento directamente (ver
+     * `WasteTreatmentApprovalController::storeForWaste()`), porque él mismo
+     * es quien evaluaría/trataría el residuo -- no un intermediario.
+     */
+    public function isForwardableByGestor(User $actor): bool
+    {
+        return $this->status !== 'BR' && GeneratorGestorRelationship::query()
+            ->where('generator_organization_id', $this->organization_id)
+            ->where('gestor_organization_id', $actor->tenant_organization_id)
             ->where('is_active', true)
             ->exists();
     }
@@ -243,6 +268,25 @@ class Waste extends Model
     public function scopeWithViableTreatment(Builder $query): Builder
     {
         return $query->whereHas('treatmentApprovals', function (Builder $query) {
+            $query->technicalStatusCode('APPROVED')
+                ->commercialStatusCode('APPROVED')
+                ->where('is_active', true);
+        });
+    }
+
+    /**
+     * Inverso exacto de `scopeWithViableTreatment()` -- "pendiente de
+     * evaluación" (corrección del modelo de negocio, 2026-08-12): un residuo
+     * SIN ninguna evaluación con ambos ejes aprobados. Combinado con la
+     * visibilidad cross-tenant ya existente (`WasteController::
+     * applyOrganizationVisibility()`), es la consulta que alimenta la
+     * "bandeja compartida" de un Gestor/Subgestor vinculado -- no requiere
+     * columna ni migración nueva, siempre queda sincronizado porque se
+     * calcula en cada consulta.
+     */
+    public function scopeWithoutViableTreatment(Builder $query): Builder
+    {
+        return $query->whereDoesntHave('treatmentApprovals', function (Builder $query) {
             $query->technicalStatusCode('APPROVED')
                 ->commercialStatusCode('APPROVED')
                 ->where('is_active', true);

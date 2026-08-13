@@ -265,7 +265,9 @@ function subgestorOrganizationForRelationship(int $generatorOrganizationId): Org
 
 test('storeForWaste: un Subgestor con relación activa reenvía el residuo de su Generador cliente SIN necesitar wastes.update', function () {
     $generatorOrganization = Organization::factory()->create();
-    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    // 'status' => 'DEC': la visibilidad/reenvío cruzado arranca en
+    // "Declarado" (corrección 2026-08-12, ver `Waste::isForwardableBySubgestor()`).
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
     $subgestorOrganization = subgestorOrganizationForRelationship($generatorOrganization->id);
 
     $gestor = gestorOrganization();
@@ -318,9 +320,84 @@ test('storeForWaste directo (dueño del residuo) deja forwarded_by_organization_
     expect($approval->forwarded_by_organization_id)->toBeNull();
 });
 
+// ---- Corrección del modelo de negocio, 2026-08-12: el Gestor ofrece su propio tratamiento directo ----
+
+/**
+ * Organización GESTOR (can_treat_waste=true) con relación
+ * `generator_gestor_relationships` ACTIVA hacia el Generador dado -- mismo
+ * patrón que `subgestorOrganizationForRelationship()`, pero para el vínculo
+ * directo Generador<->Gestor (sin intermediario).
+ */
+function gestorOrganizationForRelationship(int $generatorOrganizationId): Organization
+{
+    $gestor = gestorOrganization();
+
+    \App\Models\GeneratorGestorRelationship::query()->create([
+        'generator_organization_id' => $generatorOrganizationId,
+        'gestor_organization_id' => $gestor->id,
+        'authorized_at' => now(),
+        'is_active' => true,
+    ]);
+
+    return $gestor->fresh();
+}
+
+test('storeForWaste: un Gestor con relación activa OFRECE su propio tratamiento SIN necesitar wastes.update, y forwarded_by_organization_id queda NULL', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
+    $gestor = gestorOrganizationForRelationship($generatorOrganization->id);
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+
+    // Deliberadamente SOLO treatment_approvals.create, SIN wastes.update --
+    // el Gestor nunca edita el residuo del Generador (ver WastePolicy::requestEvaluation()).
+    $gestorActor = treatmentApprovalActor(['treatment_approvals.create'], $gestor->id);
+
+    $response = $this->actingAs($gestorActor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertCreated();
+
+    $response->assertJsonPath('treatment_approval.organization_id', $gestor->id);
+
+    $approval = WasteTreatmentApproval::query()->where('waste_id', $waste->id)->firstOrFail();
+    expect($approval->forwarded_by_organization_id)->toBeNull();
+});
+
+test('storeForWaste: un Gestor con relación activa NO puede ofrecer el tratamiento de OTRO Gestor', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
+    $gestor = gestorOrganizationForRelationship($generatorOrganization->id);
+
+    $otherGestor = gestorOrganization();
+    $foreignBranchTreatment = BranchTreatment::factory()->create(['organization_id' => $otherGestor->id]);
+
+    $gestorActor = treatmentApprovalActor(['treatment_approvals.create'], $gestor->id);
+
+    $this->actingAs($gestorActor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $foreignBranchTreatment->id,
+    ])->assertUnprocessable()->assertJsonValidationErrors('branch_treatment_id');
+
+    expect(WasteTreatmentApproval::query()->where('waste_id', $waste->id)->exists())->toBeFalse();
+});
+
+test('storeForWaste: un Gestor SIN relación activa sigue sin poder solicitar evaluación (403, comportamiento sin cambios)', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+
+    $unrelatedGestor = gestorOrganization();
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $unrelatedGestor->id]);
+
+    $actor = treatmentApprovalActor(['treatment_approvals.create'], $unrelatedGestor->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertForbidden();
+
+    expect(WasteTreatmentApproval::query()->where('waste_id', $waste->id)->exists())->toBeFalse();
+});
+
 test('show(): el Gestor evaluador NO ve waste.organization cuando la ruta fue INDIRECTA (vía Subgestor)', function () {
     $generatorOrganization = Organization::factory()->create(['legal_name' => 'Generador Secreto S.A.S.']);
-    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
     $subgestorOrganization = subgestorOrganizationForRelationship($generatorOrganization->id);
     $gestor = gestorOrganization();
     $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
@@ -358,7 +435,7 @@ test('show(): el Gestor evaluador SÍ ve waste.organization cuando la ruta fue D
 
 test('show(): el DUEÑO del residuo y el Subgestor que reenvió SIGUEN viendo waste.organization normalmente (el ocultamiento es SOLO para el Gestor)', function () {
     $generatorOrganization = Organization::factory()->create(['legal_name' => 'Generador Visible Para Sí Mismo S.A.S.']);
-    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
     $subgestorOrganization = subgestorOrganizationForRelationship($generatorOrganization->id);
     $gestor = gestorOrganization();
     $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
@@ -383,7 +460,7 @@ test('show(): el DUEÑO del residuo y el Subgestor que reenvió SIGUEN viendo wa
 
 test('index(): el Subgestor que reenvió conserva acceso de SOLO LECTURA a la evaluación (no puede evaluar)', function () {
     $generatorOrganization = Organization::factory()->create();
-    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
     $subgestorOrganization = subgestorOrganizationForRelationship($generatorOrganization->id);
     $gestor = gestorOrganization();
     $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
@@ -401,7 +478,7 @@ test('index(): el Subgestor que reenvió conserva acceso de SOLO LECTURA a la ev
 
 test('indexForWaste: el Subgestor ve SOLO las evaluaciones que él mismo reenvió, no las que el Generador pidió directamente a otro Gestor', function () {
     $generatorOrganization = Organization::factory()->create();
-    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'DEC']);
     $subgestorOrganization = subgestorOrganizationForRelationship($generatorOrganization->id);
 
     $gestorA = gestorOrganization();

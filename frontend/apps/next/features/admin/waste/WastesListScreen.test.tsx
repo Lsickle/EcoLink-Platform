@@ -176,6 +176,18 @@ describe('WastesListScreen', () => {
     })
   })
 
+  test('filters by pending evaluation', async () => {
+    render(<WastesListScreen />)
+    await screen.findByText('Aceite Lubricante Usado')
+    fetchWastesMock.mockClear()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Pendientes de evaluación' }))
+
+    await vi.waitFor(() => {
+      expect(fetchWastesMock).toHaveBeenCalledWith(expect.objectContaining({ pendingEvaluation: true }))
+    })
+  })
+
   test('navigates to /admin/wastes/new when "+ Declarar Residuo" is clicked', async () => {
     render(<WastesListScreen />)
     await screen.findByText('Aceite Lubricante Usado')

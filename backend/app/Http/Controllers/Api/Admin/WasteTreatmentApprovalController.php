@@ -29,6 +29,14 @@ use Illuminate\Validation\ValidationException;
  * la solicitud -- esa elección ES la invitación, no hay paso de invitación
  * aparte.
  *
+ * Corrección del modelo de negocio, 2026-08-12: un Gestor con relación
+ * `generator_gestor_relationships` ACTIVA ya NO necesita esa invitación --
+ * ve el residuo del Generador vinculado de inmediato (`WastePolicy::view()`)
+ * y puede crear la solicitud él mismo, ofreciendo un tratamiento de SU
+ * PROPIA organización (`storeForWaste()`, caso "Gestor ofrece"). Sigue
+ * siendo el ÚNICO camino de creación de esta tabla -- solo se amplió QUIÉN
+ * puede iniciarlo, no se agregó una vía nueva.
+ *
  * Acceso CRUZADO controlado, distinto del acceso dual platform-staff-vs-
  * tenant del resto del proyecto: `organization_id` de la fila es SIEMPRE el
  * Gestor evaluador; `waste_id` puede pertenecer a CUALQUIER otra
@@ -469,8 +477,14 @@ class WasteTreatmentApprovalController extends Controller
         $actor = $request->user();
         $isWasteOwnerSide = $waste->isAccessibleBy($actor);
         $isForwardingSubgestor = ! $isWasteOwnerSide && $waste->isForwardableBySubgestor($actor);
+        // Corrección del modelo de negocio, 2026-08-12: un Gestor con
+        // relación activa tiene la MISMA visibilidad directa que ya tenía el
+        // Subgestor reenviando -- puede navegar las evaluaciones existentes
+        // de este residuo SIN necesitar tener ya una propia (para decidir si
+        // ofrecer su tratamiento tiene sentido, ej. si ya hay una aprobada).
+        $isOfferingGestor = ! $isWasteOwnerSide && ! $isForwardingSubgestor && $waste->isForwardableByGestor($actor);
 
-        if (! $isWasteOwnerSide && ! $isForwardingSubgestor) {
+        if (! $isWasteOwnerSide && ! $isForwardingSubgestor && ! $isOfferingGestor) {
             $hasOwnEvaluation = WasteTreatmentApproval::query()
                 ->where('waste_id', $waste->id)
                 ->where('organization_id', $actor->tenant_organization_id)
@@ -482,6 +496,9 @@ class WasteTreatmentApprovalController extends Controller
         $approvals = WasteTreatmentApproval::query()
             ->where('waste_id', $waste->id)
             ->when($isForwardingSubgestor, fn ($query) => $query->where('forwarded_by_organization_id', $actor->tenant_organization_id))
+            // Ya cubre al Gestor que ofrece directo ($isOfferingGestor): ni
+            // dueño ni Subgestor reenviando -> solo ve SU PROPIA evaluación
+            // (`organization_id` = el Gestor evaluador), sin cambios aquí.
             ->when(! $isWasteOwnerSide && ! $isForwardingSubgestor, fn ($query) => $query->where('organization_id', $actor->tenant_organization_id))
             ->with(['organization:id,legal_name', 'branchTreatment.treatment', 'branchTreatment.branch:id,name'])
             ->orderByDesc('created_at')
@@ -506,6 +523,19 @@ class WasteTreatmentApprovalController extends Controller
      * nombre de otro), `forwarded_by_organization_id` se fija a su propia
      * organización -- `NULL` cuando el actor sí es el dueño (o platform
      * staff), comportamiento idéntico al anterior.
+     *
+     * Corrección del modelo de negocio, 2026-08-12: TERCER caso -- un Gestor
+     * con relación activa (`Waste::isForwardableByGestor()`) puede OFRECER
+     * su propio tratamiento directamente, sin que nadie lo invite primero.
+     * A diferencia del Subgestor (que reenvía el residuo a un tratamiento de
+     * OTRO Gestor), aquí `forwarded_by_organization_id` se queda en `NULL`
+     * -- no es un reenvío de un tercero, el propio Gestor evaluador encontró
+     * el residuo por su relación directa (y así `maskForwardedWasteOrganization()`
+     * no le oculta sin motivo la identidad del Generador, que él ya conoce).
+     * `assertBranchTreatmentBelongsToActor()` exige que el tratamiento
+     * elegido sea de SU PROPIA organización -- un Gestor no puede enrutar el
+     * residuo hacia un tratamiento de otro Gestor, ese rol de enrutamiento
+     * sigue siendo exclusivo del Subgestor.
      */
     public function storeForWaste(Request $request, Waste $waste)
     {
@@ -525,12 +555,24 @@ class WasteTreatmentApprovalController extends Controller
 
         $actor = $request->user();
         $isWasteOwnerSide = $waste->isAccessibleBy($actor);
+        $isForwardingSubgestor = ! $isWasteOwnerSide && $waste->isForwardableBySubgestor($actor);
+        // Verificación EXPLÍCITA (no "por descarte") tras la pasada de
+        // `especialista-seguridad`, 2026-08-12: `Gate::authorize()` de
+        // arriba ya garantiza que el actor cae en alguno de los 3 casos,
+        // pero derivar este tercero solo por eliminación acopla
+        // implícitamente este método a que `requestEvaluation()` nunca gane
+        // una 4ª vía -- mismo criterio explícito que ya usa `indexForWaste()`.
+        $isOfferingGestor = ! $isWasteOwnerSide && ! $isForwardingSubgestor && $waste->isForwardableByGestor($actor);
+
+        if ($isOfferingGestor) {
+            $this->assertBranchTreatmentBelongsToActor($branchTreatment, $actor);
+        }
 
         $approval = WasteTreatmentApproval::query()->create([
             'organization_id' => $branchTreatment->organization_id,
             'waste_id' => $waste->id,
             'branch_treatment_id' => $branchTreatment->id,
-            'forwarded_by_organization_id' => $isWasteOwnerSide ? null : $actor->tenant_organization_id,
+            'forwarded_by_organization_id' => $isForwardingSubgestor ? $actor->tenant_organization_id : null,
             'is_active' => true,
         ]);
 
@@ -821,6 +863,22 @@ class WasteTreatmentApprovalController extends Controller
         if (! $organization || ! $organization->hasCapability('can_treat_waste')) {
             throw ValidationException::withMessages([
                 'branch_treatment_id' => ['El tratamiento de sede indicado no pertenece a una organización Gestor.'],
+            ]);
+        }
+    }
+
+    /**
+     * Corrección del modelo de negocio, 2026-08-12: un Gestor que ofrece
+     * directo (sin ser el dueño del residuo ni un Subgestor reenviando) SOLO
+     * puede elegir un tratamiento de SU PROPIA organización -- nunca el de
+     * otro Gestor. Enrutar hacia un tercero sigue siendo exclusivo del
+     * Subgestor (`isForwardableBySubgestor()`, sin este límite).
+     */
+    private function assertBranchTreatmentBelongsToActor(BranchTreatment $branchTreatment, User $actor): void
+    {
+        if ($branchTreatment->organization_id !== $actor->tenant_organization_id) {
+            throw ValidationException::withMessages([
+                'branch_treatment_id' => ['Solo puede ofrecer un tratamiento de su propia organización.'],
             ]);
         }
     }

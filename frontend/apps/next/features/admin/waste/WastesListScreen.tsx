@@ -6,6 +6,7 @@ import { MoreHorizontal } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
@@ -95,6 +97,11 @@ export function WastesListScreen() {
   const [organizationFilterLabel, setOrganizationFilterLabel] = useState<string | null>(null)
   const [wasteCategoryFilter, setWasteCategoryFilter] = useState(allFilterValue)
   const [statusFilter, setStatusFilter] = useState(allFilterValue)
+  // "Evaluación del Gestor" (waste_treatment_approvals, 2026-08-12): reusa
+  // el scope `Waste::scopeWithoutViableTreatment()` ya expuesto por
+  // `WasteController::index()` como `pending_evaluation=1` -- residuos SIN
+  // ninguna evaluación con AMBOS ejes (technical/commercial) en APPROVED.
+  const [pendingEvaluationFilter, setPendingEvaluationFilter] = useState(false)
 
   const [wasteCategories, setWasteCategories] = useState<AdminWasteCategory[]>([])
 
@@ -128,6 +135,7 @@ export function WastesListScreen() {
       organizationId: isPlatformStaff && organizationFilterId ? organizationFilterId : undefined,
       wasteCategoryId: wasteCategoryFilter === allFilterValue ? undefined : wasteCategoryFilter,
       status: statusFilter === allFilterValue ? undefined : (statusFilter as WasteStatus),
+      pendingEvaluation: pendingEvaluationFilter || undefined,
     })
       .then((result) => {
         if (cancelled) return
@@ -147,7 +155,16 @@ export function WastesListScreen() {
     return () => {
       cancelled = true
     }
-  }, [isAuthorized, page, search, isPlatformStaff, organizationFilterId, wasteCategoryFilter, statusFilter])
+  }, [
+    isAuthorized,
+    page,
+    search,
+    isPlatformStaff,
+    organizationFilterId,
+    wasteCategoryFilter,
+    statusFilter,
+    pendingEvaluationFilter,
+  ])
 
   if (!isAuthorized) {
     return (
@@ -260,6 +277,19 @@ export function WastesListScreen() {
               ))}
             </SelectContent>
           </Select>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="pendingEvaluationFilter"
+              checked={pendingEvaluationFilter}
+              onCheckedChange={(checked) => {
+                setPendingEvaluationFilter(checked === true)
+                setPage(1)
+              }}
+            />
+            <Label htmlFor="pendingEvaluationFilter" className="font-normal">
+              Pendientes de evaluación
+            </Label>
+          </div>
         </div>
         <Button onClick={() => router.push('/admin/wastes/new')}>+ Declarar Residuo</Button>
       </div>

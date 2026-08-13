@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\File;
+use App\Models\GeneratorGestorRelationship;
 use App\Models\GeneratorSubgestorRelationship;
 use App\Models\MeasurementUnit;
 use App\Models\SecurityLog;
@@ -63,6 +64,7 @@ class WasteController extends Controller
         $status = $request->input('status');
         $operationalStatusId = $request->input('operational_status_id');
         $withViableTreatment = $request->boolean('with_viable_treatment');
+        $pendingEvaluation = $request->boolean('pending_evaluation');
 
         $sortableColumns = ['name', 'code', 'status', 'created_at'];
         $sort = in_array($request->input('sort'), $sortableColumns, true) ? $request->input('sort') : 'created_at';
@@ -87,6 +89,12 @@ class WasteController extends Controller
             // N+1 en el cliente. Filtro ADITIVO, no reemplaza el scoping de
             // organización de arriba.
             ->when($withViableTreatment, fn ($query) => $query->withViableTreatment())
+            // "Bandeja de pendientes" (corrección del modelo de negocio,
+            // 2026-08-12): combinado con `applyOrganizationVisibility()` de
+            // arriba, es la vista compartida que ve cualquier Gestor/
+            // Subgestor con relación activa -- residuos de sus Generadores
+            // clientes que todavía no tienen ninguna evaluación aprobada.
+            ->when($pendingEvaluation, fn ($query) => $query->withoutViableTreatment())
             ->with(['organization:id,legal_name', 'branch:id,name', 'wasteCategory:id,code,name'])
             ->orderBy($sort, $direction)
             ->paginate($request->integer('per_page', 15));
@@ -100,6 +108,7 @@ class WasteController extends Controller
     public function show(Request $request, Waste $waste)
     {
         Gate::authorize('view', $waste);
+        $actor = $request->user();
 
         $waste->load([
             'organization:id,legal_name',
@@ -127,6 +136,28 @@ class WasteController extends Controller
         // evita que Waste::toArray() lo calcule (consulta adicional) en
         // contextos donde no se necesita (ej. index()).
         $waste->has_viable_treatment = $waste->hasViableTreatment();
+
+        // Corrección del modelo de negocio, 2026-08-12: reemplaza el cálculo
+        // binario que hacía el FRONTEND (`isForwardingSubgestor = !canEditWaste`,
+        // que ya no alcanza con el tercer caso del Gestor) -- la autorización
+        // real vive en `WastePolicy::requestEvaluation()` (reutilizada aquí
+        // vía Gate::allows para no duplicarla), este campo solo indica CUÁL
+        // de los 3 caminos aplica para que el frontend muestre el diálogo/
+        // copy correcto: 'owner' (dueño o platform staff, solicita normal),
+        // 'forward' (Subgestor reenvía a un Gestor ajeno), 'offer' (Gestor
+        // ofrece su propio tratamiento). `null` = sin acceso a solicitar
+        // evaluación.
+        $treatmentApprovalMode = null;
+        if (Gate::allows('requestEvaluation', $waste)) {
+            if ($waste->isAccessibleBy($actor)) {
+                $treatmentApprovalMode = 'owner';
+            } elseif ($waste->isForwardableBySubgestor($actor)) {
+                $treatmentApprovalMode = 'forward';
+            } elseif ($waste->isForwardableByGestor($actor)) {
+                $treatmentApprovalMode = 'offer';
+            }
+        }
+        $waste->treatment_approval_mode = $treatmentApprovalMode;
 
         return response()->json(['waste' => $waste]);
     }
@@ -567,15 +598,41 @@ class WasteController extends Controller
      * no es Subgestor de nadie. Usado por `index()`/`statusKpis()`, NUNCA
      * por `show()` (que delega en `WastePolicy::view()` ->
      * `Waste::isForwardableBySubgestor()`, misma regla, evaluada por fila).
+     *
+     * Corrección del modelo de negocio, 2026-08-12: se agrega la misma unión
+     * contra `generator_gestor_relationships` -- un Gestor con relación
+     * activa también debe ver de inmediato los residuos de su Generador
+     * cliente (sin que nadie le solicite evaluación primero), mismo criterio
+     * ya aplicado a `WastePolicy::view()`/`Waste::isForwardableByGestor()`.
+     */
+    /**
+     * Corrección del modelo de negocio confirmada por el usuario, 2026-08-12
+     * (resuelta tras la pasada de `especialista-seguridad`): la visibilidad
+     * cross-tenant (Subgestor/Gestor vinculado) arranca desde `DEC`
+     * ("Declarado") en adelante -- NUNCA mientras el residuo sigue en `BR`
+     * (Borrador, potencialmente a medio llenar/con datos de prueba). El
+     * dueño (`organization_id` propio) NO tiene esta restricción -- sigue
+     * viendo sus propios Borradores sin importar el estado, mismo criterio
+     * que `Waste::isForwardableByGestor()`/`isForwardableBySubgestor()`
+     * abajo (mismo filtro, para que `view()`/`index()` queden consistentes).
      */
     private function applyOrganizationVisibility($query, $actor)
     {
         return $query->where(function ($query) use ($actor) {
             $query->where('organization_id', $actor->tenant_organization_id)
-                ->orWhereIn('organization_id', GeneratorSubgestorRelationship::query()
-                    ->where('subgestor_organization_id', $actor->tenant_organization_id)
-                    ->where('is_active', true)
-                    ->pluck('generator_organization_id'));
+                ->orWhere(function ($query) use ($actor) {
+                    $query->where('status', '!=', 'BR')
+                        ->where(function ($query) use ($actor) {
+                            $query->whereIn('organization_id', GeneratorSubgestorRelationship::query()
+                                ->where('subgestor_organization_id', $actor->tenant_organization_id)
+                                ->where('is_active', true)
+                                ->pluck('generator_organization_id'))
+                                ->orWhereIn('organization_id', GeneratorGestorRelationship::query()
+                                    ->where('gestor_organization_id', $actor->tenant_organization_id)
+                                    ->where('is_active', true)
+                                    ->pluck('generator_organization_id'));
+                        });
+                });
         });
     }
 

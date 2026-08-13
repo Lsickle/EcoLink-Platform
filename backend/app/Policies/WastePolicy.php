@@ -28,6 +28,16 @@ use App\Models\Waste;
  * tocan (siguen exigiendo `isAccessibleBy()` a secas) -- el Subgestor nunca
  * edita/clasifica/rechaza el residuo de un Generador ajeno. Ver
  * `requestEvaluation()` abajo para la ability de reenvío en sí.
+ *
+ * Corrección del modelo de negocio confirmada por el usuario, 2026-08-12: un
+ * Gestor con relación `generator_gestor_relationships` ACTIVA gana la MISMA
+ * excepción de `view()` que ya tenía el Subgestor (`Waste::
+ * isForwardableByGestor()`) -- la declaración de un residuo debe ser visible
+ * de inmediato para cualquier Gestor/Subgestor vinculado, sin que nadie
+ * tenga que "solicitar evaluación" primero. Igual que con el Subgestor,
+ * `update()`/`submit()`/etc. NO se tocan -- el Gestor puede ver y ofrecer su
+ * propio tratamiento (`requestEvaluation()`), nunca editar/clasificar el
+ * residuo ajeno.
  */
 class WastePolicy
 {
@@ -39,7 +49,7 @@ class WastePolicy
     public function view(User $actor, Waste $waste): bool
     {
         return $actor->hasPermission('wastes.read')
-            && ($waste->isAccessibleBy($actor) || $waste->isForwardableBySubgestor($actor));
+            && ($waste->isAccessibleBy($actor) || $waste->isForwardableBySubgestor($actor) || $waste->isForwardableByGestor($actor));
     }
 
     public function create(User $actor): bool
@@ -80,6 +90,15 @@ class WastePolicy
      * se relaja para el Subgestor que reenvía en nombre de otro, que nunca
      * tiene (ni necesita) `wastes.update` sobre el residuo ajeno.
      * Consumida por `WasteTreatmentApprovalController::storeForWaste()`.
+     *
+     * Corrección del modelo de negocio, 2026-08-12: se agrega
+     * `isForwardableByGestor()` como TERCER camino -- un Gestor con relación
+     * activa puede ofrecer su propio tratamiento sin ser el dueño ni un
+     * Subgestor reenviando. `storeForWaste()` distingue estos 3 casos para
+     * fijar `forwarded_by_organization_id` correctamente (NULL para el
+     * Gestor que ofrece directo -- no es un reenvío de un tercero) y para
+     * exigir que el `branch_treatment_id` elegido sea de su PROPIA
+     * organización.
      */
     public function requestEvaluation(User $actor, Waste $waste): bool
     {
@@ -91,6 +110,6 @@ class WastePolicy
             return $actor->hasPermission('wastes.update');
         }
 
-        return $waste->isForwardableBySubgestor($actor);
+        return $waste->isForwardableBySubgestor($actor) || $waste->isForwardableByGestor($actor);
     }
 }

@@ -1863,6 +1863,8 @@ export type AdminWasteDetail = Omit<
   waste_hazard_characteristics: AdminWasteHazardCharacteristicAssignment[]
   created_by: AdminActorRef | null
   updated_by: AdminActorRef | null
+  has_viable_treatment: boolean
+  treatment_approval_mode: 'owner' | 'forward' | 'offer' | null
 }
 
 // KPIs del listado -- objeto PLANO, mismo shape que `VehicleKpis` (ver

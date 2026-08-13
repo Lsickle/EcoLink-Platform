@@ -1917,6 +1917,7 @@ export async function fetchWastes(
     status?: WasteStatus
     operationalStatusId?: number | string
     withViableTreatment?: boolean
+    pendingEvaluation?: boolean
     sort?: string
     direction?: 'asc' | 'desc'
   } = {}
@@ -1931,6 +1932,7 @@ export async function fetchWastes(
     status: params.status,
     operational_status_id: params.operationalStatusId,
     with_viable_treatment: params.withViableTreatment === undefined ? undefined : String(params.withViableTreatment),
+    pending_evaluation: params.pendingEvaluation === undefined ? undefined : String(params.pendingEvaluation),
     sort: params.sort,
     direction: params.direction,
   })

@@ -11,6 +11,7 @@ const rejectWasteMock = vi.fn()
 const fetchWasteTreatmentApprovalsMock = vi.fn()
 const fetchWastePreapprovedMatchesMock = vi.fn()
 const fetchAvailableBranchTreatmentsMock = vi.fn()
+const fetchBranchTreatmentsMock = vi.fn()
 const createWasteTreatmentApprovalRequestMock = vi.fn()
 const usePreapprovedTreatmentMatchMock = vi.fn()
 const pushMock = vi.fn()
@@ -28,6 +29,7 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     fetchWasteTreatmentApprovals: (...args: unknown[]) => fetchWasteTreatmentApprovalsMock(...args),
     fetchWastePreapprovedMatches: (...args: unknown[]) => fetchWastePreapprovedMatchesMock(...args),
     fetchAvailableBranchTreatments: (...args: unknown[]) => fetchAvailableBranchTreatmentsMock(...args),
+    fetchBranchTreatments: (...args: unknown[]) => fetchBranchTreatmentsMock(...args),
     createWasteTreatmentApprovalRequest: (...args: unknown[]) => createWasteTreatmentApprovalRequestMock(...args),
     usePreapprovedTreatmentMatch: (...args: unknown[]) => usePreapprovedTreatmentMatchMock(...args),
   }
@@ -117,6 +119,8 @@ function baseWaste(overrides: Partial<Record<string, unknown>> = {}) {
     ],
     created_by: { id: 1, username: 'admin' },
     updated_by: { id: 1, username: 'admin' },
+    has_viable_treatment: false,
+    treatment_approval_mode: 'owner',
     ...overrides,
   }
 }
@@ -141,6 +145,14 @@ describe('WasteDetailScreen', () => {
     fetchWasteTreatmentApprovalsMock.mockResolvedValue({ data: [], current_page: 1, last_page: 1, total: 0, per_page: 15 })
     fetchWastePreapprovedMatchesMock.mockResolvedValue({ matches: [] })
     fetchAvailableBranchTreatmentsMock.mockResolvedValue({ branch_treatments: [] })
+    fetchBranchTreatmentsMock.mockResolvedValue({
+      data: [],
+      current_page: 1,
+      last_page: 1,
+      total: 0,
+      per_page: 15,
+      kpis: { total: 0, active: 0, inactive: 0 },
+    })
     fetchWasteFilesMock.mockResolvedValue({
       files: {
         WASTE_PHOTO: [
@@ -183,6 +195,7 @@ describe('WasteDetailScreen', () => {
     fetchWasteTreatmentApprovalsMock.mockReset()
     fetchWastePreapprovedMatchesMock.mockReset()
     fetchAvailableBranchTreatmentsMock.mockReset()
+    fetchBranchTreatmentsMock.mockReset()
     createWasteTreatmentApprovalRequestMock.mockReset()
     usePreapprovedTreatmentMatchMock.mockReset()
     pushMock.mockReset()
@@ -412,6 +425,10 @@ describe('WasteDetailScreen', () => {
       tenant_organization_id: 1,
       permissions: ['wastes.read', 'treatment_approvals.read'],
     }
+    // El backend YA gatea `treatment_approvals.create` al calcular
+    // `treatment_approval_mode` (Gate::allows('requestEvaluation', $waste))
+    // -- sin ese permiso, viaja `null`.
+    fetchWasteMock.mockResolvedValue({ waste: baseWaste({ treatment_approval_mode: null }) })
     render(<WasteDetailScreen wasteId={20} />)
     await screen.findByText('Aceite Lubricante Usado')
     fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
@@ -465,6 +482,7 @@ describe('WasteDetailScreen', () => {
         'treatment_approvals.create',
       ],
     }
+    fetchWasteMock.mockResolvedValue({ waste: baseWaste({ treatment_approval_mode: 'forward' }) })
     render(<WasteDetailScreen wasteId={20} />)
     await screen.findByText('Aceite Lubricante Usado')
 
@@ -482,6 +500,7 @@ describe('WasteDetailScreen', () => {
       tenant_organization_id: 99,
       permissions: ['wastes.read', 'treatment_approvals.read', 'treatment_approvals.create'],
     }
+    fetchWasteMock.mockResolvedValue({ waste: baseWaste({ treatment_approval_mode: 'forward' }) })
     render(<WasteDetailScreen wasteId={20} />)
     await screen.findByText('Aceite Lubricante Usado')
     fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
@@ -489,5 +508,116 @@ describe('WasteDetailScreen', () => {
 
     expect(screen.getByRole('button', { name: 'Reenviar a Gestor' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Solicitar Evaluación' })).not.toBeInTheDocument()
+  })
+
+  // ---- Gestor con relación comercial activa ofreciendo su propio tratamiento (2026-08-12) ----
+
+  test('Gestor con relación activa: banner de Gestor y botón "Ofrecer mi Tratamiento" (no "Solicitar Evaluación" ni "Reenviar a Gestor")', async () => {
+    currentUser = {
+      id: 1,
+      is_platform_staff: false,
+      tenant_organization_id: 99,
+      permissions: ['wastes.read', 'treatment_approvals.read', 'treatment_approvals.create'],
+    }
+    fetchWasteMock.mockResolvedValue({ waste: baseWaste({ treatment_approval_mode: 'offer' }) })
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+
+    expect(screen.getByRole('status')).toHaveTextContent(/ofrecer uno de tus propios tratamientos/i)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
+    await screen.findByText(/Sin evaluaciones de tratamiento/i)
+
+    expect(screen.getByRole('button', { name: 'Ofrecer mi Tratamiento' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Solicitar Evaluación' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reenviar a Gestor' })).not.toBeInTheDocument()
+  })
+
+  test('"Ofrecer mi Tratamiento" opens a dialog, lists the Gestor\'s own branch treatments (fetchBranchTreatments, not fetchAvailableBranchTreatments) and creates the request', async () => {
+    currentUser = {
+      id: 1,
+      is_platform_staff: false,
+      tenant_organization_id: 99,
+      permissions: ['wastes.read', 'treatment_approvals.read', 'treatment_approvals.create'],
+    }
+    fetchWasteMock.mockResolvedValue({ waste: baseWaste({ treatment_approval_mode: 'offer' }) })
+    fetchBranchTreatmentsMock.mockResolvedValue({
+      data: [
+        {
+          id: 55,
+          uuid: 'bt-55',
+          tenant_organization_id: 99,
+          organization_id: 99,
+          branch_id: 7,
+          treatment_id: 3,
+          internal_code: 'BT-55',
+          operational_name: 'Horno Propio',
+          max_capacity: '3000.00',
+          capacity_unit: 'KG',
+          daily_capacity: null,
+          monthly_capacity: null,
+          environmental_license_number: null,
+          valid_from: null,
+          valid_until: null,
+          requires_manual_approval: false,
+          allows_mixed_waste: false,
+          requires_weight_validation: true,
+          operational_status: 'ACTIVE',
+          observations: null,
+          is_active: true,
+          metadata: null,
+          created_at: '2026-07-01T00:00:00Z',
+          updated_at: '2026-07-01T00:00:00Z',
+          created_by: null,
+          updated_by: null,
+          treatment: { id: 3, code: 'INCIN', name: 'Incineración Propia' },
+          organization: { id: 99, legal_name: 'EcoGestor SAS' },
+          branch: { id: 7, name: 'Planta Norte' },
+        },
+      ],
+      current_page: 1,
+      last_page: 1,
+      total: 1,
+      per_page: 15,
+      kpis: { total: 1, active: 1, inactive: 0 },
+    })
+    createWasteTreatmentApprovalRequestMock.mockResolvedValue({
+      treatment_approval: { id: 101, technical_status: 'PENDING', commercial_status: 'DRAFT' },
+    })
+
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+    fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
+    await screen.findByText(/Sin evaluaciones de tratamiento/i)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ofrecer mi Tratamiento' }))
+
+    const option = await screen.findByRole('option', { name: /Incineración Propia/ })
+    fireEvent.click(option)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar Oferta' }))
+
+    await vi.waitFor(() => {
+      expect(createWasteTreatmentApprovalRequestMock).toHaveBeenCalledWith(20, { branch_treatment_id: 55 })
+    })
+    expect(fetchBranchTreatmentsMock).toHaveBeenCalled()
+    expect(fetchAvailableBranchTreatmentsMock).not.toHaveBeenCalled()
+  })
+
+  test('treatment_approval_mode=null (actor sin permiso de evaluación): no muestra botón de Solicitar/Reenviar/Ofrecer', async () => {
+    currentUser = {
+      id: 1,
+      is_platform_staff: false,
+      tenant_organization_id: 99,
+      permissions: ['wastes.read', 'treatment_approvals.read'],
+    }
+    fetchWasteMock.mockResolvedValue({ waste: baseWaste({ treatment_approval_mode: null }) })
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+    fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
+    await screen.findByText(/Sin evaluaciones de tratamiento/i)
+
+    expect(screen.queryByRole('button', { name: 'Solicitar Evaluación' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reenviar a Gestor' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ofrecer mi Tratamiento' })).not.toBeInTheDocument()
   })
 })
