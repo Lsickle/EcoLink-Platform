@@ -82,6 +82,39 @@ describe('ContactSearchSelect', () => {
     expect(screen.getByText(/Sin cargo registrado/)).toBeInTheDocument()
   })
 
+  // Corrección de UX confirmada por el usuario, 2026-08-13: antes el campo
+  // se quedaba vacío hasta escribir algo, obligando a ya saber el nombre
+  // exacto de lo que se busca. Ahora el foco/clic inicial (SIN escribir)
+  // también dispara una búsqueda -- el backend ya soporta listar sin filtro
+  // de texto cuando no hay `transportScheduleId` de por medio.
+  test('shows an initial browsable list on focus, before typing anything (no transportScheduleId)', async () => {
+    searchContactsMock.mockResolvedValue({
+      data: [
+        { id: 1, first_name: 'Camila', last_name: 'Ruiz', document_number: '111', email: null, position_title: null },
+      ],
+      current_page: 1,
+      last_page: 1,
+      total: 1,
+      per_page: 10,
+    })
+    render(
+      <ContactSearchSelect
+        label="Contacto"
+        htmlId="contact"
+        selectedId={null}
+        selectedLabel={null}
+        onSelect={() => {}}
+        onClear={() => {}}
+      />
+    )
+
+    expect(searchContactsMock).not.toHaveBeenCalled()
+    fireEvent.focus(screen.getByLabelText('Contacto'))
+
+    await waitFor(() => expect(searchContactsMock).toHaveBeenCalledWith({ q: undefined, perPage: 10, transportScheduleId: undefined }))
+    expect(await screen.findByText(/Camila Ruiz/)).toBeInTheDocument()
+  })
+
   // Caso de uso "Generar Manifiesto de Cargue" (buscar el firmante del
   // Generador de una `transport_schedule` puntual, no de la organización del
   // actor) -- ver `OrganizationController::searchContacts()`.
@@ -107,6 +140,28 @@ describe('ContactSearchSelect', () => {
       await waitFor(() =>
         expect(searchContactsMock).toHaveBeenCalledWith({ q: 'María', perPage: 10, transportScheduleId: 9 })
       )
+    })
+
+    // A diferencia del caso SIN transportScheduleId (ver arriba), aquí el
+    // backend exige `q` no vacío -- el foco solo NO debe disparar la
+    // búsqueda, no hay "listado completo" posible en este contexto.
+    test('does NOT search on focus alone (backend requires non-empty q here)', async () => {
+      render(
+        <ContactSearchSelect
+          label="Firmante del Generador"
+          htmlId="signer"
+          selectedId={null}
+          selectedLabel={null}
+          onSelect={() => {}}
+          onClear={() => {}}
+          transportScheduleId={9}
+        />
+      )
+
+      fireEvent.focus(screen.getByLabelText('Firmante del Generador'))
+      await new Promise((resolve) => setTimeout(resolve, 350))
+
+      expect(searchContactsMock).not.toHaveBeenCalled()
     })
 
     // El 422 "falta q" no debería ocurrir (el input nunca busca con q vacío),

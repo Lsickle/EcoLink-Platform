@@ -514,18 +514,24 @@ function LinkExistingContactDialog({
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Sin query (recién abierto el diálogo, ANTES de escribir nada): también
+  // busca -- mismo criterio y misma corrección que `OrganizationSearchSelect.tsx`/
+  // `ContactSearchSelect.tsx` (confirmado por el usuario, 2026-08-13). El
+  // backend (`OrganizationController::searchContacts()`, sin
+  // `transportScheduleId`) ya soporta listar sin filtro de texto. Gateado en
+  // `open` -- el diálogo sigue montado mientras está cerrado (Base UI), no
+  // hace falta pedir nada hasta que el usuario lo abra.
   useEffect(() => {
-    if (!query.trim()) {
-      setResults([])
+    if (!open) {
       return
     }
     const timeout = setTimeout(() => {
-      searchContacts({ q: query.trim(), perPage: 10 })
+      searchContacts({ q: query.trim() || undefined, perPage: 10 })
         .then((result) => setResults(result.data))
         .catch(() => setResults([]))
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timeout)
-  }, [query])
+  }, [query, open])
 
   function reset() {
     setQuery('')

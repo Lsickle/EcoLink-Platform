@@ -44,18 +44,25 @@ export function OrganizationSearchSelect({
   const [results, setResults] = useState<OrganizationSearchResult[]>([])
   const [isOpen, setIsOpen] = useState(false)
 
+  // Sin query (foco/clic inicial, ANTES de escribir nada): también dispara
+  // la búsqueda -- el backend (`OrganizationController::search()`) ya
+  // soporta listar sin filtro de texto (omite el `where` de `q` si viene
+  // vacío), pero antes este componente nunca se lo pedía, dejando el
+  // listbox vacío hasta que el usuario ya supiera qué nombre escribir.
+  // Corrección confirmada por el usuario, 2026-08-13 ("de otra forma yo
+  // tendría que saberme todos los nombres de generadores"). Gateado en
+  // `isOpen` para no disparar la petición antes de que el campo reciba foco.
   useEffect(() => {
-    if (!query.trim()) {
-      setResults([])
+    if (!isOpen) {
       return
     }
     const timeout = setTimeout(() => {
-      searchOrganizations({ q: query.trim(), excludeId, capability, perPage: 10 })
+      searchOrganizations({ q: query.trim() || undefined, excludeId, capability, perPage: 10 })
         .then((result) => setResults(result.data))
         .catch(() => setResults([]))
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timeout)
-  }, [query, excludeId, capability])
+  }, [query, excludeId, capability, isOpen])
 
   return (
     <div className="flex flex-col gap-1.5">

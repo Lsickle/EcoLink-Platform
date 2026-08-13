@@ -53,14 +53,23 @@ export function ContactSearchSelect({
   const [isOpen, setIsOpen] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
 
+  // Sin query (foco/clic inicial): también dispara la búsqueda -- mismo
+  // criterio y misma corrección que `OrganizationSearchSelect.tsx`
+  // (confirmado por el usuario, 2026-08-13). EXCEPCIÓN: con
+  // `transportScheduleId`, el backend SÍ exige `q` no vacío (ver docblock de
+  // la clase) -- ahí se sigue dejando el listbox vacío hasta que se escriba
+  // algo, no hay "listado completo" posible en ese contexto.
   useEffect(() => {
-    if (!query.trim()) {
+    if (!isOpen) {
+      return
+    }
+    if (!query.trim() && transportScheduleId) {
       setResults([])
       setSearchError(null)
       return
     }
     const timeout = setTimeout(() => {
-      searchContacts({ q: query.trim(), perPage: 10, transportScheduleId })
+      searchContacts({ q: query.trim() || undefined, perPage: 10, transportScheduleId })
         .then((result) => {
           setResults(result.data)
           setSearchError(null)
@@ -68,7 +77,7 @@ export function ContactSearchSelect({
         .catch((error) => {
           setResults([])
           if (error instanceof ApiValidationError) {
-            // 422 "falta q" -- no debería pasar (ver docblock), se ignora.
+            // 422 "falta q" -- no debería pasar (ver guarda de arriba), se ignora.
             setSearchError(null)
             return
           }
@@ -76,7 +85,7 @@ export function ContactSearchSelect({
         })
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timeout)
-  }, [query, transportScheduleId])
+  }, [query, transportScheduleId, isOpen])
 
   const placeholder = transportScheduleId
     ? 'Escribe para buscar contactos del Generador…'
