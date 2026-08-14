@@ -320,7 +320,7 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
   // (UserPolicy -- esos métodos NUNCA ganaron la excepción de
   // hasActiveGeneratorRelationshipWith(), solo `view()` la tiene) -- pero
   // la UI seguía ofreciendo esos controles a un Subgestor/Gestor que llega
-  // aquí vía "Ver usuarios" desde un Generador vinculado, generando 403
+  // aquí vía "Ver detalles" desde un Generador vinculado, generando 403
   // innecesarios y una experiencia que sugiere (falsamente) capacidad de
   // gestión sobre datos de una empresa externa. Mismo criterio de
   // aislamiento que el backend: mismo tenant o platform staff.

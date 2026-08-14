@@ -294,6 +294,98 @@ test('show devuelve un subconjunto acotado para un Gestor con relación ACTIVA h
     $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}")->assertOk();
 });
 
+// ---- Tabs Sucursales y Contactos para la contraparte vinculada ----
+// Pedido del usuario (2026-08-14): un Gestor/Subgestor con relación ACTIVA
+// necesita ver las sedes y contactos del Generador para coordinar. Shape
+// REDUCIDO en ambos casos -- lo que NO se expone es tan parte del contrato
+// como lo que sí.
+
+test('branches: un Gestor vinculado ve las sedes con shape operativo reducido', function () {
+    $gestor = Organization::factory()->create();
+    $actor = User::factory()->create(['tenant_organization_id' => $gestor->id]);
+    $generator = Organization::factory()->create();
+    GeneratorGestorRelationship::factory()->create([
+        'generator_organization_id' => $generator->id, 'gestor_organization_id' => $gestor->id,
+    ]);
+    Branch::factory()->create([
+        'organization_id' => $generator->id, 'name' => 'Planta Norte',
+        'environmental_license' => 'LIC-SECRETA', 'operational_capacity_kg' => 999,
+    ]);
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}/branches")->assertOk();
+    $row = collect($response->json('data'))->first();
+
+    expect($row['name'])->toBe('Planta Norte')
+        // Información interna del Generador: no viaja a la contraparte.
+        ->and($row)->not->toHaveKeys([
+            'environmental_license', 'license_expiration_date',
+            'operational_capacity_kg', 'operational_capacity_liters', 'operational_capacity_m3',
+            'created_by', 'updated_by',
+        ]);
+});
+
+test('branches: un Subgestor vinculado también tiene acceso', function () {
+    $subgestor = Organization::factory()->create();
+    $actor = User::factory()->create(['tenant_organization_id' => $subgestor->id]);
+    $generator = Organization::factory()->create();
+    GeneratorSubgestorRelationship::factory()->create([
+        'generator_organization_id' => $generator->id, 'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}/branches")->assertOk();
+});
+
+test('branches: DENIEGA (403) sin relación activa', function () {
+    $actor = nonPlatformOrgActor();
+    $generator = Organization::factory()->create();
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}/branches")->assertForbidden();
+});
+
+test('branches: DENIEGA (403) si la relación fue REVOCADA', function () {
+    $gestor = Organization::factory()->create();
+    $actor = User::factory()->create(['tenant_organization_id' => $gestor->id]);
+    $generator = Organization::factory()->create();
+    GeneratorGestorRelationship::factory()->revoked()->create([
+        'generator_organization_id' => $generator->id, 'gestor_organization_id' => $gestor->id,
+    ]);
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}/branches")->assertForbidden();
+});
+
+test('contacts: la contraparte vinculada NO recibe datos personales de más', function () {
+    $gestor = Organization::factory()->create();
+    $actor = organizationTestActor(['contacts.read'], $gestor->id);
+    $generator = Organization::factory()->create();
+    GeneratorGestorRelationship::factory()->create([
+        'generator_organization_id' => $generator->id, 'gestor_organization_id' => $gestor->id,
+    ]);
+
+    $person = Person::factory()->create([
+        'first_name' => 'Ana', 'last_name' => 'Pérez',
+        'document_number' => '123456789', 'email' => 'ana@generador.test',
+    ]);
+    $generator->contacts()->attach($person->id, ['is_active' => true, 'position_title' => 'Jefa Ambiental']);
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}/contacts")->assertOk();
+    $row = collect($response->json('data'))->first();
+
+    expect($row['email'])->toBe('ana@generador.test')
+        ->and($row['position_title'])->toBe('Jefa Ambiental')
+        // Datos personales que la contraparte no necesita para coordinar.
+        ->and($row)->not->toHaveKeys([
+            'document_number', 'document_type', 'birth_date', 'gender', 'address',
+        ]);
+});
+
+test('contacts: DENIEGA (403) sin relación activa', function () {
+    $gestor = Organization::factory()->create();
+    $actor = organizationTestActor(['contacts.read'], $gestor->id);
+    $generator = Organization::factory()->create();
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$generator->id}/contacts")->assertForbidden();
+});
+
 test('show DENIEGA (403) a un actor sin relación activa ni platform staff', function () {
     $actor = nonPlatformOrgActor();
     $generator = Organization::factory()->create();
@@ -618,7 +710,18 @@ test('assignBusinessRole/revokeBusinessRole son idempotentes y registran auditor
 
 // ---- search() ----
 
-test('search excluye exclude_id y devuelve solo {id, legal_name, tax_id}', function () {
+// La forma de la respuesta se fija a propósito: este endpoint se abre a
+// CUALQUIER actor autenticado cuando filtra por `capability` (ver docblock de
+// `search()`), así que el set de campos es parte del contrato de seguridad y
+// no debe crecer sin decisión explícita.
+//
+// 2026-08-14: se suma `business_roles` ({id, code}). Quien elige una
+// organización en un formulario necesita saber qué campos aplican (licencia
+// ambiental solo si es GESTOR, capacidad si es GESTOR o SUBGESTOR). No amplía
+// la exposición de forma relevante: el mismo endpoint ya permite FILTRAR por
+// capacidad de negocio, así que "qué organizaciones tratan residuos" ya era
+// derivable desde aquí.
+test('search excluye exclude_id y devuelve solo {id, legal_name, tax_id, business_roles}', function () {
     $actor = organizationTestActor();
 
     $match = Organization::factory()->create(['legal_name' => 'Matriz Buscador S.A.S.']);
@@ -632,7 +735,26 @@ test('search excluye exclude_id y devuelve solo {id, legal_name, tax_id}', funct
     expect($ids)->toContain($match->id)->not->toContain($excluded->id);
 
     $row = collect($response->json('data'))->first();
-    expect(array_keys($row))->toBe(['id', 'legal_name', 'tax_id']);
+    expect(array_keys($row))->toBe(['id', 'legal_name', 'tax_id', 'business_roles']);
+});
+
+test('search devuelve los roles de negocio ACTIVOS de cada organización, solo {id, code}', function () {
+    $actor = organizationTestActor();
+
+    $organization = Organization::factory()->create(['legal_name' => 'Roles Buscador S.A.S.']);
+    $activo = BusinessRole::factory()->create(['code' => 'GESTOR_BUSCADOR', 'is_active' => true]);
+    $inactivo = BusinessRole::factory()->create(['code' => 'INACTIVO_BUSCADOR', 'is_active' => true]);
+    $organization->businessRoles()->attach($activo->id, ['is_active' => true]);
+    $organization->businessRoles()->attach($inactivo->id, ['is_active' => false]);
+
+    $response = $this->actingAs($actor)
+        ->getJson('/api/admin/organizations/search?q=Roles+Buscador')
+        ->assertOk();
+
+    $row = collect($response->json('data'))->firstWhere('id', $organization->id);
+
+    expect(collect($row['business_roles'])->pluck('code')->all())->toBe(['GESTOR_BUSCADOR'])
+        ->and(array_keys($row['business_roles'][0]))->toBe(['id', 'code']);
 });
 
 test('search filtra por capability (organizaciones con business_role activo con el flag)', function () {

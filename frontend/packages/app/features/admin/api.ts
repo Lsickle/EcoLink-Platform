@@ -29,6 +29,8 @@ import type {
   AdminOrganizationContact,
   AdminOrganizationDetail,
   AdminOrganizationStatusOption,
+  LinkedGeneratorBranch,
+  LinkedGeneratorContact,
   LinkedOrganizationSummary,
   AdminPackagingCondition,
   AdminPackagingType,
@@ -1262,6 +1264,27 @@ export async function fetchOrganization(id: number | string): Promise<{ organiza
 // (esa sigue siendo exclusiva de platform staff).
 export async function fetchLinkedOrganizationSummary(id: number | string): Promise<{ organization: LinkedOrganizationSummary }> {
   return apiFetch(`/api/admin/organizations/${id}`)
+}
+
+// Sedes y contactos del Generador vistos por su Subgestor/Gestor vinculado
+// (2026-08-14). MISMA URL que usa platform staff -- el backend decide el
+// shape según quién pregunta (ver `OrganizationController::branches()`/
+// `contacts()`), igual que `fetchLinkedOrganizationSummary()` arriba. Se
+// tipan aparte para que el frontend no asuma campos que no van a llegar.
+export async function fetchLinkedGeneratorBranches(
+  organizationId: number | string,
+  params: { page?: number; perPage?: number } = {}
+): Promise<Paginated<LinkedGeneratorBranch>> {
+  const query = buildQuery({ page: params.page, per_page: params.perPage })
+  return apiFetch(`/api/admin/organizations/${organizationId}/branches${query}`)
+}
+
+export async function fetchLinkedGeneratorContacts(
+  organizationId: number | string,
+  params: { page?: number; perPage?: number } = {}
+): Promise<Paginated<LinkedGeneratorContact>> {
+  const query = buildQuery({ page: params.page, per_page: params.perPage })
+  return apiFetch(`/api/admin/organizations/${organizationId}/contacts${query}`)
 }
 
 export async function createOrganization(

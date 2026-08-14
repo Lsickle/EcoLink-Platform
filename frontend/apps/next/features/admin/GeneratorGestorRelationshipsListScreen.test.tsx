@@ -141,12 +141,12 @@ describe('GeneratorGestorRelationshipsListScreen', () => {
 
   // Pedido explícito del usuario, 2026-08-11: punto de entrada a la
   // pantalla acotada del Generador vinculado (LinkedGeneratorDetailScreen).
-  describe('botón "Ver usuarios"', () => {
+  describe('botón "Ver detalles"', () => {
     test('navega a /admin/generators/{id} cuando el actor NO es platform staff', async () => {
       render(<GeneratorGestorRelationshipsListScreen />)
       await screen.findByText('EcoTrata S.A.S.')
 
-      fireEvent.click(screen.getByRole('button', { name: 'Ver usuarios' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Ver detalles' }))
 
       expect(pushMock).toHaveBeenCalledWith('/admin/generators/1')
     })
@@ -160,7 +160,7 @@ describe('GeneratorGestorRelationshipsListScreen', () => {
       render(<GeneratorGestorRelationshipsListScreen />)
       await screen.findByText('EcoTrata S.A.S.')
 
-      fireEvent.click(screen.getByRole('button', { name: 'Ver usuarios' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Ver detalles' }))
 
       expect(pushMock).toHaveBeenCalledWith('/admin/organizations/1')
     })
@@ -174,7 +174,7 @@ describe('GeneratorGestorRelationshipsListScreen', () => {
       render(<GeneratorGestorRelationshipsListScreen />)
       await screen.findByText('EcoTrata S.A.S.')
 
-      expect(screen.queryByRole('button', { name: 'Ver usuarios' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Ver detalles' })).not.toBeInTheDocument()
     })
   })
 })

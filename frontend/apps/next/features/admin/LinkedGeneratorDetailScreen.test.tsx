@@ -4,6 +4,8 @@ import { LinkedGeneratorDetailScreen } from './LinkedGeneratorDetailScreen'
 
 const fetchLinkedOrganizationSummaryMock = vi.fn()
 const fetchOrganizationUsersMock = vi.fn()
+const fetchLinkedGeneratorBranchesMock = vi.fn()
+const fetchLinkedGeneratorContactsMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('app/features/admin/api')>()
@@ -11,6 +13,8 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     ...actual,
     fetchLinkedOrganizationSummary: (...args: unknown[]) => fetchLinkedOrganizationSummaryMock(...args),
     fetchOrganizationUsers: (...args: unknown[]) => fetchOrganizationUsersMock(...args),
+    fetchLinkedGeneratorBranches: (...args: unknown[]) => fetchLinkedGeneratorBranchesMock(...args),
+    fetchLinkedGeneratorContacts: (...args: unknown[]) => fetchLinkedGeneratorContactsMock(...args),
   }
 })
 
@@ -53,15 +57,50 @@ function user(overrides: Partial<Record<string, unknown>> = {}) {
   }
 }
 
+// Shape REDUCIDO que devuelve el backend a la contraparte vinculada: sin
+// licencia ambiental ni capacidades (sedes), sin documento de identidad ni
+// datos personales de más (contactos).
+function branch(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 3,
+    name: 'Planta Norte',
+    code: 'S-001',
+    branch_type: { id: 1, name: 'Operativa' },
+    address: 'Calle 1 # 2-3',
+    municipality: { id: 1, name: 'Bogotá' },
+    department: { id: 1, name: 'Bogotá D.C.' },
+    status: 'ACTIVE',
+    is_active: true,
+    ...overrides,
+  }
+}
+
+function contact(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 11,
+    full_name: 'Ana Pérez',
+    position_title: 'Jefa Ambiental',
+    email: 'ana@generador.test',
+    phone: '3001234567',
+    is_primary: true,
+    link_is_active: true,
+    ...overrides,
+  }
+}
+
 describe('LinkedGeneratorDetailScreen', () => {
   beforeEach(() => {
     fetchLinkedOrganizationSummaryMock.mockResolvedValue({ organization: organizationSummary() })
     fetchOrganizationUsersMock.mockResolvedValue({ ...emptyPage, data: [user()], total: 1 })
+    fetchLinkedGeneratorBranchesMock.mockResolvedValue({ ...emptyPage, data: [branch()], total: 1 })
+    fetchLinkedGeneratorContactsMock.mockResolvedValue({ ...emptyPage, data: [contact()], total: 1 })
   })
 
   afterEach(() => {
     fetchLinkedOrganizationSummaryMock.mockReset()
     fetchOrganizationUsersMock.mockReset()
+    fetchLinkedGeneratorBranchesMock.mockReset()
+    fetchLinkedGeneratorContactsMock.mockReset()
     pushMock.mockClear()
   })
 
@@ -95,5 +134,54 @@ describe('LinkedGeneratorDetailScreen', () => {
     render(<LinkedGeneratorDetailScreen organizationId={42} />)
 
     expect(await screen.findByText('Esta organización no tiene usuarios registrados.')).toBeInTheDocument()
+  })
+
+  // Pedido del usuario (2026-08-14): el Gestor/Subgestor necesita ver sedes y
+  // contactos del Generador vinculado para coordinar recolecciones.
+
+  // Usuarios/Sucursales/Contactos viven en PESTAÑAS: solo la activa se
+  // renderiza, así que hay que navegar para verificar el contenido.
+  async function openTab(name: 'Usuarios' | 'Sucursales' | 'Contactos') {
+    fireEvent.click(await screen.findByRole('tab', { name }))
+  }
+
+  test('arranca en la pestaña Usuarios y no monta el resto', async () => {
+    render(<LinkedGeneratorDetailScreen organizationId={42} />)
+
+    expect(await screen.findByText('Ana Gómez')).toBeInTheDocument()
+    expect(screen.queryByText('Planta Norte')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ana Pérez')).not.toBeInTheDocument()
+  })
+
+  test('muestra las sucursales del Generador vinculado', async () => {
+    render(<LinkedGeneratorDetailScreen organizationId={42} />)
+    await openTab('Sucursales')
+
+    expect(await screen.findByText('Planta Norte')).toBeInTheDocument()
+    expect(screen.getByText('Calle 1 # 2-3')).toBeInTheDocument()
+    expect(screen.getByText('Bogotá, Bogotá D.C.')).toBeInTheDocument()
+    expect(fetchLinkedGeneratorBranchesMock).toHaveBeenCalledWith(42, expect.objectContaining({ perPage: 15 }))
+  })
+
+  test('muestra los contactos del Generador vinculado con cargo y medios de contacto', async () => {
+    render(<LinkedGeneratorDetailScreen organizationId={42} />)
+    await openTab('Contactos')
+
+    expect(await screen.findByText('Ana Pérez')).toBeInTheDocument()
+    expect(screen.getByText('Jefa Ambiental')).toBeInTheDocument()
+    expect(screen.getByText('ana@generador.test')).toBeInTheDocument()
+    expect(screen.getByText('Contacto principal')).toBeInTheDocument()
+  })
+
+  test('un 403 en sucursales se muestra como error sin tumbar el resto de la pantalla', async () => {
+    fetchLinkedGeneratorBranchesMock.mockRejectedValue(new Error('No tiene acceso a esta organización.'))
+
+    render(<LinkedGeneratorDetailScreen organizationId={42} />)
+    await openTab('Sucursales')
+
+    expect(await screen.findByText('No tiene acceso a esta organización.')).toBeInTheDocument()
+    // Cada pestaña carga por separado: un 403 en una no rompe las otras.
+    await openTab('Usuarios')
+    expect(await screen.findByText('Ana Gómez')).toBeInTheDocument()
   })
 })

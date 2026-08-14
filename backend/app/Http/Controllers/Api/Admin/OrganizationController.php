@@ -377,11 +377,51 @@ class OrganizationController extends Controller
      * Tab "Sedes" -- solo lectura, ya gateada a platform staff arriba. Sin
      * filtro adicional (pedido explícito del plan).
      */
+    /**
+     * Tab "Sucursales". Acceso DUAL con shape distinto según quién pregunta,
+     * mismo criterio que `show()`/`users()`:
+     *   - platform staff: el registro completo de cada sede.
+     *   - Subgestor/Gestor con relación ACTIVA hacia este Generador
+     *     (pedido del usuario, 2026-08-14): shape OPERATIVO reducido --
+     *     nombre, tipo, dirección, municipio/departamento y estado. Se dejan
+     *     fuera licencia ambiental, capacidades operativas y campos de
+     *     auditoría: son información interna del Generador, no de la
+     *     relación comercial (mismo criterio de recorte que
+     *     `transformLinkedGeneratorOrganization()`).
+     *
+     * No se abre `BranchController::index()` para esto a propósito: ese
+     * listado filtra por `tenant_organization_id` y dejarlo pasar
+     * cross-tenant abriría la visibilidad para TODA la aplicación, no solo
+     * para esta pantalla.
+     */
     public function branches(Request $request, Organization $organization)
     {
-        abort_unless($request->user()->isPlatformStaff(), 403, 'Solo el staff de la plataforma puede gestionar organizaciones.');
+        $actor = $request->user();
+        $isLinkedCounterparty = ! $actor->isPlatformStaff() && $actor->hasActiveGeneratorRelationshipWith($organization->id);
 
-        $branches = $organization->branches()->with('branchType')->paginate($request->integer('per_page', 15));
+        abort_unless(
+            $actor->isPlatformStaff() || $isLinkedCounterparty,
+            403,
+            'Solo el staff de la plataforma puede gestionar organizaciones.',
+        );
+
+        $branches = $organization->branches()
+            ->with(['branchType', 'municipality:id,name', 'department:id,name'])
+            ->paginate($request->integer('per_page', 15));
+
+        if ($isLinkedCounterparty) {
+            $branches->getCollection()->transform(fn (Branch $branch) => [
+                'id' => $branch->id,
+                'name' => $branch->name,
+                'code' => $branch->code,
+                'branch_type' => $branch->branchType,
+                'address' => $branch->address,
+                'municipality' => $branch->municipality,
+                'department' => $branch->department,
+                'status' => $branch->status,
+                'is_active' => $branch->is_active,
+            ]);
+        }
 
         return response()->json($branches);
     }
@@ -405,13 +445,40 @@ class OrganizationController extends Controller
         // cualquier usuario autenticado del tenant sin importar sus
         // permisos asignados.
         Gate::authorize('viewAny', OrganizationContact::class);
+        // Subgestor/Gestor con relación ACTIVA hacia este Generador (pedido
+        // del usuario, 2026-08-14): puede VER los contactos para coordinar
+        // recolecciones, con shape REDUCIDO -- ver abajo.
+        $isLinkedCounterparty = ! $actor->isPlatformStaff()
+            && $organization->id !== $actor->tenant_organization_id
+            && $actor->hasActiveGeneratorRelationshipWith($organization->id);
+
         abort_unless(
-            $actor->isPlatformStaff() || $organization->id === $actor->tenant_organization_id,
+            $actor->isPlatformStaff() || $organization->id === $actor->tenant_organization_id || $isLinkedCounterparty,
             403,
             'No tiene acceso a los contactos de esta organización.',
         );
 
         $contacts = $organization->contacts()->with('user:id,person_id')->paginate($request->integer('per_page', 15));
+
+        if ($isLinkedCounterparty) {
+            // DATOS PERSONALES DE TERCEROS: la contraparte solo recibe lo
+            // necesario para contactar (nombre, cargo, correo, teléfono).
+            // Se omiten deliberadamente documento de identidad, fecha de
+            // nacimiento, género, dirección y cualquier otro campo de
+            // `people` -- confirmado con el usuario, 2026-08-14, mismo
+            // criterio de recorte que `transformLinkedGeneratorOrganization()`.
+            $contacts->getCollection()->transform(fn (Person $person) => [
+                'id' => $person->id,
+                'full_name' => $person->full_name,
+                'position_title' => $person->pivot->position_title,
+                'email' => $person->email,
+                'phone' => $person->phone,
+                'is_primary' => $person->pivot->is_primary,
+                'link_is_active' => $person->pivot->is_active,
+            ]);
+
+            return response()->json($contacts);
+        }
 
         $contacts->getCollection()->transform(function (Person $person) {
             $data = $person->toArray();
@@ -931,8 +998,17 @@ class OrganizationController extends Controller
             'Solo el staff de la plataforma puede buscar organizaciones sin filtrar por capacidad de negocio.'
         );
 
+        // `businessRoles` eager-cargado (2026-08-14): quien elige una
+        // organización en un formulario necesita saber qué roles tiene para
+        // decidir qué campos aplican (licencia ambiental solo si es GESTOR,
+        // capacidad si es GESTOR o SUBGESTOR). Sin esto el frontend elegía a
+        // ciegas. Se limita a `id, code` -- no se expone el catálogo completo.
         $organizations = Organization::query()
             ->select(['id', 'legal_name', 'tax_id'])
+            ->with(['businessRoles' => fn ($query) => $query
+                ->select(['business_roles.id', 'business_roles.code'])
+                ->wherePivot('is_active', true)
+                ->where('business_roles.is_active', true)])
             ->when($data['q'] ?? null, function ($query) use ($data) {
                 $query->where(function ($query) use ($data) {
                     $query->where('legal_name', 'ILIKE', "%{$data['q']}%")
@@ -943,6 +1019,14 @@ class OrganizationController extends Controller
             ->when($data['capability'] ?? null, fn ($query, $flag) => $query->withCapability($flag))
             ->orderBy('legal_name')
             ->paginate($data['per_page'] ?? 10);
+
+        // El pivote se oculta: `organization_business_roles` arrastra
+        // `assigned_by`/`assigned_at`/`is_active`, datos internos de
+        // administración que este selector no necesita y que no deben viajar
+        // por un endpoint abierto a cualquier actor autenticado (ver arriba).
+        $organizations->getCollection()->each(
+            fn (Organization $organization) => $organization->businessRoles->each->makeHidden('pivot')
+        );
 
         return response()->json($organizations);
     }

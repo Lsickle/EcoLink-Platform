@@ -186,7 +186,8 @@ export function GeneratorSubgestorRelationshipsListScreen() {
                   </TableCell>
                   <TableCell className="flex justify-end gap-2">
                     {/* Pedido explícito del usuario, 2026-08-11: acceder a los
-                        usuarios del Generador vinculado. Platform staff va al
+                        detalles del Generador vinculado (usuarios, sucursales y
+                        contactos). Platform staff va al
                         detalle completo (OrganizationDetailScreen, tab
                         Usuarios); el Subgestor dueño va a la pantalla acotada
                         LinkedGeneratorDetailScreen -- mismo criterio de
@@ -203,7 +204,7 @@ export function GeneratorSubgestorRelationshipsListScreen() {
                           )
                         }
                       >
-                        Ver usuarios
+                        Ver detalles
                       </Button>
                     )}
                     {canRevoke && relationship.is_active && (
