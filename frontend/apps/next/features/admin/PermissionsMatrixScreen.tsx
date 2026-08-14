@@ -840,7 +840,10 @@ function ComparisonView({
                 <TableBody>
                   {filteredGroups.map(([module, rows]) => (
                     <Fragment key={module}>
-                      <TableRow className="bg-muted/40 hover:bg-muted/40">
+                      {/* Fila de grupo: tinte UNIFORME, no participa del zebra
+                          de `TableRow` -- sin las variantes `even:` quedaría
+                          más clara al caer en posición par. */}
+                      <TableRow className="bg-muted/40 even:bg-muted/40 hover:bg-muted/40 even:hover:bg-muted/40">
                         <TableCell colSpan={columnCount} className="border-l-4 border-primary/50 font-semibold">
                           {moduleLabel(module)}
                         </TableCell>
