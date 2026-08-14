@@ -160,6 +160,11 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
   const { isAuthorized } = useRequireAuth(initialWasteId ? 'wastes.update' : 'wastes.create')
   const isPlatformStaff = Boolean(user?.is_platform_staff)
 
+  // Se deriva de `initialWasteId` (el residuo con el que se ABRIÓ la
+  // pantalla), NO de `wasteId`: ese último también se llena al auto-guardar
+  // el borrador durante una creación, y ahí la organización sí debe poder
+  // elegirse hasta terminar el wizard.
+  const isEditing = Boolean(initialWasteId)
   const [wasteId, setWasteId] = useState<number | string | null>(initialWasteId ?? null)
   const [step, setStep] = useState(1)
   const [state, setStateRaw] = useState<WizardState>(initialState)
@@ -628,14 +633,28 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
                   // catálogo completo una vez y filtra en memoria (ver
                   // docblock de `OrganizationQuickSelect`), este selector
                   // solo lo usa platform staff.
-                  <OrganizationQuickSelect
-                    label="Organización"
-                    htmlId="wasteOrganizationId"
-                    selectedId={state.organizationId}
-                    selectedLabel={state.organizationLabel}
-                    onSelect={(result) => setState({ organizationId: result.id, organizationLabel: result.legal_name })}
-                    onClear={() => setState({ organizationId: null, organizationLabel: null })}
-                  />
+                  <>
+                    <OrganizationQuickSelect
+                      label="Organización"
+                      htmlId="wasteOrganizationId"
+                      // Inmutable al EDITAR: el update nunca manda
+                      // `organization_id` (el frontend lo omite y el backend
+                      // además lo descarta), así que dejarlo editable era un
+                      // no-op silencioso -- se cambiaba, se guardaba sin error
+                      // y no tenía efecto (reporte del usuario, 2026-08-13).
+                      disabled={isEditing}
+                      selectedId={state.organizationId}
+                      selectedLabel={state.organizationLabel}
+                      onSelect={(result) => setState({ organizationId: result.id, organizationLabel: result.legal_name })}
+                      onClear={() => setState({ organizationId: null, organizationLabel: null })}
+                    />
+                    {isEditing && (
+                      <p className="text-xs text-muted-foreground">
+                        La organización no se puede cambiar después de declarar el residuo: sus evaluaciones,
+                        tratamientos asignados y servicios ya procesados quedarían apuntando a otra organización.
+                      </p>
+                    )}
+                  </>
                 )}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="flex flex-col gap-1.5">

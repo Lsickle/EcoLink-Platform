@@ -36,6 +36,7 @@ export function OrganizationQuickSelect({
   htmlId,
   excludeId,
   capability,
+  disabled = false,
   selectedId,
   selectedLabel,
   onSelect,
@@ -45,6 +46,19 @@ export function OrganizationQuickSelect({
   htmlId: string
   excludeId?: number | string
   capability?: string
+  /**
+   * Solo lectura: muestra la organización seleccionada pero NO deja cambiarla
+   * ni quitarla (se oculta el botón "Quitar", que era la otra vía de escape).
+   *
+   * Usado al EDITAR un residuo ya declarado: su `organization_id` es
+   * inmutable tras crearlo -- el frontend nunca lo manda en el update
+   * (`UpdateWastePayload` lo omite) y el backend además lo descarta
+   * (`WasteController::update()` hace `unset`). Antes el selector se
+   * renderizaba igual que al crear, así que se podía cambiar, guardar sin
+   * error y no pasaba nada: un no-op silencioso (reporte del usuario,
+   * 2026-08-13).
+   */
+  disabled?: boolean
   selectedId: number | null
   selectedLabel: string | null
   onSelect: (result: OrganizationSearchResult) => void
@@ -55,12 +69,14 @@ export function OrganizationQuickSelect({
   const [isOpen, setIsOpen] = useState(false)
 
   // Carga completa UNA sola vez -- sin `q`, con el `per_page` más alto que
-  // el backend permite (ver docblock arriba).
+  // el backend permite (ver docblock arriba). En modo `disabled` ni siquiera
+  // se pide: el catálogo no se puede usar.
   useEffect(() => {
+    if (disabled) return
     searchOrganizations({ excludeId, capability, perPage: 50 })
       .then((result) => setOrganizations(result.data))
       .catch(() => setOrganizations([]))
-  }, [excludeId, capability])
+  }, [excludeId, capability, disabled])
 
   const trimmedQuery = query.trim().toLowerCase()
   const filtered = trimmedQuery
@@ -76,21 +92,30 @@ export function OrganizationQuickSelect({
       {selectedId ? (
         <div className="flex items-center gap-2">
           <span className="rounded-md border border-border px-2.5 py-1.5 text-sm">{selectedLabel}</span>
-          <Button type="button" variant="outline" size="sm" onClick={onClear}>
-            Quitar
-          </Button>
+          {/* Sin "Quitar" en modo solo lectura: dejarlo permitiría vaciar la
+              selección y volver al buscador, esquivando el bloqueo. */}
+          {!disabled && (
+            <Button type="button" variant="outline" size="sm" onClick={onClear}>
+              Quitar
+            </Button>
+          )}
         </div>
       ) : (
         <div className="relative">
           <Input
             id={htmlId}
+            disabled={disabled}
             placeholder={`Buscar ${label.toLowerCase()}…`}
             value={query}
             onChange={(event) => {
+              if (disabled) return
               setQuery(event.target.value)
               setIsOpen(true)
             }}
-            onFocus={() => setIsOpen(true)}
+            onFocus={() => {
+              if (disabled) return
+              setIsOpen(true)
+            }}
             onBlur={() => setTimeout(() => setIsOpen(false), 150)}
           />
           {isOpen && (

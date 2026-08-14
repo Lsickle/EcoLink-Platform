@@ -373,6 +373,62 @@ describe('WasteWizard', () => {
     expect(screen.getByLabelText('Organización')).toBeInTheDocument()
   })
 
+  // La organización de un residuo es INMUTABLE tras declararlo: el update
+  // nunca la manda (`UpdateWastePayload` la omite) y el backend además la
+  // descarta. Antes el selector se renderizaba igual que al crear, así que
+  // platform staff podía cambiarla, guardar sin error y no pasaba nada -- un
+  // no-op silencioso. Ahora se muestra bloqueada, SIN "Quitar" (que era la
+  // otra vía para vaciarla y volver al buscador).
+  test('al EDITAR, la organización se muestra bloqueada y sin botón "Quitar"', async () => {
+    currentUser = { id: 1, is_platform_staff: true, permissions: ['wastes.create', 'wastes.update'] }
+    fetchWasteMock.mockResolvedValue({
+      waste: {
+        id: 77,
+        organization_id: 1,
+        organization: { id: 1, legal_name: 'Hospital San José' },
+        branch_id: null,
+        waste_category_id: 1,
+        code: 'RES-0077',
+        name: 'Solvente Usado',
+        description: 'Solvente de limpieza',
+        status: 'BR',
+        waste_danger: null,
+        waste_type_id: 1,
+        physical_state_id: 1,
+        measurement_unit_id: 1,
+        average_weight: null,
+        generation_frequency_id: null,
+        waste_stream_assignments: [],
+        waste_un_codes: [],
+        waste_hazard_characteristics: [],
+        created_by: { id: 1, username: 'admin' },
+        updated_by: { id: 1, username: 'admin' },
+      },
+    })
+    fetchWasteFilesMock.mockResolvedValue({ files: {} })
+
+    render(<WasteWizard wasteId={77} />)
+
+    expect(await screen.findByText('Hospital San José')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Quitar' })).not.toBeInTheDocument()
+    expect(screen.getByText(/no se puede cambiar después de declarar/i)).toBeInTheDocument()
+    // Tampoco se pide el catálogo: no hay nada que elegir.
+    expect(searchOrganizationsMock).not.toHaveBeenCalled()
+  })
+
+  test('al CREAR, la organización sigue siendo editable (con "Quitar")', async () => {
+    currentUser = { id: 1, is_platform_staff: true, permissions: ['wastes.create', 'wastes.update'] }
+    render(<WasteWizard />)
+    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+
+    const input = screen.getByLabelText('Organización')
+    fireEvent.focus(input)
+    fireEvent.click(await screen.findByText(/Hospital San José/))
+
+    expect(await screen.findByRole('button', { name: 'Quitar' })).toBeInTheDocument()
+    expect(screen.queryByText(/no se puede cambiar después de declarar/i)).not.toBeInTheDocument()
+  })
+
   test('hides the "Organización" selector for a tenant actor', async () => {
     render(<WasteWizard />)
     await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
