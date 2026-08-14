@@ -215,4 +215,29 @@ class Organization extends Model
             ->where($flag, true)
             ->exists();
     }
+
+    /**
+     * Códigos de los roles de negocio ACTIVOS de la organización.
+     *
+     * Se expone por CÓDIGO y no por capacidad (`hasCapability()`) a propósito:
+     * en el catálogo real `SUBGESTOR` y `TRANSPORTER` tienen exactamente los
+     * mismos flags (solo `can_transport_waste`), así que ninguna combinación
+     * de capacidades puede distinguirlos. Las reglas que dependen de "es
+     * Gestor" o "es Subgestor" -- p. ej. qué campos aplican en una sede --
+     * necesitan el código.
+     *
+     * La relación es N:N: una organización puede ser Generador Y Gestor a la
+     * vez, y en ese caso cuenta con AMBOS (confirmado por el usuario,
+     * 2026-08-14) -- por eso devuelve una lista, no un valor único.
+     *
+     * @return list<string>
+     */
+    public function activeBusinessRoleCodes(): array
+    {
+        return $this->businessRoles()
+            ->wherePivot('is_active', true)
+            ->where('business_roles.is_active', true)
+            ->pluck('business_roles.code')
+            ->all();
+    }
 }

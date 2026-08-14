@@ -8,6 +8,7 @@ use App\Models\Branch;
 use App\Models\Department;
 use App\Models\Locality;
 use App\Models\Municipality;
+use App\Models\Organization;
 use App\Models\Person;
 use App\Models\SecurityLog;
 use App\Models\User;
@@ -122,11 +123,18 @@ class BranchController extends Controller
 
         $data = $request->validate($rules);
         $data['organization_id'] = $organizationId;
+        $data = $this->stripFieldsNotApplicableToOrganization($data, $organizationId);
 
         $this->assertGeographyChainIsCoherent($data);
 
-        $data['status'] = $data['status'] ?? 'ACTIVE';
-        $data['is_active'] = $data['is_active'] ?? true;
+        // Una sede SIEMPRE nace activa (2026-08-14): el formulario dejó de
+        // preguntar "Estado" y "Sucursal activa" al crear porque confundían,
+        // y aquí se fuerza en vez de aceptar lo que llegue -- si no, un
+        // cliente podría crear una sede SUSPENDIDA de entrada, sin que ningún
+        // flujo de la aplicación lo permita. Ambos se siguen editando desde
+        // el detalle de la sede (`update()`), donde sí tiene sentido.
+        $data['status'] = 'ACTIVE';
+        $data['is_active'] = true;
         $data['created_by'] = $actor->id;
         $data['updated_by'] = $actor->id;
 
@@ -151,6 +159,45 @@ class BranchController extends Controller
     }
 
     /**
+     * Campos que solo aplican según el ROL DE NEGOCIO de la organización dueña
+     * (confirmado por el usuario, 2026-08-14):
+     *   - licencia ambiental y su vencimiento: solo si es GESTOR.
+     *   - capacidad operativa: si es GESTOR o SUBGESTOR.
+     *
+     * Se descartan en SILENCIO (mismo patrón que `organization_id` en
+     * `update()`), no con un 422: una organización puede sumar el rol GESTOR
+     * más adelante, y en ese momento los datos que ya tuviera cargados siguen
+     * siendo válidos. Un rechazo duro además rompería la edición de las sedes
+     * que hoy ya tienen estos campos poblados.
+     *
+     * Se compara por CÓDIGO de rol y no por capacidad porque `SUBGESTOR` y
+     * `TRANSPORTER` comparten exactamente los mismos flags -- ver
+     * {@see Organization::activeBusinessRoleCodes()}.
+     *
+     * La organización puede tener VARIOS roles (relación N:N): basta con que
+     * tenga AL MENOS UNO de los que habilitan el grupo.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function stripFieldsNotApplicableToOrganization(array $data, ?int $organizationId): array
+    {
+        $roles = $organizationId === null
+            ? []
+            : (Organization::query()->find($organizationId)?->activeBusinessRoleCodes() ?? []);
+
+        if (! in_array('GESTOR', $roles, true)) {
+            unset($data['environmental_license'], $data['license_expiration_date']);
+        }
+
+        if (! in_array('GESTOR', $roles, true) && ! in_array('SUBGESTOR', $roles, true)) {
+            unset($data['operational_capacity_kg'], $data['operational_capacity_liters'], $data['operational_capacity_m3']);
+        }
+
+        return $data;
+    }
+
+    /**
      * `organization_id` NO editable tras creación -- mismo criterio que
      * `tax_id`/`tax_id_type` de Organización: se descarta explícitamente de
      * los datos validados si viene en el payload, nunca falla por su
@@ -164,6 +211,7 @@ class BranchController extends Controller
         $rules = $this->validationRules($branch->organization_id, $branch->id, sometimes: true);
         $data = $request->validate($rules);
         unset($data['organization_id']);
+        $data = $this->stripFieldsNotApplicableToOrganization($data, $branch->organization_id);
 
         $this->assertGeographyChainIsCoherent([
             'country_id' => array_key_exists('country_id', $data) ? $data['country_id'] : $branch->country_id,
@@ -344,7 +392,11 @@ class BranchController extends Controller
             'department_id' => ['sometimes', 'nullable', 'integer', 'exists:departments,id'],
             'municipality_id' => ['sometimes', 'nullable', 'integer', 'exists:municipalities,id'],
             'locality_id' => ['sometimes', 'nullable', 'integer', 'exists:localities,id'],
-            'address' => ['sometimes', 'nullable', 'string'],
+            // Obligatoria al CREAR (pedido del usuario, 2026-08-14): una sede
+            // sin dirección no sirve para recolección ni para manifiestos.
+            // En `update()` sigue siendo `sometimes` para no romper ediciones
+            // parciales de las sedes que ya existen sin ella.
+            'address' => [$required, 'string'],
             'phone' => ['sometimes', 'nullable', 'string', 'max:50'],
             'email' => ['sometimes', 'nullable', 'email', 'max:255'],
             'environmental_license' => ['sometimes', 'nullable', 'string', 'max:255'],

@@ -296,17 +296,20 @@ export type CreateOrganizationFormValues = z.infer<typeof createOrganizationSche
 // `code` opcional (esquema-bd: `branches.code VARCHAR(50) NULL`, backend ya
 // migrado a `nullable`, 2026-08-09) -- unicidad compuesta con
 // `organization_id`, varias sedes sin código conviven sin chocar.
+// Sin `status` ni `isActive`: no se preguntan al CREAR (2026-08-14) -- una
+// sede nace siempre activa y el backend lo fuerza en `store()`. Ambos se
+// siguen editando desde el detalle de la sede, donde sí tiene sentido
+// suspenderla o desactivarla.
 export const createBranchSchema = z.object({
   organizationId: z.number().int().positive().optional(),
   branchTypeId: z.number().int().positive('Selecciona un tipo de sucursal.'),
   code: z.string().trim().optional().or(z.literal('')),
   name: z.string().trim().min(1, 'Ingresa un nombre.'),
-  status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']),
   countryId: z.number().int().positive().optional(),
   departmentId: z.number().int().positive().optional(),
   municipalityId: z.number().int().positive().optional(),
   localityId: z.number().int().positive().optional(),
-  address: z.string().trim().optional().or(z.literal('')),
+  address: z.string().trim().min(1, 'Ingresa una dirección.'),
   phone: z.string().trim().optional().or(z.literal('')),
   email: z.string().trim().email('Ingresa un correo válido.').optional().or(z.literal('')),
   environmentalLicense: z.string().trim().optional().or(z.literal('')),
@@ -320,7 +323,6 @@ export const createBranchSchema = z.object({
   operationalCapacityLiters: z.number().min(0).optional(),
   operationalCapacityM3: z.number().min(0).optional(),
   observations: z.string().trim().optional().or(z.literal('')),
-  isActive: z.boolean(),
 })
 
 export type CreateBranchFormValues = z.infer<typeof createBranchSchema>

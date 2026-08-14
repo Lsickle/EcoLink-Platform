@@ -34,7 +34,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => searchParams,
 }))
 
-let currentUser: { id: number; is_platform_staff: boolean } | null = { id: 1, is_platform_staff: false }
+let currentUser: { id: number; is_platform_staff: boolean; organization_business_roles?: string[] } | null = { id: 1, is_platform_staff: false }
 
 vi.mock('app/provider/auth', () => ({
   useAuth: () => ({ user: currentUser, isLoading: false, refresh: vi.fn(), logout: vi.fn() }),
@@ -115,6 +115,7 @@ describe('CreateBranchForm', () => {
     await screen.findByLabelText('Nombre')
 
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Planta Norte' } })
+    fireEvent.change(screen.getByLabelText('Dirección'), { target: { value: 'Calle 1 # 2-3' } })
     fireEvent.change(screen.getByLabelText(/código/i), { target: { value: 'S-001' } })
     fireEvent.click(screen.getByRole('combobox', { name: /tipo de sucursal/i }))
     fireEvent.click(await screen.findByRole('option', { name: 'Operativa' }))
@@ -135,6 +136,7 @@ describe('CreateBranchForm', () => {
     await screen.findByLabelText('Nombre')
 
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Planta Sur' } })
+    fireEvent.change(screen.getByLabelText('Dirección'), { target: { value: 'Calle 1 # 2-3' } })
     fireEvent.click(screen.getByRole('combobox', { name: /tipo de sucursal/i }))
     fireEvent.click(await screen.findByRole('option', { name: 'Operativa' }))
     fireEvent.click(screen.getByRole('button', { name: 'Crear Sucursal' }))
@@ -181,6 +183,7 @@ describe('CreateBranchForm', () => {
     await screen.findByLabelText('Nombre')
 
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Planta Norte' } })
+    fireEvent.change(screen.getByLabelText('Dirección'), { target: { value: 'Calle 1 # 2-3' } })
     fireEvent.change(screen.getByLabelText(/código/i), { target: { value: 'S-001' } })
     fireEvent.click(screen.getByRole('combobox', { name: /tipo de sucursal/i }))
     fireEvent.click(await screen.findByRole('option', { name: 'Operativa' }))
@@ -255,6 +258,7 @@ describe('CreateBranchForm', () => {
     await screen.findByLabelText('Nombre')
 
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Planta Norte' } })
+    fireEvent.change(screen.getByLabelText('Dirección'), { target: { value: 'Calle 1 # 2-3' } })
     fireEvent.change(screen.getByLabelText(/código/i), { target: { value: 'S-001' } })
     fireEvent.click(screen.getByRole('combobox', { name: /tipo de sucursal/i }))
     fireEvent.click(await screen.findByRole('option', { name: 'Operativa' }))
@@ -289,6 +293,7 @@ describe('CreateBranchForm', () => {
     expect(screen.queryByLabelText(/Localidad/)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Planta Norte' } })
+    fireEvent.change(screen.getByLabelText('Dirección'), { target: { value: 'Calle 1 # 2-3' } })
     fireEvent.change(screen.getByLabelText(/código/i), { target: { value: 'S-001' } })
     fireEvent.click(screen.getByRole('combobox', { name: /tipo de sucursal/i }))
     fireEvent.click(await screen.findByRole('option', { name: 'Operativa' }))
@@ -321,6 +326,7 @@ describe('CreateBranchForm', () => {
     expect(localityCombobox).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Planta Norte' } })
+    fireEvent.change(screen.getByLabelText('Dirección'), { target: { value: 'Calle 1 # 2-3' } })
     fireEvent.change(screen.getByLabelText(/código/i), { target: { value: 'S-001' } })
     fireEvent.click(screen.getByRole('combobox', { name: /tipo de sucursal/i }))
     fireEvent.click(await screen.findByRole('option', { name: 'Operativa' }))
@@ -340,11 +346,14 @@ describe('CreateBranchForm', () => {
   // Punto 11 del lote de correcciones -- Capacidad Operativa por unidad
   // (KG/Litros/M³), 3 campos numéricos opcionales e independientes.
   test('submits operational capacity as 3 independent optional fields (kg/liters/m3)', async () => {
+    // Los campos de capacidad solo aplican a GESTOR/SUBGESTOR (2026-08-14).
+    currentUser = { id: 1, is_platform_staff: false, organization_business_roles: ['GESTOR'] }
     createBranchMock.mockResolvedValueOnce({ branch: { id: 99 } })
     render(<CreateBranchForm />)
     await screen.findByLabelText('Nombre')
 
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Planta Norte' } })
+    fireEvent.change(screen.getByLabelText('Dirección'), { target: { value: 'Calle 1 # 2-3' } })
     fireEvent.change(screen.getByLabelText(/código/i), { target: { value: 'S-001' } })
     fireEvent.click(screen.getByRole('combobox', { name: /tipo de sucursal/i }))
     fireEvent.click(await screen.findByRole('option', { name: 'Operativa' }))
@@ -358,5 +367,90 @@ describe('CreateBranchForm', () => {
     expect(payload.operational_capacity_liters).toBe(500)
     expect(payload.operational_capacity_kg).toBeUndefined()
     expect(payload.operational_capacity_m3).toBeUndefined()
+  })
+
+  // Pedidos del usuario (2026-08-14) sobre el formulario de creación.
+
+  test('la dirección es obligatoria: sin ella no se envía nada al backend', async () => {
+    render(<CreateBranchForm />)
+    await screen.findByLabelText('Nombre')
+
+    fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Planta Norte' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Crear Sucursal' }))
+
+    expect(await screen.findByText('Ingresa una dirección.')).toBeInTheDocument()
+    expect(createBranchMock).not.toHaveBeenCalled()
+  })
+
+  // "Estado" y "Sucursal activa" confundían al crear: una sede siempre nace
+  // activa. Se retiran de la UI y el backend lo fuerza; ambos se siguen
+  // editando desde el detalle de la sede.
+  test('no pregunta "Estado" ni "Sucursal activa" al crear', async () => {
+    render(<CreateBranchForm />)
+    await screen.findByLabelText('Nombre')
+
+    expect(screen.queryByLabelText('Estado')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Sucursal activa')).not.toBeInTheDocument()
+  })
+
+  test('el payload de creación no manda status ni is_active', async () => {
+    createBranchMock.mockResolvedValueOnce({ branch: { id: 101 } })
+    render(<CreateBranchForm />)
+    await screen.findByLabelText('Nombre')
+
+    fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Planta Norte' } })
+    fireEvent.change(screen.getByLabelText('Dirección'), { target: { value: 'Calle 1 # 2-3' } })
+    fireEvent.click(screen.getByRole('combobox', { name: /tipo de sucursal/i }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Operativa' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Crear Sucursal' }))
+
+    await vi.waitFor(() => expect(createBranchMock).toHaveBeenCalled())
+    const payload = createBranchMock.mock.calls[0][0]
+    expect(payload).not.toHaveProperty('status')
+    expect(payload).not.toHaveProperty('is_active')
+  })
+
+  // Campos que dependen del ROL DE NEGOCIO de la organización dueña
+  // (confirmado por el usuario, 2026-08-14). El backend aplica la misma regla
+  // y descarta lo que no corresponda, así que mostrarlos sería enseñar campos
+  // que no se van a guardar.
+
+  test('un GENERADOR no ve licencia ambiental ni capacidad', async () => {
+    currentUser = { id: 1, is_platform_staff: false, organization_business_roles: ['GENERATOR'] }
+    render(<CreateBranchForm />)
+    await screen.findByLabelText('Nombre')
+
+    expect(screen.queryByLabelText(/Licencia Ambiental/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Capacidad Operativa \(KG\)/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Regulatorio')).not.toBeInTheDocument()
+  })
+
+  test('un SUBGESTOR ve capacidad pero NO licencia ambiental', async () => {
+    currentUser = { id: 1, is_platform_staff: false, organization_business_roles: ['SUBGESTOR'] }
+    render(<CreateBranchForm />)
+    await screen.findByLabelText('Nombre')
+
+    expect(screen.getByLabelText(/Capacidad Operativa \(KG\)/)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/Licencia Ambiental/)).not.toBeInTheDocument()
+  })
+
+  test('un GESTOR ve licencia ambiental y capacidad', async () => {
+    currentUser = { id: 1, is_platform_staff: false, organization_business_roles: ['GESTOR'] }
+    render(<CreateBranchForm />)
+    await screen.findByLabelText('Nombre')
+
+    expect(screen.getByLabelText(/Licencia Ambiental/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Capacidad Operativa \(KG\)/)).toBeInTheDocument()
+  })
+
+  // Caso señalado por el usuario: la relación organización-rol es N:N, basta
+  // con tener AL MENOS UNO de los roles que habilitan cada grupo.
+  test('una organización GENERADOR + GESTOR ve ambos grupos de campos', async () => {
+    currentUser = { id: 1, is_platform_staff: false, organization_business_roles: ['GENERATOR', 'GESTOR'] }
+    render(<CreateBranchForm />)
+    await screen.findByLabelText('Nombre')
+
+    expect(screen.getByLabelText(/Licencia Ambiental/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Capacidad Operativa \(KG\)/)).toBeInTheDocument()
   })
 })

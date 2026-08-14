@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Branch;
+use App\Models\BusinessRole;
 use App\Models\BranchType;
 use App\Models\Department;
 use App\Models\Municipality;
@@ -51,6 +52,61 @@ function branchPlatformStaffActor(array $codes = []): User
 const BRANCH_ALL_PERMISSIONS = ['branches.read', 'branches.create', 'branches.update', 'branches.activate', 'branches.deactivate'];
 
 // ---- Aislamiento tenant vs. platform staff (9 endpoints) ----
+
+// Pedidos del usuario (2026-08-14) sobre el formulario de creación de sede.
+
+/**
+ * Los campos de capacidad y licencia ambiental ahora dependen del ROL DE
+ * NEGOCIO de la organización (2026-08-14): sin un rol que los habilite el
+ * backend los descarta en silencio. Los tests que los ejercitan necesitan una
+ * organización con el rol correspondiente.
+ */
+function branchOrganizationWithRole(string $code): Organization
+{
+    $organization = Organization::factory()->create();
+    $role = BusinessRole::query()->firstOrCreate(['code' => $code], [
+        'name' => $code, 'is_active' => true,
+    ]);
+    $organization->businessRoles()->attach($role->id, ['is_active' => true]);
+
+    return $organization;
+}
+
+test('store exige dirección: una sede sin dirección no sirve para recolección ni manifiestos', function () {
+    $organization = Organization::factory()->create();
+    $branchType = BranchType::factory()->create();
+    $actor = branchActor(['branches.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'name' => 'Sede Sin Dirección',
+    ])->assertStatus(422)->assertJsonValidationErrors('address');
+});
+
+test('update NO exige dirección: las sedes que ya existen sin ella se siguen editando parcialmente', function () {
+    $organization = Organization::factory()->create();
+    $branch = Branch::factory()->create(['organization_id' => $organization->id]);
+    $actor = branchActor(['branches.update'], $organization->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/branches/{$branch->id}", [
+        'name' => 'Nombre Editado',
+    ])->assertOk();
+});
+
+test('store fuerza status=ACTIVE e is_active=true, ignorando lo que mande el cliente', function () {
+    $organization = Organization::factory()->create();
+    $branchType = BranchType::factory()->create();
+    $actor = branchActor(['branches.create'], $organization->id);
+
+    // El formulario dejó de preguntar estos campos al crear; si igual llegan
+    // (cliente viejo, llamada directa), no deben poder crear una sede nacida
+    // suspendida o inactiva.
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'name' => 'Sede Forzada', 'address' => 'Calle 1 # 2-3',
+        'status' => 'SUSPENDED', 'is_active' => false,
+    ])->assertCreated()
+        ->assertJsonPath('branch.status', 'ACTIVE')
+        ->assertJsonPath('branch.is_active', true);
+});
 
 test('todos los endpoints devuelven 403 sin el permiso branches.* correspondiente', function () {
     $organization = Organization::factory()->create();
@@ -151,7 +207,7 @@ test('store fuerza organization_id del actor para un admin de tenant, ignorando 
 
     $actor = branchActor(['branches.create'], $ownOrganization->id);
 
-    $response = $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $response = $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'organization_id' => $otherOrganization->id,
         'branch_type_id' => $branchType->id,
         'code' => 'SEDE-01',
@@ -172,7 +228,7 @@ test('store exige organization_id explícito para platform staff (422 si falta)'
     $branchType = BranchType::factory()->create();
     $actor = branchPlatformStaffActor(['branches.create']);
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id,
         'code' => 'SEDE-02',
         'name' => 'Sede Sin Organización',
@@ -184,7 +240,7 @@ test('store con platform staff crea la sede en la organización indicada', funct
     $branchType = BranchType::factory()->create();
     $actor = branchPlatformStaffActor(['branches.create']);
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'organization_id' => $organization->id,
         'branch_type_id' => $branchType->id,
         'code' => 'SEDE-03',
@@ -199,12 +255,12 @@ test('code es único por organización y EXCLUYE sedes soft-eliminadas', functio
     $branchType = BranchType::factory()->create();
     $actor = branchActor(['branches.create'], $organization->id);
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'DUP-01', 'name' => 'Primera',
     ])->assertCreated();
 
     // duplicado en la MISMA organización -> 422.
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'DUP-01', 'name' => 'Segunda',
     ])->assertUnprocessable()->assertJsonValidationErrors('code');
 
@@ -212,7 +268,7 @@ test('code es único por organización y EXCLUYE sedes soft-eliminadas', functio
     $existing->delete();
 
     // tras soft-delete, el code queda libre de nuevo.
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'DUP-01', 'name' => 'Tercera',
     ])->assertCreated();
 });
@@ -222,7 +278,7 @@ test('store crea la sede exitosamente sin code (esquema-bd: branches.code VARCHA
     $branchType = BranchType::factory()->create();
     $actor = branchActor(['branches.create'], $organization->id);
 
-    $response = $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $response = $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'name' => 'Sede Sin Código',
     ])->assertCreated();
 
@@ -234,11 +290,11 @@ test('dos sedes SIN code en la misma organización no chocan con el índice úni
     $branchType = BranchType::factory()->create();
     $actor = branchActor(['branches.create'], $organization->id);
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'name' => 'Primera Sin Código',
     ])->assertCreated();
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'name' => 'Segunda Sin Código',
     ])->assertCreated();
 });
@@ -251,11 +307,11 @@ test('el mismo code SÍ puede repetirse en organizaciones DISTINTAS', function (
     $actorA = branchActor(['branches.create'], $organizationA->id);
     $actorB = branchActor(['branches.create'], $organizationB->id);
 
-    $this->actingAs($actorA)->postJson('/api/admin/branches', [
+    $this->actingAs($actorA)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'COMPARTIDO', 'name' => 'Sede A',
     ])->assertCreated();
 
-    $this->actingAs($actorB)->postJson('/api/admin/branches', [
+    $this->actingAs($actorB)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'COMPARTIDO', 'name' => 'Sede B',
     ])->assertCreated();
 });
@@ -289,7 +345,7 @@ test('store rechaza con 422 una cadena geográfica incoherente (municipio que no
 
     $actor = branchActor(['branches.create'], $organization->id);
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'GEO-01', 'name' => 'Sede Geo',
         'department_id' => $departmentA->id,
         'municipality_id' => $municipalityOfB->id,
@@ -422,26 +478,93 @@ test('activity exige AMBOS: audit.read Y accesibilidad de la sede, y filtra por 
         ->and($events->count())->toBe(3);
 });
 
-// ---- operational_capacity_kg/_liters/_m3 (split de operational_capacity por unidad) ----
+// ---- Campos que dependen del ROL DE NEGOCIO de la organización ----
+// Confirmado por el usuario (2026-08-14): licencia ambiental solo aplica a
+// GESTOR; capacidad operativa a GESTOR o SUBGESTOR. Se descartan en SILENCIO
+// (no 422) para no romper la edición de sedes que ya los tengan poblados.
 
-test('store acepta cualquier combinación de operational_capacity_kg/_liters/_m3 (todas opcionales)', function () {
-    $organization = Organization::factory()->create();
+test('descarta licencia y capacidad si la organización no es Gestor ni Subgestor', function () {
+    $organization = branchOrganizationWithRole('GENERATOR');
     $branchType = BranchType::factory()->create();
     $actor = branchActor(['branches.create'], $organization->id);
 
     $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'name' => 'Sede Generador', 'address' => 'Calle 1 # 2-3',
+        'environmental_license' => 'LIC-999', 'license_expiration_date' => '2030-01-01',
+        'operational_capacity_kg' => 500,
+    ])->assertCreated()
+        ->assertJsonPath('branch.environmental_license', null)
+        ->assertJsonPath('branch.license_expiration_date', null)
+        ->assertJsonPath('branch.operational_capacity_kg', null);
+});
+
+test('un Subgestor conserva la capacidad pero NO la licencia ambiental', function () {
+    $organization = branchOrganizationWithRole('SUBGESTOR');
+    $branchType = BranchType::factory()->create();
+    $actor = branchActor(['branches.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'name' => 'Sede Subgestor', 'address' => 'Calle 1 # 2-3',
+        'environmental_license' => 'LIC-999',
+        'operational_capacity_kg' => 500,
+    ])->assertCreated()
+        ->assertJsonPath('branch.environmental_license', null)
+        ->assertJsonPath('branch.operational_capacity_kg', '500.00');
+});
+
+// Caso señalado por el usuario: la relación organización-rol es N:N, así que
+// basta con tener AL MENOS UNO de los roles que habilitan cada grupo.
+test('una organización Generador Y Gestor conserva ambos grupos de campos', function () {
+    $organization = branchOrganizationWithRole('GENERATOR');
+    $gestor = BusinessRole::query()->firstOrCreate(['code' => 'GESTOR'], ['name' => 'GESTOR', 'is_active' => true]);
+    $organization->businessRoles()->attach($gestor->id, ['is_active' => true]);
+
+    $branchType = BranchType::factory()->create();
+    $actor = branchActor(['branches.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'name' => 'Sede Mixta', 'address' => 'Calle 1 # 2-3',
+        'environmental_license' => 'LIC-123',
+        'operational_capacity_kg' => 750,
+    ])->assertCreated()
+        ->assertJsonPath('branch.environmental_license', 'LIC-123')
+        ->assertJsonPath('branch.operational_capacity_kg', '750.00');
+});
+
+test('un rol INACTIVO no habilita los campos', function () {
+    $organization = Organization::factory()->create();
+    $gestor = BusinessRole::query()->firstOrCreate(['code' => 'GESTOR'], ['name' => 'GESTOR', 'is_active' => true]);
+    $organization->businessRoles()->attach($gestor->id, ['is_active' => false]);
+
+    $branchType = BranchType::factory()->create();
+    $actor = branchActor(['branches.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', [
+        'branch_type_id' => $branchType->id, 'name' => 'Sede Rol Inactivo', 'address' => 'Calle 1 # 2-3',
+        'environmental_license' => 'LIC-777',
+    ])->assertCreated()->assertJsonPath('branch.environmental_license', null);
+});
+
+// ---- operational_capacity_kg/_liters/_m3 (split de operational_capacity por unidad) ----
+
+test('store acepta cualquier combinación de operational_capacity_kg/_liters/_m3 (todas opcionales)', function () {
+    $organization = branchOrganizationWithRole('GESTOR');
+    $branchType = BranchType::factory()->create();
+    $actor = branchActor(['branches.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'CAP-NONE', 'name' => 'Sin capacidad',
     ])->assertCreated()
         ->assertJsonPath('branch.operational_capacity_kg', null)
         ->assertJsonPath('branch.operational_capacity_liters', null)
         ->assertJsonPath('branch.operational_capacity_m3', null);
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'CAP-ONE', 'name' => 'Solo KG',
         'operational_capacity_kg' => 500,
     ])->assertCreated()->assertJsonPath('branch.operational_capacity_kg', '500.00');
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'CAP-TWO', 'name' => 'KG y litros',
         'operational_capacity_kg' => 500,
         'operational_capacity_liters' => 200,
@@ -449,7 +572,7 @@ test('store acepta cualquier combinación de operational_capacity_kg/_liters/_m3
         ->assertJsonPath('branch.operational_capacity_kg', '500.00')
         ->assertJsonPath('branch.operational_capacity_liters', '200.00');
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'CAP-THREE', 'name' => 'Las 3 unidades',
         'operational_capacity_kg' => 500,
         'operational_capacity_liters' => 200,
@@ -465,24 +588,24 @@ test('store rechaza con 422 valores negativos en cualquiera de las 3 unidades de
     $branchType = BranchType::factory()->create();
     $actor = branchActor(['branches.create'], $organization->id);
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'CAP-NEG-KG', 'name' => 'KG negativo',
         'operational_capacity_kg' => -1,
     ])->assertUnprocessable()->assertJsonValidationErrors('operational_capacity_kg');
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'CAP-NEG-L', 'name' => 'Litros negativo',
         'operational_capacity_liters' => -1,
     ])->assertUnprocessable()->assertJsonValidationErrors('operational_capacity_liters');
 
-    $this->actingAs($actor)->postJson('/api/admin/branches', [
+    $this->actingAs($actor)->postJson('/api/admin/branches', ['address' => 'Calle 1 # 2-3',
         'branch_type_id' => $branchType->id, 'code' => 'CAP-NEG-M3', 'name' => 'M3 negativo',
         'operational_capacity_m3' => -1,
     ])->assertUnprocessable()->assertJsonValidationErrors('operational_capacity_m3');
 });
 
 test('update permite fijar/actualizar las 3 unidades de capacidad operativa de forma independiente', function () {
-    $organization = Organization::factory()->create();
+    $organization = branchOrganizationWithRole('GESTOR');
     $branch = Branch::factory()->create([
         'organization_id' => $organization->id,
         'operational_capacity_kg' => null,

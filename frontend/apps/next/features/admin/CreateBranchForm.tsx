@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -22,19 +21,14 @@ import {
   type AdminDepartment,
   type AdminLocality,
   type AdminMunicipality,
-  type BranchStatus,
 } from 'app/features/admin/api'
 import { createBranchSchema } from 'app/features/admin/schemas'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
+import {
+  showsEnvironmentalLicenseFields,
+  showsOperationalCapacityFields,
+} from 'app/features/admin/branchFieldVisibility'
 import { OrganizationSearchSelect } from './OrganizationSearchSelect'
-
-const BRANCH_STATUSES: BranchStatus[] = ['ACTIVE', 'INACTIVE', 'SUSPENDED']
-
-const STATUS_LABELS: Record<BranchStatus, string> = {
-  ACTIVE: 'Activa',
-  INACTIVE: 'Inactiva',
-  SUSPENDED: 'Suspendida',
-}
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h3 className="text-sm font-semibold text-foreground">{children}</h3>
@@ -54,7 +48,7 @@ function sortDepartmentsBogotaFirst(departments: AdminDepartment[]): AdminDepart
   return [...departments].sort((a, b) => priority(a.name) - priority(b.name))
 }
 
-type FieldErrors = Partial<Record<'name' | 'code' | 'branchTypeId' | 'email' | 'localityId', string>>
+type FieldErrors = Partial<Record<'name' | 'code' | 'branchTypeId' | 'email' | 'localityId' | 'address', string>>
 
 // Formulario de creación (POST /api/admin/branches) -- plan "CRUD de Sedes
 // (Branches) + Contactos". El selector de Organización dueña SOLO se
@@ -78,6 +72,17 @@ export function CreateBranchForm() {
 
   // Sección 1 -- Identificación
   const [organizationId, setOrganizationId] = useState<number | null>(null)
+  // Roles de negocio de la organización DUEÑA de la sede, para decidir qué
+  // campos aplican. Platform staff la elige en el formulario (los roles
+  // vienen en el resultado del buscador); un actor de tenant siempre crea
+  // en la suya, así que se toman de su propio usuario.
+  const [selectedOrganizationRoles, setSelectedOrganizationRoles] = useState<string[]>([])
+
+  // Platform staff elige la organización dueña; el resto siempre crea en la
+  // suya, así que los roles salen de su propio usuario (GET /api/user).
+  const organizationRoles = isPlatformStaff ? selectedOrganizationRoles : (user?.organization_business_roles ?? [])
+  const showsLicenseFields = showsEnvironmentalLicenseFields(organizationRoles)
+  const showsCapacityFields = showsOperationalCapacityFields(organizationRoles)
   const [organizationLabel, setOrganizationLabel] = useState<string | null>(null)
   const [branchTypeId, setBranchTypeId] = useState<number | null>(null)
   const [code, setCode] = useState('')
@@ -105,8 +110,6 @@ export function CreateBranchForm() {
   const [operationalCapacityM3, setOperationalCapacityM3] = useState('')
 
   // Sección 5 -- Estado + Observaciones
-  const [status, setStatus] = useState<BranchStatus>('ACTIVE')
-  const [isActive, setIsActive] = useState(true)
   const [observations, setObservations] = useState('')
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -205,7 +208,6 @@ export function CreateBranchForm() {
       branchTypeId: branchTypeId ?? 0,
       code,
       name,
-      status,
       countryId: countryId ?? undefined,
       departmentId: departmentId ?? undefined,
       municipalityId: municipalityId ?? undefined,
@@ -219,7 +221,6 @@ export function CreateBranchForm() {
       operationalCapacityLiters: operationalCapacityLiters ? Number(operationalCapacityLiters) : undefined,
       operationalCapacityM3: operationalCapacityM3 ? Number(operationalCapacityM3) : undefined,
       observations,
-      isActive,
     })
 
     if (!parsed.success) {
@@ -256,7 +257,6 @@ export function CreateBranchForm() {
         branch_type_id: parsed.data.branchTypeId,
         code: parsed.data.code || undefined,
         name: parsed.data.name,
-        status: parsed.data.status,
         country_id: parsed.data.countryId,
         department_id: parsed.data.departmentId,
         municipality_id: parsed.data.municipalityId,
@@ -270,7 +270,6 @@ export function CreateBranchForm() {
         operational_capacity_liters: parsed.data.operationalCapacityLiters,
         operational_capacity_m3: parsed.data.operationalCapacityM3,
         observations: parsed.data.observations || undefined,
-        is_active: parsed.data.isActive,
       })
       router.push(`/admin/branches/${created.id}`)
     } catch (error) {
@@ -310,10 +309,12 @@ export function CreateBranchForm() {
                 onSelect={(result) => {
                   setOrganizationId(result.id)
                   setOrganizationLabel(`${result.legal_name} (${result.tax_id})`)
+                  setSelectedOrganizationRoles((result.business_roles ?? []).map((role) => role.code))
                 }}
                 onClear={() => {
                   setOrganizationId(null)
                   setOrganizationLabel(null)
+                  setSelectedOrganizationRoles([])
                 }}
               />
             )}
@@ -498,10 +499,13 @@ export function CreateBranchForm() {
               )}
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="address">
-                Dirección <span className="text-muted-foreground">(opcional)</span>
-              </Label>
+              <Label htmlFor="address">Dirección</Label>
               <Input id="address" value={address} onChange={(event) => setAddress(event.target.value)} />
+              {fieldErrors.address && (
+                <p className="text-sm text-destructive" role="alert">
+                  {fieldErrors.address}
+                </p>
+              )}
             </div>
           </div>
 
@@ -534,8 +538,15 @@ export function CreateBranchForm() {
             </div>
           </div>
 
+          {/* Los campos regulatorios y de capacidad solo aplican según el rol de
+              negocio de la organización dueña (confirmado por el usuario,
+              2026-08-14) -- ver `branchFieldVisibility.ts`. El backend aplica
+              la MISMA regla y descarta lo que no corresponda, así que mostrar
+              un campo que no se va a guardar solo confundiría. */}
+          {(showsLicenseFields || showsCapacityFields) && (
           <div className="flex flex-col gap-4">
             <SectionHeading>Regulatorio</SectionHeading>
+            {showsLicenseFields && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="environmentalLicense">
@@ -559,10 +570,12 @@ export function CreateBranchForm() {
                 />
               </div>
             </div>
+            )}
             {/* Punto 11 del lote de correcciones -- 3 campos independientes
                 por unidad (backend: operational_capacity_kg/_liters/_m3),
                 todos opcionales, sin relación entre sí (se pueden llenar 0,
                 1, 2 o los 3). */}
+            {showsCapacityFields && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="operationalCapacityKg">
@@ -601,35 +614,18 @@ export function CreateBranchForm() {
                 />
               </div>
             </div>
+            )}
           </div>
+          )}
 
+          {/* El select "Estado" y el checkbox "Sucursal activa" se retiraron de
+              la CREACIÓN (pedido del usuario, 2026-08-14): confundían más de lo
+              que aportaban -- una sede recién creada siempre nace activa. El
+              backend ya fuerza `status='ACTIVE'` e `is_active=true` en
+              `store()`, y ambos se siguen editando desde el detalle de la
+              sede, donde sí tiene sentido suspenderla o desactivarla. */}
           <div className="flex flex-col gap-4">
-            <SectionHeading>Estado y observaciones</SectionHeading>
-            <div className="flex flex-col gap-1.5 sm:w-1/2">
-              <Label htmlFor="status">Estado</Label>
-              <Select
-                items={BRANCH_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
-                value={status}
-                onValueChange={(value) => setStatus(value as BranchStatus)}
-              >
-                <SelectTrigger id="status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {BRANCH_STATUSES.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {STATUS_LABELS[option]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox id="isActive" checked={isActive} onCheckedChange={(checked) => setIsActive(checked === true)} />
-              <Label htmlFor="isActive" className="font-normal">
-                Sucursal activa
-              </Label>
-            </div>
+            <SectionHeading>Observaciones</SectionHeading>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="observations">
                 Observaciones <span className="text-muted-foreground">(opcional)</span>

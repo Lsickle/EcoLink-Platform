@@ -74,6 +74,39 @@ export type LinkedOrganizationSummary = {
   primary_branch: OrganizationPrimaryBranch
 }
 
+// Sedes y contactos del Generador vistos por su Subgestor/Gestor vinculado
+// (2026-08-14). Shape REDUCIDO a propósito -- mismos endpoints que usa
+// platform staff (`/organizations/{id}/branches` y `/contacts`), pero el
+// backend recorta la respuesta según quién pregunta, igual que
+// `LinkedOrganizationSummary` frente a `AdminOrganization`.
+//
+// De las sedes se omiten licencia ambiental, capacidades operativas y
+// auditoría: información interna del Generador, no de la relación comercial.
+export type LinkedGeneratorBranch = {
+  id: number
+  name: string
+  code: string | null
+  branch_type: { id: number; name: string } | null
+  address: string | null
+  municipality: { id: number; name: string } | null
+  department: { id: number; name: string } | null
+  status: string
+  is_active: boolean
+}
+
+// De los contactos se omiten documento de identidad, fecha de nacimiento,
+// género y dirección: son DATOS PERSONALES DE TERCEROS y la contraparte solo
+// necesita poder contactarlos (confirmado con el usuario, 2026-08-14).
+export type LinkedGeneratorContact = {
+  id: number
+  full_name: string
+  position_title: string | null
+  email: string | null
+  phone: string | null
+  is_primary: boolean
+  link_is_active: boolean
+}
+
 // Cierre de brecha con Figma (lote 2026-07-14, paridad con AdminRole
 // arriba): index()/show() de UserManagementController SIEMPRE devuelven
 // last_login_at/created_at/updated_at -- son columnas nativas de `users`,
@@ -1113,6 +1146,12 @@ export type OrganizationSearchResult = {
   id: number
   legal_name: string
   tax_id: string
+  // Roles de negocio ACTIVOS de la organización (2026-08-14) -- los necesita
+  // quien elige una organización en un formulario para saber qué campos
+  // aplican (ver `branchFieldVisibility.ts`). Opcional: solo lo devuelve
+  // `OrganizationController::search()`, no otros endpoints que reusan
+  // este shape.
+  business_roles?: { id: number; code: string }[]
 }
 
 // POST/PUT /api/admin/organizations -- ver OrganizationController::

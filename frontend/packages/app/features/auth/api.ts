@@ -152,6 +152,13 @@ export type AuthUser = {
   // solo lo puebla GET /api/user (me()), NO POST /api/login. `useRequireAuth()`
   // redirige a /change-password mientras esté en true, sin importar la ruta.
   must_change_password?: boolean
+  // Códigos de los roles de negocio ACTIVOS de la organización del
+  // usuario (2026-08-14). Solo lo puebla GET /api/user (me()), igual
+  // que `permissions`. Un actor de tenant no elige organización en los
+  // formularios, así que sin esto no habría cómo saber qué campos
+  // aplican -- ver `branchFieldVisibility.ts`. La relación es N:N: una
+  // organización puede ser Generador Y Gestor a la vez.
+  organization_business_roles?: string[]
   person?: AuthPerson
   roles?: AuthRole[]
 }

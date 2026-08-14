@@ -195,6 +195,14 @@ class AuthController extends Controller
             'user' => $user->toArray() + [
                 'permissions' => $user->effectivePermissionCodes(),
                 'is_platform_staff' => $user->isPlatformStaff(),
+                // Roles de negocio de la organización del actor (2026-08-14):
+                // el frontend los necesita para decidir qué campos aplican en
+                // los formularios -- p. ej. licencia ambiental solo si la
+                // organización es GESTOR. Un actor de tenant no elige
+                // organización en el formulario, así que sin esto no tendría
+                // de dónde sacarlo. Array vacío si el usuario no tiene
+                // organización asociada.
+                'organization_business_roles' => $user->organization?->activeBusinessRoleCodes() ?? [],
             ],
         ]);
     }
