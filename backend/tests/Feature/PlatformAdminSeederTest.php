@@ -96,23 +96,40 @@ test('el seeder falla explícitamente si PLATFORM_ADMIN_PASSWORD sigue siendo el
 });
 
 // R2 (revisión de seguridad 2026-07-16): ningún seeder de este proyecto
-// verificaba en qué entorno corre. Si `db:seed` corriera en un entorno
-// distinto de local/testing (staging futuro, CI futuro) con
-// PLATFORM_ADMIN_PASSWORD seteada ahí, crearía la cuenta admin real sin
-// confirmación humana -- el seeder siempre pasa `--force`.
-test('el seeder falla explícitamente si el entorno actual no es local ni testing', function () {
-    // Se usa 'staging' (no 'production') a propósito: `db:seed` trae su
-    // propio `ConfirmableTrait` que SOLO interviene cuando el entorno es
-    // exactamente 'production', lo que interferiría con esta prueba antes
-    // de llegar a la guardia del seeder. La guardia del seeder cubre
-    // igual cualquier entorno fuera de local/testing.
-    app()->instance('env', 'staging');
+// verificaba en qué entorno corre. Si `db:seed` corriera en un entorno no
+// autorizado con PLATFORM_ADMIN_PASSWORD seteada ahí, crearía la cuenta
+// admin real sin confirmación humana -- el seeder siempre pasa `--force`.
+test('el seeder falla explícitamente si el entorno actual no es local, testing ni staging', function () {
+    // Se usa un entorno arbitrario fuera de la lista y NO 'production': el
+    // comando `db:seed` trae su propio `ConfirmableTrait`, que solo
+    // interviene cuando el entorno es exactamente 'production' y abortaría
+    // antes de llegar a la guardia del seeder (haciendo que el test pase por
+    // el motivo equivocado). Cualquier otro valor ejercita la guardia real.
+    app()->instance('env', 'qa');
 
     try {
         expect(fn () => $this->seed(PlatformAdminSeeder::class))
-            ->toThrow(RuntimeException::class, 'local o testing');
+            ->toThrow(RuntimeException::class, 'local, testing o staging');
 
         expect(User::query()->where('email', PlatformAdminSeeder::ADMIN_EMAIL)->exists())->toBeFalse();
+    } finally {
+        app()->instance('env', 'testing');
+    }
+});
+
+// Contraparte del test anterior: `staging` se agregó a la lista permitida el
+// 2026-07-25 (commit 5c21ecb) de forma INTENCIONAL -- confirmado por el
+// usuario: necesita sembrar su cuenta admin en staging para poder probar
+// ahí. El test de arriba quedó rojo desde entonces porque seguía esperando
+// que staging fuera rechazado. Se deja explícito para que la decisión no se
+// revierta por accidente al leer solo la guardia.
+test('staging SÍ está permitido a propósito: el seeder siembra la cuenta en vez de fallar', function () {
+    app()->instance('env', 'staging');
+
+    try {
+        $this->seed(PlatformAdminSeeder::class);
+
+        expect(User::query()->where('email', PlatformAdminSeeder::ADMIN_EMAIL)->exists())->toBeTrue();
     } finally {
         app()->instance('env', 'testing');
     }

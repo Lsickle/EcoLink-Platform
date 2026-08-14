@@ -69,9 +69,14 @@ class PlatformAdminSeeder extends Seeder
 
     public function run(): void
     {
+        // `staging` se agregó a la lista el 2026-07-25 de forma INTENCIONAL
+        // (confirmado por el usuario): la cuenta admin de plataforma debe
+        // poder sembrarse en staging para poder probar allí. El mensaje de
+        // abajo se mantuvo desactualizado ("local o testing") desde entonces
+        // -- se corrige aquí para que refleje la lista real.
         if (! app()->environment(['local', 'testing', 'staging'])) {
             throw new RuntimeException(
-                'PlatformAdminSeeder: solo puede correr en entornos local o testing -- '
+                'PlatformAdminSeeder: solo puede correr en entornos local, testing o staging -- '
                 .'entorno actual: '.app()->environment()
             );
         }
