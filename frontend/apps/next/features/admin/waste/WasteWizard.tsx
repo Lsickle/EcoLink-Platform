@@ -95,10 +95,6 @@ type WizardState = {
   streamAIds: number[]
   unCodeIds: number[]
   hazardCharacteristicIds: number[]
-  requiresSds: boolean
-  requiresCharacterization: boolean
-  requiresSpecialTransport: boolean
-  requiresSpecialPpe: boolean
   branchId: number | null
   quantity: string
   measurementUnitId: number | null
@@ -118,10 +114,6 @@ const initialState: WizardState = {
   streamAIds: [],
   unCodeIds: [],
   hazardCharacteristicIds: [],
-  requiresSds: false,
-  requiresCharacterization: false,
-  requiresSpecialTransport: false,
-  requiresSpecialPpe: false,
   branchId: null,
   quantity: '',
   measurementUnitId: null,
@@ -268,10 +260,6 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
           streamAIds: waste.waste_stream_assignments.filter((a) => a.waste_stream.tipo === 'A').map((a) => a.waste_stream_id),
           unCodeIds: waste.waste_un_codes.map((a) => a.un_code_id),
           hazardCharacteristicIds: waste.waste_hazard_characteristics.map((a) => a.hazard_characteristic_id),
-          requiresSds: waste.requires_sds,
-          requiresCharacterization: waste.requires_characterization,
-          requiresSpecialTransport: waste.requires_special_transport,
-          requiresSpecialPpe: waste.requires_special_ppe,
           branchId: waste.branch_id,
           quantity: waste.quantity != null ? String(waste.quantity) : '',
           measurementUnitId: waste.measurement_unit_id,
@@ -303,10 +291,6 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
       name: state.name,
       description: state.description || undefined,
       physical_state_id: state.physicalStateId ?? undefined,
-      requires_sds: state.requiresSds,
-      requires_characterization: state.requiresCharacterization,
-      requires_special_transport: state.requiresSpecialTransport,
-      requires_special_ppe: state.requiresSpecialPpe,
       branch_id: state.branchId ?? undefined,
       quantity: state.quantity ? Number(state.quantity) : undefined,
       measurement_unit_id: state.measurementUnitId ?? undefined,
@@ -519,9 +503,11 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
       { label: 'Sede generadora confirmada', complete: state.branchId != null },
       { label: 'Frecuencia de generación registrada', complete: state.generationFrequencyId != null },
       { label: 'Fotografías adjuntas', complete: photos.length > 0 },
-      { label: 'Ficha de seguridad SDS cargada', complete: !state.requiresSds || sdsFile != null },
+      // La ficha SDS ya NO condiciona el envío (2026-08-13): quién la exige es
+      // el Gestor al evaluar, y eso ocurre DESPUÉS de declarar. El Generador
+      // la adjunta si la tiene; si el Gestor la exige y falta, se le solicita.
     ],
-    [state, hasClassification, photos.length, sdsFile]
+    [state, hasClassification, photos.length]
   )
 
   const isReadyToSubmit = finalChecklist.every((item) => item.complete)
@@ -552,7 +538,8 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
     if (step === 4) {
       return [
         { label: 'Fotografías (mín. 1)', complete: photos.length > 0 },
-        { label: 'Ficha de seguridad SDS', complete: !state.requiresSds || sdsFile != null },
+        // Opcional: se marca si ya se adjuntó, pero no bloquea el envío.
+        { label: 'Ficha de seguridad SDS (opcional)', complete: sdsFile != null },
       ]
     }
     return finalChecklist
@@ -745,61 +732,14 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
                 )}
               </div>
 
-              <div className="flex flex-col gap-3 border-b border-border pb-4">
-                <span className="text-xs font-semibold text-muted-foreground">CARACTERÍSTICAS ESPECIALES</span>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label htmlFor="requiresSds" className="font-medium">
-                      Requiere Hoja de Seguridad (SDS)
-                    </Label>
-                    <p className="text-xs text-muted-foreground">Documento técnico obligatorio para RESPEL</p>
-                  </div>
-                  <Checkbox
-                    id="requiresSds"
-                    checked={state.requiresSds}
-                    onCheckedChange={(checked) => setState({ requiresSds: checked === true })}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label htmlFor="requiresCharacterization" className="font-medium">
-                      Requiere Caracterización Química
-                    </Label>
-                    <p className="text-xs text-muted-foreground">Análisis físico-químico del residuo</p>
-                  </div>
-                  <Checkbox
-                    id="requiresCharacterization"
-                    checked={state.requiresCharacterization}
-                    onCheckedChange={(checked) => setState({ requiresCharacterization: checked === true })}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label htmlFor="requiresSpecialTransport" className="font-medium">
-                      Transporte Especial RESPEL
-                    </Label>
-                    <p className="text-xs text-muted-foreground">Vehículo habilitado y conductor certificado</p>
-                  </div>
-                  <Checkbox
-                    id="requiresSpecialTransport"
-                    checked={state.requiresSpecialTransport}
-                    onCheckedChange={(checked) => setState({ requiresSpecialTransport: checked === true })}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label htmlFor="requiresSpecialPpe" className="font-medium">
-                      Requiere EPP Especial
-                    </Label>
-                    <p className="text-xs text-muted-foreground">Equipo de protección personal adicional</p>
-                  </div>
-                  <Checkbox
-                    id="requiresSpecialPpe"
-                    checked={state.requiresSpecialPpe}
-                    onCheckedChange={(checked) => setState({ requiresSpecialPpe: checked === true })}
-                  />
-                </div>
-              </div>
+              {/* El bloque "CARACTERÍSTICAS ESPECIALES" (SDS, caracterización
+                  química, transporte especial y EPP) se retiró de aquí el
+                  2026-08-13 por corrección del modelo de negocio: no las
+                  diligencia el Generador al declarar, las marca el GESTOR al
+                  evaluar el residuo para asignarle un tratamiento -- son
+                  exigencias de ESE tratamiento, no propiedades del residuo.
+                  Viven ahora en la pantalla de evaluación, ver
+                  TreatmentApprovalDetailScreen. */}
 
               <div className="flex flex-col gap-3 border-b border-border pb-4">
                 <span className="text-xs font-semibold text-muted-foreground">CARACTERÍSTICAS DE PELIGROSIDAD</span>
@@ -1018,10 +958,16 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
                 </div>
               </div>
 
-              {state.requiresSds && (
-                <div className="flex flex-col gap-2 border-b border-border pb-4">
-                  <span className="text-xs font-semibold text-muted-foreground">FICHA DE SEGURIDAD (SDS)</span>
-                  <p className="text-xs text-muted-foreground">Requerido para RESPEL · Formato PDF</p>
+              {/* Siempre visible y OPCIONAL desde 2026-08-13: antes solo
+                  aparecía si el Generador marcaba "Requiere SDS" en el Paso 2.
+                  Al pasar ese requisito al Gestor (que evalúa DESPUÉS de la
+                  declaración), condicionarla habría hecho desaparecer la zona
+                  de carga sin que nadie pudiera adjuntar la ficha. */}
+              <div className="flex flex-col gap-2 border-b border-border pb-4">
+                <span className="text-xs font-semibold text-muted-foreground">FICHA DE SEGURIDAD (SDS)</span>
+                <p className="text-xs text-muted-foreground">
+                  Opcional · Formato PDF · Adjúntela si la tiene; el Gestor puede solicitarla al evaluar
+                </p>
                   {sdsFile ? (
                     <div className="flex items-center justify-between rounded-lg border border-emerald-300 bg-emerald-50 p-2 text-sm dark:bg-emerald-950/20">
                       <span>{sdsFile.original_filename}</span>
@@ -1060,8 +1006,7 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
                       />
                     </label>
                   )}
-                </div>
-              )}
+              </div>
 
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-semibold text-muted-foreground">DOCUMENTOS ADICIONALES</span>

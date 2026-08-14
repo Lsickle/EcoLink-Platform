@@ -53,7 +53,8 @@ use Illuminate\Support\Str;
     'tenant_organization_id', 'organization_id', 'waste_id', 'branch_treatment_id',
     'forwarded_by_organization_id',
     'unit_price', 'currency', 'billing_unit', 'minimum_quantity', 'maximum_quantity',
-    'requires_lab_analysis', 'requires_sds', 'restrictions', 'commercial_notes',
+    'requires_lab_analysis', 'requires_sds', 'requires_special_transport',
+    'requires_special_ppe', 'restrictions', 'commercial_notes',
     'technical_notes', 'valid_from', 'valid_until', 'detailed_notes',
     'is_active', 'metadata',
 ])]
@@ -106,6 +107,8 @@ class WasteTreatmentApproval extends Model
             'maximum_quantity' => 'decimal:2',
             'requires_lab_analysis' => 'boolean',
             'requires_sds' => 'boolean',
+            'requires_special_transport' => 'boolean',
+            'requires_special_ppe' => 'boolean',
             'technical_approved_at' => 'datetime',
             'commercial_approved_at' => 'datetime',
             'valid_from' => 'date',

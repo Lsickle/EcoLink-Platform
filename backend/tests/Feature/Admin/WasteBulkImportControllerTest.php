@@ -69,7 +69,6 @@ const WBI_CSV_COLUMNS = [
     'cantidad', 'peso_promedio', 'codigo_frecuencia_generacion', 'fecha_generacion',
     'codigos_caracteristicas_peligrosidad', 'codigos_corrientes', 'codigos_un',
     'codigo_residuo', 'descripcion', 'referencia_interna', 'observaciones_operativas',
-    'requiere_transporte_especial', 'requiere_epp_especial',
 ];
 
 function wbiCsvRow(array $values): string
@@ -194,9 +193,13 @@ test('platform staff exige on_behalf_of_organization_id explícito (422 si falta
     ])->assertUnprocessable()->assertJsonValidationErrors('on_behalf_of_organization_id');
 });
 
-// ---- Peligrosidad -> ficha de seguridad ----
+// ---- Peligrosidad ----
+// Antes, una fila con características de peligrosidad forzaba
+// `requires_sds=true` en el residuo. Ese requisito pasó a ser del GESTOR
+// (2026-08-13), que lo marca al evaluar -- el import ya no lo decide, pero sí
+// sigue calculando `waste_danger` a partir de las características.
 
-test('una fila con características de peligrosidad marca requires_sds=true automáticamente y calcula waste_danger', function () {
+test('una fila con características de peligrosidad calcula waste_danger y NO toca requires_sds', function () {
     $organization = Organization::factory()->create();
     $actor = wbiActor(['wastes.create'], $organization->id);
     HazardCharacteristic::factory()->create(['code' => 'COR', 'risk_level' => 5]);
@@ -207,21 +210,29 @@ test('una fila con características de peligrosidad marca requires_sds=true auto
     ])->assertOk()->assertJsonPath('created', 1);
 
     $waste = Waste::query()->where('name', 'Residuo Peligroso')->firstOrFail();
-    expect($waste->requires_sds)->toBeTrue()
-        ->and($waste->waste_danger)->toBe('EXP')
-        ->and($waste->hazardCharacteristics()->count())->toBe(2);
+    expect($waste->waste_danger)->toBe('EXP')
+        ->and($waste->hazardCharacteristics()->count())->toBe(2)
+        ->and($waste->requires_sds)->toBeFalse();
 });
 
-test('una fila SIN características de peligrosidad NO fuerza requires_sds', function () {
+test('el CSV ya no acepta las características especiales: son del Gestor, no del Generador', function () {
     $organization = Organization::factory()->create();
     $actor = wbiActor(['wastes.create'], $organization->id);
 
-    $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
-        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo Inofensivo'])),
-    ])->assertOk();
+    // Aunque la fila traiga las columnas retiradas, se ignoran por completo:
+    // dejarlas activas sería una puerta trasera al dato que se quitó del
+    // wizard de declaración.
+    $csv = "nombre,requiere_transporte_especial,requiere_epp_especial
+Residuo Sin Especiales,true,true
+";
 
-    $waste = Waste::query()->where('name', 'Residuo Inofensivo')->firstOrFail();
-    expect($waste->requires_sds)->toBeFalse();
+    $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
+        'file' => wbiCsvFile($csv),
+    ])->assertOk()->assertJsonPath('created', 1);
+
+    $waste = Waste::query()->where('name', 'Residuo Sin Especiales')->firstOrFail();
+    expect($waste->requires_special_transport)->toBeFalse()
+        ->and($waste->requires_special_ppe)->toBeFalse();
 });
 
 // ---- Resolución de catálogos por código ----

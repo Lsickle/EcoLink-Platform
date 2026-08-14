@@ -416,7 +416,10 @@ describe('WasteWizard', () => {
   // un archivo el navegador ejecutaba su acción por defecto (abrirlo en una
   // pestaña nueva) en vez de adjuntarlo.
   describe('Paso 4: arrastrar y soltar archivos (drag-and-drop)', () => {
-    async function goToStep4({ requiresSds = false }: { requiresSds?: boolean } = {}) {
+    // La zona de la SDS ya no depende de ninguna casilla del Paso 2: desde
+    // 2026-08-13 está siempre visible y es opcional (el requisito lo marca el
+    // Gestor al evaluar, después de la declaración).
+    async function goToStep4() {
       createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
       render(<WasteWizard />)
 
@@ -424,10 +427,6 @@ describe('WasteWizard', () => {
       fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
       fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
       await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
-
-      if (requiresSds) {
-        fireEvent.click(screen.getByRole('checkbox', { name: 'Requiere Hoja de Seguridad (SDS)' }))
-      }
 
       fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
       await screen.findByRole('heading', { name: 'Paso 3 de 5 — Información de Generación' })
@@ -456,7 +455,7 @@ describe('WasteWizard', () => {
     })
 
     test('soltar un PDF sobre la zona de Ficha de Seguridad (SDS) lo sube', async () => {
-      await goToStep4({ requiresSds: true })
+      await goToStep4()
       uploadFileMock.mockResolvedValue({ file: { id: 2, original_filename: 'sds.pdf' } })
 
       const input = screen.getByLabelText('Adjuntar Ficha de Seguridad')

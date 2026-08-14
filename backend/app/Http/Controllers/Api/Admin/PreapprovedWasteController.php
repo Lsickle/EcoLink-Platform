@@ -271,7 +271,8 @@ class PreapprovedWasteController extends Controller
 
             $approvalAttributes = collect($data['approval'])->only([
                 'unit_price', 'currency', 'billing_unit', 'minimum_quantity', 'maximum_quantity',
-                'requires_lab_analysis', 'requires_sds', 'restrictions', 'valid_from', 'valid_until',
+                'requires_lab_analysis', 'requires_sds', 'requires_special_transport',
+                'requires_special_ppe', 'restrictions', 'valid_from', 'valid_until',
             ])->all();
 
             $approval = WasteTreatmentApproval::query()->create([
@@ -541,6 +542,8 @@ class PreapprovedWasteController extends Controller
             'approval.maximum_quantity' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'approval.requires_lab_analysis' => ['sometimes', 'boolean'],
             'approval.requires_sds' => ['sometimes', 'boolean'],
+            'approval.requires_special_transport' => ['sometimes', 'boolean'],
+            'approval.requires_special_ppe' => ['sometimes', 'boolean'],
             'approval.restrictions' => ['sometimes', 'nullable', 'string'],
             'approval.valid_from' => ['sometimes', 'nullable', 'date'],
             'approval.valid_until' => ['sometimes', 'nullable', 'date', 'after_or_equal:approval.valid_from'],

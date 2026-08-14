@@ -37,12 +37,12 @@ use Throwable;
  * se adapta la resolución de catálogos desde código (string) a id (CSV no
  * puede referenciar ids directamente).
  *
- * Peligrosidad -> ficha de seguridad (confirmado por el usuario): si la fila
- * trae alguna característica de peligrosidad, `requires_sds` se fuerza a
- * `true` -- el archivo PDF en sí NO se sube por este medio (no hay mecanismo
- * de carga de archivos en un CSV), se sube después desde la pantalla de
- * Evidencias ya existente (`FileController`, categoría `SDS`), sin bloquear
- * esta carga masiva (hoy `requires_sds=true` no bloquea ningún flujo).
+ * La ficha de seguridad ya NO se deriva aquí (2026-08-13): antes, si la fila
+ * traía alguna característica de peligrosidad se forzaba `requires_sds=true`
+ * en el residuo. Ese requisito pasó a ser del GESTOR, que lo marca al evaluar
+ * (`waste_treatment_approvals.requires_sds`), así que el import ya no lo
+ * decide. El PDF se sigue subiendo aparte desde Evidencias (`FileController`,
+ * categoría `SDS`) -- un CSV no puede transportar archivos.
  */
 class WasteBulkImportService
 {
@@ -139,10 +139,6 @@ class WasteBulkImportService
         $data = $this->resolveAttributes($rowData, $actingOrganization, $actor);
         $hazardCharacteristicIds = $this->resolveCodes($rowData['codigos_caracteristicas_peligrosidad'] ?? null, HazardCharacteristic::class, 'codigos_caracteristicas_peligrosidad');
 
-        if ($hazardCharacteristicIds !== []) {
-            $data['requires_sds'] = true;
-        }
-
         try {
             $waste = Waste::query()->create($data);
         } catch (UniqueConstraintViolationException) {
@@ -206,8 +202,11 @@ class WasteBulkImportService
             'quantity' => $this->nullableFloat($rowData['cantidad'] ?? null, 'cantidad'),
             'average_weight' => $this->nullableFloat($rowData['peso_promedio'] ?? null, 'peso_promedio'),
             'generation_date' => $this->nullableDate($rowData['fecha_generacion'] ?? null),
-            'requires_special_transport' => $this->nullableBoolean($rowData['requiere_transporte_especial'] ?? null),
-            'requires_special_ppe' => $this->nullableBoolean($rowData['requiere_epp_especial'] ?? null),
+            // `requiere_transporte_especial` / `requiere_epp_especial` se
+            // retiraron del CSV el 2026-08-13: son características especiales
+            // que ahora marca el GESTOR al evaluar, no el Generador al
+            // declarar. Dejarlas aquí habría sido una puerta trasera al mismo
+            // dato que se quitó del wizard (ver WasteController::validationRules()).
             'measurement_unit_id' => $this->resolveCatalogId($rowData['codigo_unidad_medida'] ?? null, MeasurementUnit::class, 'codigo_unidad_medida')
                 ?? $this->defaultCatalogId(MeasurementUnit::class, 'KG'),
             'waste_type_id' => $this->defaultCatalogId(WasteType::class, 'OPERATIONAL'),

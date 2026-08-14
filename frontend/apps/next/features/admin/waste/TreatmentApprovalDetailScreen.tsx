@@ -101,6 +101,8 @@ function mergeScalarFields(
     maximum_quantity: updated.maximum_quantity ?? current.maximum_quantity,
     requires_lab_analysis: updated.requires_lab_analysis ?? current.requires_lab_analysis,
     requires_sds: updated.requires_sds ?? current.requires_sds,
+    requires_special_transport: updated.requires_special_transport ?? current.requires_special_transport,
+    requires_special_ppe: updated.requires_special_ppe ?? current.requires_special_ppe,
     restrictions: updated.restrictions ?? current.restrictions,
     commercial_notes: updated.commercial_notes ?? current.commercial_notes,
     technical_notes: updated.technical_notes ?? current.technical_notes,
@@ -148,6 +150,8 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
   const [maximumQuantity, setMaximumQuantity] = useState('')
   const [requiresLabAnalysis, setRequiresLabAnalysis] = useState(false)
   const [requiresSds, setRequiresSds] = useState(false)
+  const [requiresSpecialTransport, setRequiresSpecialTransport] = useState(false)
+  const [requiresSpecialPpe, setRequiresSpecialPpe] = useState(false)
   const [restrictions, setRestrictions] = useState('')
   const [commercialNotes, setCommercialNotes] = useState('')
   const [technicalNotes, setTechnicalNotes] = useState('')
@@ -183,6 +187,8 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
         setMaximumQuantity(ta.maximum_quantity ?? '')
         setRequiresLabAnalysis(ta.requires_lab_analysis)
         setRequiresSds(ta.requires_sds)
+        setRequiresSpecialTransport(ta.requires_special_transport)
+        setRequiresSpecialPpe(ta.requires_special_ppe)
         setRestrictions(ta.restrictions ?? '')
         setCommercialNotes(ta.commercial_notes ?? '')
         setTechnicalNotes(ta.technical_notes ?? '')
@@ -218,6 +224,8 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
         maximum_quantity: maximumQuantity ? Number(maximumQuantity) : undefined,
         requires_lab_analysis: requiresLabAnalysis,
         requires_sds: requiresSds,
+        requires_special_transport: requiresSpecialTransport,
+        requires_special_ppe: requiresSpecialPpe,
         restrictions: restrictions || undefined,
         commercial_notes: commercialNotes || undefined,
         technical_notes: technicalNotes || undefined,
@@ -613,6 +621,32 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
                 />
                 <Label htmlFor="requiresSdsTreatmentApproval" className="font-normal">
                   Requiere ficha de seguridad (SDS)
+                </Label>
+              </div>
+              {/* Las dos siguientes se movieron aquí desde el Paso 2 del wizard
+                  de declaración (2026-08-13): son exigencias de ESTE
+                  tratamiento, definidas por el Gestor al evaluar, no algo que
+                  declare el Generador. */}
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="requiresSpecialTransportTreatmentApproval"
+                  disabled={!canEditTerms}
+                  checked={requiresSpecialTransport}
+                  onCheckedChange={(checked) => setRequiresSpecialTransport(checked === true)}
+                />
+                <Label htmlFor="requiresSpecialTransportTreatmentApproval" className="font-normal">
+                  Requiere transporte especial RESPEL
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="requiresSpecialPpeTreatmentApproval"
+                  disabled={!canEditTerms}
+                  checked={requiresSpecialPpe}
+                  onCheckedChange={(checked) => setRequiresSpecialPpe(checked === true)}
+                />
+                <Label htmlFor="requiresSpecialPpeTreatmentApproval" className="font-normal">
+                  Requiere EPP especial
                 </Label>
               </div>
             </div>

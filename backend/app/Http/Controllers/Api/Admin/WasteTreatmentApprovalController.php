@@ -685,6 +685,8 @@ class WasteTreatmentApprovalController extends Controller
             'maximum_quantity' => $treatmentApproval->maximum_quantity,
             'requires_lab_analysis' => $treatmentApproval->requires_lab_analysis,
             'requires_sds' => $treatmentApproval->requires_sds,
+            'requires_special_transport' => $treatmentApproval->requires_special_transport,
+            'requires_special_ppe' => $treatmentApproval->requires_special_ppe,
             'restrictions' => $treatmentApproval->restrictions,
             'is_active' => true,
             'metadata' => ['preapproved_match_source_id' => $treatmentApproval->id],
@@ -715,8 +717,13 @@ class WasteTreatmentApprovalController extends Controller
             'billing_unit' => ['sometimes', 'string', 'max:20'],
             'minimum_quantity' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'maximum_quantity' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            // "Características especiales" (2026-08-13): las marca el GESTOR
+            // al evaluar, no el Generador al declarar -- ver el docblock de la
+            // migración add_special_requirements_to_waste_treatment_approvals.
             'requires_lab_analysis' => ['sometimes', 'boolean'],
             'requires_sds' => ['sometimes', 'boolean'],
+            'requires_special_transport' => ['sometimes', 'boolean'],
+            'requires_special_ppe' => ['sometimes', 'boolean'],
             'restrictions' => ['sometimes', 'nullable', 'string'],
             'commercial_notes' => ['sometimes', 'nullable', 'string'],
             'technical_notes' => ['sometimes', 'nullable', 'string'],

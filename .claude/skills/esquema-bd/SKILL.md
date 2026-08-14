@@ -1833,6 +1833,8 @@ CREATE TABLE waste_treatment_approvals (
   maximum_quantity DECIMAL(14,2) NULL,
   requires_lab_analysis BOOLEAN NOT NULL DEFAULT false,
   requires_sds BOOLEAN NOT NULL DEFAULT false,
+  requires_special_transport BOOLEAN NOT NULL DEFAULT false, -- NUEVA 2026-08-13 (D-R08), ver nota abajo
+  requires_special_ppe BOOLEAN NOT NULL DEFAULT false,       -- NUEVA 2026-08-13 (D-R08), ver nota abajo
   restrictions TEXT NULL,
   commercial_notes TEXT NULL,
   technical_notes TEXT NULL,
@@ -1854,6 +1856,24 @@ CREATE TABLE waste_treatment_approvals (
   -- FK branch_treatment_id -> branch_treatments.id  ON DELETE RESTRICT  ON UPDATE CASCADE
   -- FK technical_approved_by -> users.id  ON DELETE SET NULL  ON UPDATE CASCADE
   -- FK commercial_approved_by -> users.id  ON DELETE SET NULL  ON UPDATE CASCADE
+  --
+  -- **D-R08 — "Características especiales": las marca el GESTOR, no el Generador** (2026-08-13,
+  -- confirmado por el usuario). Corrige el supuesto de L-32, que las trataba como atributos
+  -- manuales por residuo declarados por el Generador en el wizard (Paso 2). Son exigencias del
+  -- TRATAMIENTO que asigna el Gestor al evaluar, no propiedades intrínsecas del residuo: el mismo
+  -- residuo puede requerir transporte especial para un gestor y no para otro.
+  --   - `requires_lab_analysis` y `requires_sds` YA existían aquí (equivalen a
+  --     `wastes.requires_characterization` y `wastes.requires_sds`) -- la duplicación era
+  --     deliberada y está documentada en `PreapprovedWasteController::approvalValidationRules()`:
+  --     "el residuo en sí requiere SDS" vs. "esta evaluación puntual la requiere".
+  --   - `requires_special_transport`/`requires_special_ppe` se AGREGAN aquí para cerrar el bloque.
+  --   - Las 4 columnas homónimas de `wastes` NO se eliminan: conservan lo declarado históricamente
+  --     y las siguen usando los Residuos Preaprobados (que también crea el Gestor). Lo que cambia
+  --     es que el endpoint de DECLARACIÓN dejó de aceptarlas (WasteController::validationRules())
+  --     y que se retiraron del CSV de carga masiva, para no dejar una puerta trasera al mismo dato.
+  --   - Efecto colateral resuelto: `wastes.requires_sds` gobernaba la zona de carga de la ficha SDS
+  --     del Paso 4 del wizard. Como el Gestor evalúa DESPUÉS de declarar, condicionarla habría hecho
+  --     desaparecer esa carga -- la ficha pasa a ser SIEMPRE visible y OPCIONAL para el Generador.
 
 -- waste_treatment_executions: Ejecución real tratamientos ambientales
 CREATE TABLE waste_treatment_executions (

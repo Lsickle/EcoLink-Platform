@@ -827,6 +827,55 @@ test('workflow: submit/startReview/classify/reject NO requieren wastes.update, s
     $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/start-review")->assertOk();
 });
 
+// ---- Características especiales: las marca el Gestor, no el Generador ----
+// Corrección del modelo de negocio (confirmada por el usuario, 2026-08-13):
+// SDS, caracterización química, transporte especial y EPP son exigencias del
+// TRATAMIENTO que asigna el Gestor al evaluar, no propiedades que declare el
+// Generador. El endpoint de declaración dejó de aceptarlas.
+
+test('store ignora las características especiales enviadas por el Generador', function () {
+    $this->seed(\Database\Seeders\WasteTypeSeeder::class);
+    $this->seed(\Database\Seeders\MeasurementUnitSeeder::class);
+    $this->seed(\Database\Seeders\WasteOperationalStatusSeeder::class);
+
+    $organization = Organization::factory()->create();
+    $actor = wasteActor(['wastes.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/wastes', [
+        'name' => 'Residuo con especiales coladas',
+        'requires_sds' => true,
+        'requires_characterization' => true,
+        'requires_special_transport' => true,
+        'requires_special_ppe' => true,
+    ])->assertCreated();
+
+    $waste = Waste::query()->where('name', 'Residuo con especiales coladas')->firstOrFail();
+
+    expect($waste->requires_sds)->toBeFalse()
+        ->and($waste->requires_characterization)->toBeFalse()
+        ->and($waste->requires_special_transport)->toBeFalse()
+        ->and($waste->requires_special_ppe)->toBeFalse();
+});
+
+test('update tampoco permite al Generador cambiar las características especiales', function () {
+    $organization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $organization->id,
+        'requires_special_ppe' => false,
+        'requires_special_transport' => false,
+    ]);
+    $actor = wasteActor(['wastes.update'], $organization->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/wastes/{$waste->id}", [
+        'name' => $waste->name,
+        'requires_special_ppe' => true,
+        'requires_special_transport' => true,
+    ])->assertOk();
+
+    expect($waste->fresh()->requires_special_ppe)->toBeFalse()
+        ->and($waste->fresh()->requires_special_transport)->toBeFalse();
+});
+
 // ---- Clasificación N:M: syncWasteStreams/syncUnCodes/syncHazardCharacteristics ----
 
 test('syncWasteStreams reemplaza la pivote completa', function () {

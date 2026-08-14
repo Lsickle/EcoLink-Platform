@@ -2059,6 +2059,8 @@ export type AdminTreatmentApproval = {
   maximum_quantity: string | null
   requires_lab_analysis: boolean
   requires_sds: boolean
+  requires_special_transport: boolean
+  requires_special_ppe: boolean
   restrictions: string | null
   commercial_notes: string | null
   technical_notes: string | null
@@ -2167,6 +2169,8 @@ export type UpdateTreatmentApprovalPayload = {
   maximum_quantity?: number
   requires_lab_analysis?: boolean
   requires_sds?: boolean
+  requires_special_transport?: boolean
+  requires_special_ppe?: boolean
   restrictions?: string
   commercial_notes?: string
   technical_notes?: string
@@ -2217,6 +2221,8 @@ export type PreapprovedWasteApproval = {
   maximum_quantity: string | null
   requires_lab_analysis: boolean
   requires_sds: boolean
+  requires_special_transport: boolean
+  requires_special_ppe: boolean
   restrictions: string | null
   valid_from: string | null
   valid_until: string | null
@@ -2302,6 +2308,8 @@ export type CreatePreapprovedWasteApprovalPayload = {
   maximum_quantity?: number
   requires_lab_analysis?: boolean
   requires_sds?: boolean
+  requires_special_transport?: boolean
+  requires_special_ppe?: boolean
   restrictions?: string
   valid_from?: string
   valid_until?: string

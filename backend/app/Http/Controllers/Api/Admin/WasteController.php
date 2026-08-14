@@ -654,14 +654,21 @@ class WasteController extends Controller
             'description' => ['sometimes', 'nullable', 'string'],
             'waste_type_id' => ['sometimes', 'integer', 'exists:waste_types,id'],
             'is_template' => ['sometimes', 'boolean'],
-            'requires_characterization' => ['sometimes', 'boolean'],
-            'requires_sds' => ['sometimes', 'boolean'],
+            // Las "características especiales" (`requires_characterization`,
+            // `requires_sds`, `requires_special_transport`,
+            // `requires_special_ppe`) NO se aceptan aquí desde 2026-08-13
+            // (confirmado por el usuario): no las diligencia el Generador al
+            // declarar, las marca el GESTOR al evaluar el residuo para
+            // asignarle tratamiento -- son exigencias de ESE tratamiento, no
+            // propiedades intrínsecas del residuo. Viven ahora en
+            // `waste_treatment_approvals` (ver WasteTreatmentApprovalController::
+            // validationRules()). Las columnas homónimas de `wastes` se
+            // conservan por los Residuos Preaprobados, que también crea el
+            // Gestor (ver PreapprovedWasteController).
             'physical_state_id' => ['sometimes', 'nullable', 'integer', 'exists:physical_states,id'],
             'measurement_unit_id' => ['sometimes', 'integer', 'exists:measurement_units,id'],
             'average_weight' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'generation_frequency_id' => ['sometimes', 'nullable', 'integer', 'exists:generation_frequencies,id'],
-            'requires_special_transport' => ['sometimes', 'boolean'],
-            'requires_special_ppe' => ['sometimes', 'boolean'],
             'operational_status_id' => ['sometimes', 'integer', 'exists:waste_operational_statuses,id'],
             'quantity' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'generation_date' => ['sometimes', 'nullable', 'date'],
