@@ -2,14 +2,24 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* El escaneo automático de contenido de Tailwind v4 no detecta con
-   fiabilidad clases usadas solo dentro de packages/app (paquete compartido
-   fuera de apps/next) -- confirmado: las variantes con opacidad (bg-red-500/10)
-   sí compilan porque usan color-mix() sobre variables del tema, pero las
-   clases sólidas (bg-red-500) referenciadas dinámicamente desde
-   packages/app/features/admin/riskLevel.ts (RISK_LEVEL_BAR_CLASSES) nunca se
-   generaban. Se declaran aquí explícitamente en vez de depender del escaneo. */
-@source inline("bg-emerald-500 bg-yellow-500 bg-orange-500 bg-red-500");
+/* Tailwind v4 detecta el contenido a escanear a partir de la ubicación de
+   ESTE archivo hacia arriba, y en el monorepo eso deja fuera a
+   `packages/app` -- el paquete compartido vive fuera de `apps/next`. Efecto:
+   cualquier clase que exista ÚNICAMENTE en packages/app nunca se generaba y
+   el estilo desaparecía en silencio (sin error de build, sin aviso).
+   Se declara la ruta explícitamente para que el escaneo la cubra.
+
+   Antes esto se parcheaba con `@source inline(...)` para 4 clases sueltas,
+   bajo el diagnóstico de que "las variantes con opacidad sí compilan y solo
+   fallan las sólidas". Ese diagnóstico era INCORRECTO: se verificó
+   compilando que `bg-red-500/15`, `bg-orange-500/15`, `bg-yellow-500/15`,
+   `bg-emerald-500/15` y `bg-slate-500/15` (los fondos de los badges de
+   `hazardRiskLevel.ts`) tampoco se generaban. Lo que confundía era que
+   `text-red-700`/`text-emerald-700` SÍ aparecían, pero por casualidad: otros
+   archivos dentro de apps/next usan esas mismas cadenas. Por eso los badges
+   de Crítico y Bajo se veían "a medias" (solo el texto) y los de Alto/Medio
+   no se veían en absoluto. */
+@source "../../../packages/app";
 
 @custom-variant dark (&:is(.dark *));
 
