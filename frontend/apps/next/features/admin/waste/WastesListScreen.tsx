@@ -139,6 +139,19 @@ export function WastesListScreen() {
     })
       .then((result) => {
         if (cancelled) return
+        // Página fuera de rango (2026-08-13): al activar un filtro que deja
+        // MENOS páginas de las que había, la página actual puede quedar más
+        // allá de `last_page`. El backend responde `data: []` aunque SÍ haya
+        // resultados en páginas anteriores -- la tabla se ve vacía y el
+        // usuario tiene que navegar a mano para encontrarlos. Se corrige
+        // solo volviendo a la última página válida; el cambio de `page`
+        // vuelve a disparar este efecto.
+        if (result.data.length === 0 && result.total > 0 && page > result.last_page) {
+          setLastPage(result.last_page)
+          setTotal(result.total)
+          setPage(result.last_page)
+          return
+        }
         setWastes(result.data)
         setKpis(result.kpis)
         setLastPage(result.last_page)
@@ -222,6 +235,7 @@ export function WastesListScreen() {
               <OrganizationSearchSelect
                 label="Organización"
                 htmlId="wasteOrganizationFilter"
+                hideLabel
                 selectedId={organizationFilterId}
                 selectedLabel={organizationFilterLabel}
                 onSelect={(result) => {
@@ -339,7 +353,11 @@ export function WastesListScreen() {
                   </TableCell>
                   <TableCell className="text-muted-foreground">{waste.waste_category?.name ?? '—'}</TableCell>
                   <TableCell>
-                    {waste.waste_danger ? <Badge variant="destructive">{waste.waste_danger}</Badge> : '—'}
+                    {waste.waste_danger ? (
+                      <Badge variant="destructive">{waste.waste_danger_characteristic?.name ?? waste.waste_danger}</Badge>
+                    ) : (
+                      '—'
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant={STATUS_BADGE_VARIANT[waste.status]}>{STATUS_LABELS[waste.status]}</Badge>

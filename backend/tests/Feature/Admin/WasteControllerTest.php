@@ -678,6 +678,58 @@ test('index() con pending_evaluation=1 excluye residuos que YA tienen un tratami
     expect($names)->toContain('Residuo pendiente')->not->toContain('Residuo con tratamiento viable');
 });
 
+// Reporte del usuario (2026-08-13): "marco el check de pendientes de
+// evaluación y no aparece ningún residuo; al avanzar a la segunda página sí
+// aparecen". Sintoma de un filtro aplicado DESPUÉS de paginar (solo sobre la
+// página en curso). El filtro debe aplicarse sobre el conjunto COMPLETO
+// ANTES de paginar -- se cubre con más residuos que los que caben en una
+// página, y con el mismo valor `true` que manda el cliente (no `1`).
+test('pending_evaluation filtra sobre TODO el listado antes de paginar, no solo sobre la página en curso', function () {
+    $organization = Organization::factory()->create();
+    $actor = wasteActor(['wastes.read'], $organization->id);
+
+    // 3 residuos YA evaluados, creados de ÚLTIMO para que caigan al principio
+    // del orden por defecto (created_at desc) -- es decir, en la página 1.
+    // Si el filtro se aplicara después de paginar, la página 1 saldría vacía.
+    $pendingIds = collect(range(1, 17))
+        ->map(fn ($i) => Waste::factory()->create([
+            'organization_id' => $organization->id,
+            'name' => "Pendiente {$i}",
+            'created_at' => now()->subDays(20 - $i),
+        ])->id);
+
+    $evaluatedIds = collect(range(1, 3))->map(function ($i) use ($organization) {
+        $waste = Waste::factory()->create([
+            'organization_id' => $organization->id,
+            'name' => "Ya evaluado {$i}",
+            'created_at' => now(),
+        ]);
+        WasteTreatmentApproval::factory()->viable()->create([
+            'organization_id' => $organization->id,
+            'waste_id' => $waste->id,
+        ]);
+
+        return $waste->id;
+    });
+
+    $page1 = $this->actingAs($actor)->getJson('/api/admin/wastes?pending_evaluation=true&per_page=15&page=1')->assertOk();
+
+    expect($page1->json('total'))->toBe(17)
+        ->and($page1->json('last_page'))->toBe(2)
+        ->and($page1->json('data'))->toHaveCount(15);
+
+    $page2 = $this->actingAs($actor)->getJson('/api/admin/wastes?pending_evaluation=true&per_page=15&page=2')->assertOk();
+    expect($page2->json('data'))->toHaveCount(2);
+
+    // Ningún residuo ya evaluado aparece en NINGUNA página, y entre ambas
+    // páginas se devuelven exactamente los 17 pendientes.
+    $returnedIds = collect($page1->json('data'))->pluck('id')
+        ->merge(collect($page2->json('data'))->pluck('id'));
+
+    expect($returnedIds->sort()->values()->all())->toBe($pendingIds->sort()->values()->all())
+        ->and($returnedIds->intersect($evaluatedIds))->toBeEmpty();
+});
+
 test('show expone treatment_approval_mode: owner para el dueño, forward para el Subgestor, offer para el Gestor', function () {
     $generatorOrganization = Organization::factory()->create();
     $subgestorOrganization = Organization::factory()->create();
@@ -834,6 +886,31 @@ test('syncHazardCharacteristics con arreglo vacío deja waste_danger en NULL', f
     $this->actingAs($actor)->putJson("/api/admin/wastes/{$waste->id}/hazard-characteristics", [
         'hazard_characteristic_ids' => [],
     ])->assertOk()->assertJsonPath('waste.waste_danger', null);
+});
+
+// Pedido explícito del usuario: la peligrosidad debe leerse siempre con la
+// palabra completa en la UI, no con el `code` corto cacheado en
+// `waste_danger` -- ver Waste::wasteDangerCharacteristic().
+test('index/show/syncHazardCharacteristics exponen waste_danger_characteristic.name (no solo el code corto)', function () {
+    $organization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $organization->id]);
+    $characteristic = HazardCharacteristic::factory()->create(['code' => 'TOX', 'name' => 'TOXICO', 'risk_level' => 7]);
+
+    $actor = wasteActor(['wastes.update', 'wastes.read'], $organization->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/wastes/{$waste->id}/hazard-characteristics", [
+        'hazard_characteristic_ids' => [$characteristic->id],
+    ])->assertOk()
+        ->assertJsonPath('waste.waste_danger', 'TOX')
+        ->assertJsonPath('waste.waste_danger_characteristic.name', 'TOXICO');
+
+    $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}")
+        ->assertOk()
+        ->assertJsonPath('waste.waste_danger_characteristic.name', 'TOXICO');
+
+    $this->actingAs($actor)->getJson('/api/admin/wastes')
+        ->assertOk()
+        ->assertJsonPath('data.0.waste_danger_characteristic.name', 'TOXICO');
 });
 
 // ---- Hallazgo Baja (especialista-seguridad): cobertura de IDOR cross-tenant en syncWasteStreams/syncUnCodes ----

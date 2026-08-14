@@ -595,7 +595,9 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
               <div className="flex flex-wrap items-center gap-2">
                 <CardTitle className="text-xl">{waste.name}</CardTitle>
                 <Badge variant={STATUS_BADGE_VARIANT[waste.status]}>{STATUS_LABELS[waste.status]}</Badge>
-                {waste.waste_danger && <Badge variant="destructive">{waste.waste_danger}</Badge>}
+                {waste.waste_danger && (
+                  <Badge variant="destructive">{waste.waste_danger_characteristic?.name ?? waste.waste_danger}</Badge>
+                )}
               </div>
               <p className="text-sm text-muted-foreground">
                 {waste.code ?? '—'} · {waste.organization.legal_name}

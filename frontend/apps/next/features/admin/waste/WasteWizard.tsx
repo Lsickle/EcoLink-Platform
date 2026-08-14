@@ -279,7 +279,7 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
           internalReference: waste.internal_reference ?? '',
           operationalNotes: waste.operational_notes ?? '',
         })
-        setWasteDanger(waste.waste_danger)
+        setWasteDanger(waste.waste_danger_characteristic?.name ?? waste.waste_danger)
         setPhotos(filesResult.files.WASTE_PHOTO ?? [])
         setSdsFile((filesResult.files.SDS ?? [])[0] ?? null)
         setAdditionalDocuments(filesResult.files.ADDITIONAL_DOCUMENT ?? [])
@@ -362,7 +362,12 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
     const { waste: streamsResult } = await syncWasteWasteStreams(id, [...state.streamYIds, ...state.streamAIds])
     await syncWasteUnCodes(id, state.unCodeIds)
     const { waste: hazardResult } = await syncWasteHazardCharacteristics(id, state.hazardCharacteristicIds)
-    setWasteDanger((hazardResult as { waste_danger?: string | null }).waste_danger ?? (streamsResult as { waste_danger?: string | null }).waste_danger ?? null)
+    type WasteDangerFields = { waste_danger?: string | null; waste_danger_characteristic?: { name: string } | null }
+    const hazard = hazardResult as WasteDangerFields
+    const streams = streamsResult as WasteDangerFields
+    setWasteDanger(
+      hazard.waste_danger_characteristic?.name ?? hazard.waste_danger ?? streams.waste_danger_characteristic?.name ?? streams.waste_danger ?? null,
+    )
   }
 
   // "Tratamiento Preaprobado Detectado" -- al agregar la PRIMERA corriente/

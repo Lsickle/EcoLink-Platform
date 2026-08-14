@@ -17,6 +17,7 @@ const SEARCH_DEBOUNCE_MS = 300
 export function OrganizationSearchSelect({
   label,
   htmlId,
+  hideLabel = false,
   excludeId,
   capability,
   selectedId,
@@ -26,6 +27,17 @@ export function OrganizationSearchSelect({
 }: {
   label: string
   htmlId: string
+  /**
+   * Oculta el `<Label>` VISUALMENTE (sigue en el árbol de accesibilidad vía
+   * `sr-only`, así que `getByLabelText`/lectores de pantalla no cambian).
+   * Pensado para las barras de filtros de los listados: ahí el resto de los
+   * controles son de una sola línea, y el label apilado encima hacía que
+   * este filtro quedara más alto y desalineado con los demás (reporte del
+   * usuario, 2026-08-13). El placeholder ya dice "Buscar organización…", así
+   * que el label visible era redundante. En FORMULARIOS se deja visible
+   * (default), donde sí aporta.
+   */
+  hideLabel?: boolean
   excludeId?: number | string
   /**
    * Filtra el resultado por business_role activo (ej. `can_treat_waste` para
@@ -66,7 +78,9 @@ export function OrganizationSearchSelect({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor={htmlId}>{label}</Label>
+      <Label htmlFor={htmlId} className={hideLabel ? 'sr-only' : undefined}>
+        {label}
+      </Label>
       {selectedId ? (
         <div className="flex items-center gap-2">
           <span className="rounded-md border border-border px-2.5 py-1.5 text-sm">{selectedLabel}</span>

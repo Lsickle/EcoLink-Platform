@@ -310,4 +310,17 @@ class Waste extends Model
 
         $this->forceFill(['waste_danger' => $topCharacteristic?->code])->save();
     }
+
+    /**
+     * Resuelve el `code` cacheado en `waste_danger` a la fila completa de
+     * `hazard_characteristics` (para que la UI pueda mostrar `name`, no el
+     * código corto -- pedido explícito del usuario, la peligrosidad debe
+     * leerse siempre con la palabra completa). `code` es UNIQUE en el
+     * catálogo (ver HazardCharacteristicSeeder), por eso alcanza con un
+     * `belongsTo` simple sin pasar por la pivote `waste_hazard_characteristics`.
+     */
+    public function wasteDangerCharacteristic(): BelongsTo
+    {
+        return $this->belongsTo(HazardCharacteristic::class, 'waste_danger', 'code');
+    }
 }

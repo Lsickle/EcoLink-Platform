@@ -78,6 +78,7 @@ class WasteBulkImportService
                     'code' => $waste->code,
                     'branch_name' => $waste->branch?->name,
                     'waste_danger' => $waste->waste_danger,
+                    'waste_danger_name' => $waste->wasteDangerCharacteristic?->name,
                 ];
                 $created++;
             } catch (ValidationException $e) {
@@ -178,7 +179,7 @@ class WasteBulkImportService
             $waste->recalculateWasteDanger();
         }
 
-        return $waste->fresh(['branch']);
+        return $waste->fresh(['branch', 'wasteDangerCharacteristic:code,name']);
     }
 
     /**

@@ -107,6 +107,26 @@ describe('WastesListScreen', () => {
     expect(screen.getByText('2')).toBeInTheDocument()
   })
 
+  test('shows the full hazard characteristic name in the Peligrosidad badge, not the short waste_danger code', async () => {
+    fetchWastesMock.mockResolvedValue(
+      wastesPage({
+        data: [
+          {
+            ...wastesPage().data[0],
+            waste_danger: 'TOX',
+            waste_danger_characteristic: { code: 'TOX', name: 'TOXICO' },
+          },
+        ],
+      }),
+    )
+
+    render(<WastesListScreen />)
+
+    await screen.findByText('Aceite Lubricante Usado')
+    expect(screen.getByText('TOXICO')).toBeInTheDocument()
+    expect(screen.queryByText('TOX')).not.toBeInTheDocument()
+  })
+
   test('shows the eager-loaded organization per row for platform staff', async () => {
     currentUser = { id: 1, is_platform_staff: true, permissions: ['wastes.read'] }
     fetchWastesMock.mockResolvedValue(
@@ -117,6 +137,20 @@ describe('WastesListScreen', () => {
     await screen.findByText('Aceite Lubricante Usado')
     const row = screen.getByText('Aceite Lubricante Usado').closest('tr') as HTMLElement
     expect(within(row).getByText('Hospital San José')).toBeInTheDocument()
+  })
+
+  // El label apilado encima hacía que este filtro quedara más alto que el
+  // resto de la barra (todos de una sola línea) -- se oculta VISUALMENTE,
+  // nunca se elimina: el placeholder ya dice "Buscar organización…", pero el
+  // campo debe seguir teniendo nombre accesible.
+  test('el filtro de Organización oculta el label visualmente pero lo conserva para lectores de pantalla', async () => {
+    currentUser = { id: 1, is_platform_staff: true, permissions: ['wastes.read'] }
+    render(<WastesListScreen />)
+    await screen.findByText('Aceite Lubricante Usado')
+
+    const input = screen.getByLabelText('Organización')
+    expect(input).toHaveAttribute('placeholder', 'Buscar organización…')
+    expect(document.querySelector('label[for="wasteOrganizationFilter"]')).toHaveClass('sr-only')
   })
 
   test('hides the Organización column for a non-platform-staff tenant admin', async () => {
@@ -186,6 +220,53 @@ describe('WastesListScreen', () => {
     await vi.waitFor(() => {
       expect(fetchWastesMock).toHaveBeenCalledWith(expect.objectContaining({ pendingEvaluation: true }))
     })
+  })
+
+  // El filtro debe aplicar sobre TODO el listado, no solo sobre la página en
+  // la que esté parado el usuario -- por eso al activarlo se vuelve a la
+  // página 1 en la misma petición (nunca se consulta la página vieja).
+  test('activar "Pendientes de evaluación" desde una página posterior vuelve a la página 1 en la misma petición', async () => {
+    fetchWastesMock.mockResolvedValue(wastesPage({ total: 30, last_page: 2 }))
+    render(<WastesListScreen />)
+    await screen.findByText('Aceite Lubricante Usado')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    await vi.waitFor(() => expect(fetchWastesMock).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })))
+    fetchWastesMock.mockClear()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Pendientes de evaluación' }))
+
+    await vi.waitFor(() => {
+      expect(fetchWastesMock).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pendingEvaluation: true }))
+    })
+    // Nunca se pide la página 2 con el filtro ya activo.
+    expect(fetchWastesMock).not.toHaveBeenCalledWith(expect.objectContaining({ page: 2, pendingEvaluation: true }))
+  })
+
+  // Red de seguridad: si aun así la página queda fuera de rango (el filtro
+  // deja menos páginas de las que había), la tabla no debe quedarse vacía.
+  test('si la página actual queda fuera de rango, vuelve sola a la última página válida en vez de mostrar la tabla vacía', async () => {
+    fetchWastesMock.mockResolvedValue(wastesPage({ total: 30, last_page: 2 }))
+    render(<WastesListScreen />)
+    await screen.findByText('Aceite Lubricante Usado')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    await vi.waitFor(() => expect(fetchWastesMock).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })))
+
+    // El filtro reduce el resultado a una sola página: la página 2 ya no existe.
+    fetchWastesMock.mockImplementation((params: { page?: number }) =>
+      Promise.resolve(
+        params.page === 1
+          ? wastesPage({ total: 3, last_page: 1 })
+          : { ...wastesPage({ total: 3, last_page: 1 }), data: [] },
+      ),
+    )
+    fetchWastesMock.mockClear()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Pendientes de evaluación' }))
+
+    await vi.waitFor(() => expect(screen.getByText('Aceite Lubricante Usado')).toBeInTheDocument())
+    expect(screen.queryByText('No hay residuos que coincidan con los filtros.')).not.toBeInTheDocument()
   })
 
   test('navigates to /admin/wastes/new when "+ Declarar Residuo" is clicked', async () => {

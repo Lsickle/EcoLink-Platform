@@ -356,7 +356,7 @@ export function WasteBulkImportScreen() {
                       <TableCell>{waste.name}</TableCell>
                       <TableCell>{waste.code ?? '—'}</TableCell>
                       <TableCell>{waste.branch_name ?? '—'}</TableCell>
-                      <TableCell>{waste.waste_danger ?? '—'}</TableCell>
+                      <TableCell>{waste.waste_danger_name ?? waste.waste_danger ?? '—'}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

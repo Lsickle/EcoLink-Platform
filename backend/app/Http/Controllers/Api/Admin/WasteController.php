@@ -95,7 +95,7 @@ class WasteController extends Controller
             // Subgestor con relación activa -- residuos de sus Generadores
             // clientes que todavía no tienen ninguna evaluación aprobada.
             ->when($pendingEvaluation, fn ($query) => $query->withoutViableTreatment())
-            ->with(['organization:id,legal_name', 'branch:id,name', 'wasteCategory:id,code,name'])
+            ->with(['organization:id,legal_name', 'branch:id,name', 'wasteCategory:id,code,name', 'wasteDangerCharacteristic:code,name'])
             ->orderBy($sort, $direction)
             ->paginate($request->integer('per_page', 15));
 
@@ -122,6 +122,7 @@ class WasteController extends Controller
             'wasteStreamAssignments.wasteStream',
             'wasteUnCodes.unCode',
             'wasteHazardCharacteristics.hazardCharacteristic',
+            'wasteDangerCharacteristic:code,name',
             'createdBy:id,username',
             'updatedBy:id,username',
         ]);
@@ -463,7 +464,7 @@ class WasteController extends Controller
 
         $waste->wasteStreams()->sync($syncData);
 
-        return response()->json(['waste' => $waste->fresh('wasteStreamAssignments.wasteStream')]);
+        return response()->json(['waste' => $waste->fresh(['wasteStreamAssignments.wasteStream', 'wasteDangerCharacteristic:code,name'])]);
     }
 
     /**
@@ -494,7 +495,7 @@ class WasteController extends Controller
 
         $waste->unCodes()->sync($syncData);
 
-        return response()->json(['waste' => $waste->fresh('wasteUnCodes.unCode')]);
+        return response()->json(['waste' => $waste->fresh(['wasteUnCodes.unCode', 'wasteDangerCharacteristic:code,name'])]);
     }
 
     /**
@@ -522,7 +523,7 @@ class WasteController extends Controller
         $waste->hazardCharacteristics()->sync($syncData);
         $waste->recalculateWasteDanger();
 
-        return response()->json(['waste' => $waste->fresh('wasteHazardCharacteristics.hazardCharacteristic')]);
+        return response()->json(['waste' => $waste->fresh(['wasteHazardCharacteristics.hazardCharacteristic', 'wasteDangerCharacteristic:code,name'])]);
     }
 
     /**

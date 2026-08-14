@@ -39,7 +39,7 @@ function bulkImportResult(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     created: 1,
     errors: [],
-    wastes: [{ id: 9, name: 'Residuo de Prueba', code: null, branch_name: null, waste_danger: null }],
+    wastes: [{ id: 9, name: 'Residuo de Prueba', code: null, branch_name: null, waste_danger: null, waste_danger_name: null }],
     ...overrides,
   }
 }
@@ -105,6 +105,22 @@ describe('WasteBulkImportScreen', () => {
     await waitFor(() => expect(importWastesBulkMock).toHaveBeenCalledWith(expect.any(File), { onBehalfOfOrganizationId: undefined }))
     expect(await screen.findByText(/residuo\(s\) declarado\(s\)/)).toBeInTheDocument()
     expect(screen.getByText('Residuo de Prueba')).toBeInTheDocument()
+  })
+
+  test('la columna Peligrosidad muestra el nombre completo de la característica, no el código corto', async () => {
+    importWastesBulkMock.mockResolvedValue(
+      bulkImportResult({
+        wastes: [{ id: 9, name: 'Residuo de Prueba', code: null, branch_name: null, waste_danger: 'TOX', waste_danger_name: 'TOXICO' }],
+      }),
+    )
+    render(<WasteBulkImportScreen />)
+
+    const input = await screen.findByLabelText('Archivo CSV')
+    fireEvent.change(input, { target: { files: [csvFile()] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar Residuos' }))
+
+    expect(await screen.findByText('TOXICO')).toBeInTheDocument()
+    expect(screen.queryByText('TOX')).not.toBeInTheDocument()
   })
 
   test('cuando hay Generadores vinculados, el selector "Declarar para" aparece y permite declarar a nombre de uno', async () => {

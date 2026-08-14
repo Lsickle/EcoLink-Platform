@@ -81,7 +81,8 @@ function baseWaste(overrides: Partial<Record<string, unknown>> = {}) {
     name: 'Aceite Lubricante Usado',
     description: null,
     status: 'DEC',
-    waste_danger: 'TOXICO',
+    waste_danger: 'TOX',
+    waste_danger_characteristic: { code: 'TOX', name: 'TOXICO' },
     waste_type_id: 1,
     is_template: false,
     is_preapproved: false,
@@ -201,12 +202,13 @@ describe('WasteDetailScreen', () => {
     pushMock.mockReset()
   })
 
-  test('shows the waste name, status badge and waste_danger badge', async () => {
+  test('shows the waste name, status badge and waste_danger badge with the full hazard characteristic name (not the short code)', async () => {
     render(<WasteDetailScreen wasteId={20} />)
 
     await screen.findByText('Aceite Lubricante Usado')
     expect(screen.getByText('Declarado')).toBeInTheDocument()
     expect(screen.getByText('TOXICO')).toBeInTheDocument()
+    expect(screen.queryByText('TOX')).not.toBeInTheDocument()
   })
 
   test('shows "Enviar a Revisión" when status=DEC and actor has wastes.review', async () => {

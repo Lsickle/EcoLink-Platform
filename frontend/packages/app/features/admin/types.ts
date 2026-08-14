@@ -1815,6 +1815,11 @@ export type AdminWaste = {
   description: string | null
   status: WasteStatus
   waste_danger: string | null
+  // Nombre completo de la característica de peligrosidad cacheada en
+  // `waste_danger` (código corto) -- la UI debe leer siempre este campo
+  // para mostrar la palabra completa (p. ej. "TOXICO", no "TOX"),
+  // `waste_danger` queda solo como fallback si la relación no vino cargada.
+  waste_danger_characteristic?: { code: string; name: string } | null
   waste_type_id: number
   is_template: boolean
   is_preapproved: boolean
@@ -3762,6 +3767,10 @@ export type WasteBulkImportResultItem = {
   code: string | null
   branch_name: string | null
   waste_danger: string | null
+  // Nombre completo de la característica de peligrosidad -- mismo criterio
+  // que `AdminWaste.waste_danger_characteristic`, la UI muestra la palabra
+  // completa en vez del código corto de `waste_danger`.
+  waste_danger_name: string | null
 }
 
 export type WasteBulkImportResult = {
