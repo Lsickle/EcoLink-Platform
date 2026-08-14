@@ -47,6 +47,7 @@ import {
 import { HAZARD_RISK_LEVEL_CLASSES, HAZARD_RISK_LEVEL_LABELS, hazardRiskLevel } from 'app/features/admin/hazardRiskLevel'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { MultiChipPicker } from './MultiChipPicker'
+import { HazardRiskLevelInfo } from '../HazardRiskLevelInfo'
 import { OrganizationQuickSelect } from '../OrganizationQuickSelect'
 
 const TOTAL_STEPS = 5
@@ -761,7 +762,10 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
                   TreatmentApprovalDetailScreen. */}
 
               <div className="flex flex-col gap-3 border-b border-border pb-4">
-                <span className="text-xs font-semibold text-muted-foreground">CARACTERÍSTICAS DE PELIGROSIDAD</span>
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                  CARACTERÍSTICAS DE PELIGROSIDAD
+                  <HazardRiskLevelInfo />
+                </span>
                 <div className="flex flex-col gap-2">
                   {hazardCharacteristics.map((characteristic) => {
                     const checked = state.hazardCharacteristicIds.includes(characteristic.id)

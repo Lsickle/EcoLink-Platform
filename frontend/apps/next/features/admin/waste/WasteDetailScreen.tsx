@@ -47,6 +47,7 @@ import {
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
 import { HAZARD_RISK_LEVEL_LABELS, hazardRiskLevel } from 'app/features/admin/hazardRiskLevel'
+import { HazardRiskLevelInfo } from '../HazardRiskLevelInfo'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 
 const STATUS_LABELS: Record<WasteStatus, string> = {
@@ -727,7 +728,10 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
               </div>
 
               <div className="flex flex-col gap-2">
-                <span className="text-sm font-medium">Características de Peligrosidad</span>
+                <span className="flex items-center gap-1.5 text-sm font-medium">
+                  Características de Peligrosidad
+                  <HazardRiskLevelInfo />
+                </span>
                 <div className="flex flex-wrap gap-2">
                   {waste.waste_hazard_characteristics.length === 0 && (
                     <span className="text-sm text-muted-foreground">Sin características asignadas.</span>
