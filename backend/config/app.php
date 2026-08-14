@@ -109,10 +109,17 @@ return [
     |
     */
 
-    'locale' => env('APP_LOCALE', 'en'),
+    // EcoLink es un producto en español (Colombia): el idioma por defecto es
+    // `es`, no `en`. Se cambia el DEFAULT del `env()` y no solo el `.env`,
+    // para que un entorno donde `APP_LOCALE` no esté definida (staging,
+    // producción) no vuelva a servir los mensajes de validación en inglés.
+    // Traducciones en `lang/es/`.
+    'locale' => env('APP_LOCALE', 'es'),
 
-    'fallback_locale' => env('APP_FALLBACK_LOCALE', 'en'),
+    'fallback_locale' => env('APP_FALLBACK_LOCALE', 'es'),
 
+    // `faker_locale` se deja en inglés a propósito: solo alimenta factories y
+    // seeders (datos de prueba), no textos que vea el usuario.
     'faker_locale' => env('APP_FAKER_LOCALE', 'en_US'),
 
     /*
