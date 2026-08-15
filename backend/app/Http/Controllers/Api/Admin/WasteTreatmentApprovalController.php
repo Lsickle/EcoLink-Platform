@@ -196,7 +196,7 @@ class WasteTreatmentApprovalController extends Controller
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_UPDATED', 'SUCCESS',
             "Evaluación de tratamiento '{$treatmentApproval->id}' modificada.", $request->user(),
-            ['waste_treatment_approval_id' => $treatmentApproval->id, 'organization_id' => $treatmentApproval->organization_id],
+            ['waste_treatment_approval_id' => $treatmentApproval->id, 'waste_id' => $treatmentApproval->waste_id, 'organization_id' => $treatmentApproval->organization_id],
         );
 
         return response()->json(['treatment_approval' => $treatmentApproval->fresh(['organization:id,legal_name', 'branchTreatment.treatment'])]);
@@ -241,7 +241,7 @@ class WasteTreatmentApprovalController extends Controller
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_TECHNICAL_APPROVED', 'SUCCESS',
             "Evaluación técnica '{$treatmentApproval->id}' resuelta como '{$treatmentApproval->technical_status}'.", $request->user(),
-            ['waste_treatment_approval_id' => $treatmentApproval->id, 'organization_id' => $treatmentApproval->organization_id],
+            ['waste_treatment_approval_id' => $treatmentApproval->id, 'waste_id' => $treatmentApproval->waste_id, 'organization_id' => $treatmentApproval->organization_id],
         );
 
         return response()->json(['treatment_approval' => $treatmentApproval->fresh()]);
@@ -281,7 +281,7 @@ class WasteTreatmentApprovalController extends Controller
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_TECHNICAL_REJECTED', 'SUCCESS',
             "Evaluación técnica '{$treatmentApproval->id}' rechazada: {$data['technical_notes']}", $request->user(),
-            ['waste_treatment_approval_id' => $treatmentApproval->id, 'organization_id' => $treatmentApproval->organization_id],
+            ['waste_treatment_approval_id' => $treatmentApproval->id, 'waste_id' => $treatmentApproval->waste_id, 'organization_id' => $treatmentApproval->organization_id],
         );
 
         return response()->json(['treatment_approval' => $treatmentApproval->fresh()]);
@@ -322,7 +322,7 @@ class WasteTreatmentApprovalController extends Controller
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_COMMERCIAL_APPROVED', 'SUCCESS',
             "Evaluación comercial '{$treatmentApproval->id}' aprobada.", $request->user(),
-            ['waste_treatment_approval_id' => $treatmentApproval->id, 'organization_id' => $treatmentApproval->organization_id],
+            ['waste_treatment_approval_id' => $treatmentApproval->id, 'waste_id' => $treatmentApproval->waste_id, 'organization_id' => $treatmentApproval->organization_id],
         );
 
         return response()->json(['treatment_approval' => $treatmentApproval->fresh()]);
@@ -358,7 +358,7 @@ class WasteTreatmentApprovalController extends Controller
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_COMMERCIAL_REJECTED', 'SUCCESS',
             "Evaluación comercial '{$treatmentApproval->id}' rechazada.", $request->user(),
-            ['waste_treatment_approval_id' => $treatmentApproval->id, 'organization_id' => $treatmentApproval->organization_id],
+            ['waste_treatment_approval_id' => $treatmentApproval->id, 'waste_id' => $treatmentApproval->waste_id, 'organization_id' => $treatmentApproval->organization_id],
         );
 
         return response()->json(['treatment_approval' => $treatmentApproval->fresh()]);
@@ -390,7 +390,7 @@ class WasteTreatmentApprovalController extends Controller
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_QUOTED', 'SUCCESS',
             "Evaluación comercial '{$treatmentApproval->id}' cotizada.", $request->user(),
-            ['waste_treatment_approval_id' => $treatmentApproval->id, 'organization_id' => $treatmentApproval->organization_id],
+            ['waste_treatment_approval_id' => $treatmentApproval->id, 'waste_id' => $treatmentApproval->waste_id, 'organization_id' => $treatmentApproval->organization_id],
         );
 
         return response()->json(['treatment_approval' => $treatmentApproval->fresh()]);
@@ -419,7 +419,7 @@ class WasteTreatmentApprovalController extends Controller
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_NEGOTIATING', 'SUCCESS',
             "Evaluación comercial '{$treatmentApproval->id}' en negociación.", $request->user(),
-            ['waste_treatment_approval_id' => $treatmentApproval->id, 'organization_id' => $treatmentApproval->organization_id],
+            ['waste_treatment_approval_id' => $treatmentApproval->id, 'waste_id' => $treatmentApproval->waste_id, 'organization_id' => $treatmentApproval->organization_id],
         );
 
         return response()->json(['treatment_approval' => $treatmentApproval->fresh()]);
@@ -452,7 +452,7 @@ class WasteTreatmentApprovalController extends Controller
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_CANCELLED', 'SUCCESS',
             "Evaluación comercial '{$treatmentApproval->id}' cancelada.", $request->user(),
-            ['waste_treatment_approval_id' => $treatmentApproval->id, 'organization_id' => $treatmentApproval->organization_id],
+            ['waste_treatment_approval_id' => $treatmentApproval->id, 'waste_id' => $treatmentApproval->waste_id, 'organization_id' => $treatmentApproval->organization_id],
         );
 
         return response()->json(['treatment_approval' => $treatmentApproval->fresh()]);

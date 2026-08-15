@@ -72,6 +72,20 @@ class WasteBulkImportController extends Controller
 
         $result = (new WasteBulkImportService)->import($request->file('file'), $actingOrganization, $actor);
 
+        // Trazabilidad POR REGISTRO (pedido del usuario, 2026-08-14): el evento
+        // agregado de abajo dice cuántos se crearon, pero deja cada residuo sin
+        // historia propia -- su pestaña "Actividad" salía vacía y no había forma
+        // de saber quién lo creó ni cuándo. Se emite el MISMO evento
+        // `WASTE_CREATED` que `WasteController::store()`, con `waste_id` en la
+        // metadata, que es por donde filtra `WasteController::activity()`.
+        foreach ($result['wastes'] as $waste) {
+            $this->logSecurityEvent(
+                $request, 'WASTE_CREATED', 'SUCCESS',
+                "Residuo '{$waste['name']}' creado por carga masiva.", $actor,
+                ['waste_id' => $waste['id'], 'organization_id' => $actingOrganization->id, 'source' => 'BULK_IMPORT'],
+            );
+        }
+
         $this->logSecurityEvent(
             $request, 'WASTE_BULK_IMPORT_EXECUTED', 'SUCCESS',
             "Carga masiva de Residuos ejecutada en nombre de la organización #{$actingOrganization->id}: {$result['created']} creados, ".count($result['errors']).' errores.',

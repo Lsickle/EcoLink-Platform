@@ -76,6 +76,40 @@ class GeneratorBulkImportController extends Controller
 
         $result = (new GeneratorBulkImportService)->import($request->file('file'), $actingOrganization, $actor, $linkAs);
 
+        // Trazabilidad POR REGISTRO (pedido del usuario, 2026-08-14): el evento
+        // agregado de abajo solo dice cuántos se crearon. Cada organización,
+        // sede y usuario creados aquí quedaban sin historia propia -- sus
+        // pestañas "Actividad" salían vacías, sin quién ni cuándo. Se emiten
+        // los MISMOS eventos que la creación individual
+        // (`ORGANIZATION_CREATED`/`BRANCH_CREATED`/`USER_CREATED_BY_ADMIN`) y
+        // con la MISMA clave de metadata por la que filtra cada `activity()`,
+        // o no aparecerían aunque el evento existiera.
+        foreach ($result['generators'] as $generator) {
+            if (! $generator['was_existing']) {
+                $this->logSecurityEvent(
+                    $request, 'ORGANIZATION_CREATED', 'SUCCESS',
+                    "Organización '{$generator['legal_name']}' creada por carga masiva de Generadores.", $actor,
+                    ['organization_id' => $generator['organization_id'], 'source' => 'BULK_IMPORT'],
+                );
+            }
+
+            foreach ($generator['branch_ids'] as $branchId) {
+                $this->logSecurityEvent(
+                    $request, 'BRANCH_CREATED', 'SUCCESS',
+                    "Sucursal creada por carga masiva de Generadores para '{$generator['legal_name']}'.", $actor,
+                    ['branch_id' => $branchId, 'organization_id' => $generator['organization_id'], 'source' => 'BULK_IMPORT'],
+                );
+            }
+
+            if ($generator['user_id'] !== null) {
+                $this->logSecurityEvent(
+                    $request, 'USER_CREATED_BY_ADMIN', 'SUCCESS',
+                    "Usuario administrador '{$generator['username']}' creado por carga masiva de Generadores.", $actor,
+                    ['user_id' => $generator['user_id'], 'organization_id' => $generator['organization_id'], 'source' => 'BULK_IMPORT'],
+                );
+            }
+        }
+
         $this->logSecurityEvent(
             $request, 'GENERATOR_BULK_IMPORT_EXECUTED', 'SUCCESS',
             "Carga masiva de Generadores ejecutada en nombre de la organización #{$actingOrganization->id}: {$result['created']} creados, {$result['linked_existing']} vinculados a organizaciones existentes, ".count($result['errors']).' errores.',

@@ -43,9 +43,21 @@ class WasteController extends Controller
 {
     use LogsSecurityEvents;
 
+    // Incluye los eventos de EVALUACIÓN (2026-08-14): antes la pestaña
+    // Actividad solo mostraba el ciclo de declaración, así que una evaluación
+    // ya resuelta -- con tratamiento asignado -- no dejaba ningún rastro
+    // visible en el residuo. Para que estos eventos crucen el filtro
+    // `metadata->waste_id`, `WasteTreatmentApprovalController` ahora los
+    // registra con `waste_id` (antes solo llevaban
+    // `waste_treatment_approval_id` + `organization_id`).
     private const WASTE_EVENTS = [
         'WASTE_CREATED', 'WASTE_UPDATED', 'WASTE_ACTIVATED', 'WASTE_DEACTIVATED',
         'WASTE_SUBMITTED', 'WASTE_REVIEW_STARTED', 'WASTE_CLASSIFIED', 'WASTE_REJECTED',
+        'WASTE_TREATMENT_APPROVAL_CREATED', 'WASTE_TREATMENT_APPROVAL_UPDATED',
+        'WASTE_TREATMENT_APPROVAL_QUOTED', 'WASTE_TREATMENT_APPROVAL_NEGOTIATING',
+        'WASTE_TREATMENT_APPROVAL_TECHNICAL_APPROVED', 'WASTE_TREATMENT_APPROVAL_TECHNICAL_REJECTED',
+        'WASTE_TREATMENT_APPROVAL_COMMERCIAL_APPROVED', 'WASTE_TREATMENT_APPROVAL_COMMERCIAL_REJECTED',
+        'WASTE_TREATMENT_APPROVAL_CANCELLED', 'WASTE_TREATMENT_APPROVAL_PREAPPROVED_MATCH_USED',
     ];
 
     /**
@@ -532,7 +544,24 @@ class WasteController extends Controller
     public function activity(Request $request, Waste $waste)
     {
         abort_unless($request->user()->hasPermission('audit.read'), 403, 'No tiene permiso para consultar la auditoría de residuos.');
-        abort_unless($waste->isAccessibleBy($request->user()), 403, 'No tiene acceso a este residuo.');
+        // MISMA accesibilidad que `WastePolicy::view()` (2026-08-14): antes
+        // solo `isAccessibleBy()` -- dueño o platform staff -- así que un
+        // Gestor/Subgestor vinculado veía el residuo y su evaluación pero
+        // recibía 403 en la pestaña Actividad. Incoherente: si puede ver el
+        // residuo, puede ver su trazabilidad.
+        //
+        // Se replican los tres caminos en vez de llamar a
+        // `Gate::authorize('view')` a propósito: la política exige ADEMÁS
+        // `wastes.read`, y este endpoint siempre se gateó con `audit.read`.
+        // Delegar en ella sumaría un permiso que nadie pidió y podría dejar
+        // fuera a un auditor que hoy sí entra.
+        abort_unless(
+            $waste->isAccessibleBy($request->user())
+                || $waste->isForwardableBySubgestor($request->user())
+                || $waste->isForwardableByGestor($request->user()),
+            403,
+            'No tiene acceso a este residuo.',
+        );
 
         $logs = SecurityLog::query()
             ->whereIn('event_type', self::WASTE_EVENTS)

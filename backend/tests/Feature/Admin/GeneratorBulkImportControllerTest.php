@@ -4,6 +4,7 @@ use App\Models\BusinessRole;
 use App\Models\GeneratorGestorRelationship;
 use App\Models\GeneratorSubgestorRelationship;
 use App\Models\Organization;
+use App\Models\SecurityLog;
 use App\Models\OrganizationBusinessRole;
 use App\Models\Permission;
 use App\Models\Role;
@@ -446,4 +447,65 @@ test('el rate limiter de carga masiva (5/hora por actor) responde 429 al superar
     $this->actingAs($actor)->postJson('/api/admin/generators/bulk-import', [
         'file' => gbiCsvFile(gbiOneNewGeneratorCsv('900999999')),
     ])->assertStatus(429);
+});
+
+// ---- Trazabilidad por registro ----
+// Pedido del usuario (2026-08-14): la carga masiva registraba UN solo evento
+// agregado con los totales, así que la organización, las sedes y el usuario
+// creados quedaban sin historia propia -- sus pestañas "Actividad" salían
+// vacías, sin quién ni cuándo.
+
+test('cada organización, sede y usuario creados por carga masiva queda con su propio evento', function () {
+    $subgestor = gbiSubgestorOrganization();
+    $actor = gbiActor(['generator_subgestor_relationships.create'], $subgestor->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/generators/bulk-import', [
+        'file' => gbiCsvFile(gbiOneNewGeneratorCsv('900111222')),
+    ])->assertOk()->assertJsonPath('created', 1);
+
+    $generator = Organization::query()->where('tax_id', '900111222')->firstOrFail();
+
+    // Cada evento usa la MISMA clave de metadata por la que filtra el
+    // `activity()` de su módulo -- si no, no aparecería en la pestaña.
+    $organizationLog = SecurityLog::query()
+        ->where('event_type', 'ORGANIZATION_CREATED')
+        ->where('metadata->organization_id', $generator->id)
+        ->first();
+    expect($organizationLog)->not->toBeNull()
+        ->and($organizationLog->user_id)->toBe($actor->id)
+        ->and($organizationLog->metadata['source'])->toBe('BULK_IMPORT');
+
+    // El CSV de prueba trae 2 sedes.
+    foreach ($generator->branches as $branch) {
+        expect(SecurityLog::query()
+            ->where('event_type', 'BRANCH_CREATED')
+            ->where('metadata->branch_id', $branch->id)
+            ->exists())->toBeTrue();
+    }
+
+    $user = $generator->users()->firstOrFail();
+    expect(SecurityLog::query()
+        ->where('event_type', 'USER_CREATED_BY_ADMIN')
+        ->where('metadata->user_id', $user->id)
+        ->exists())->toBeTrue();
+
+    // El evento agregado del lote se conserva, no se reemplaza.
+    expect(SecurityLog::query()->where('event_type', 'GENERATOR_BULK_IMPORT_EXECUTED')->exists())->toBeTrue();
+});
+
+test('un Generador YA EXISTENTE no genera un evento de creación de organización', function () {
+    $subgestor = gbiSubgestorOrganization();
+    $actor = gbiActor(['generator_subgestor_relationships.create'], $subgestor->id);
+    // Helper del propio archivo: crea la organización YA con el rol GENERATOR,
+    // que es lo que la deduplicación busca.
+    $existing = gbiGeneratorOrganization('900111222');
+
+    $this->actingAs($actor)->postJson('/api/admin/generators/bulk-import', [
+        'file' => gbiCsvFile(gbiOneNewGeneratorCsv('900111222')),
+    ])->assertOk()->assertJsonPath('linked_existing', 1);
+
+    expect(SecurityLog::query()
+        ->where('event_type', 'ORGANIZATION_CREATED')
+        ->where('metadata->organization_id', $existing->id)
+        ->exists())->toBeFalse();
 });

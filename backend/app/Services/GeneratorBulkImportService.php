@@ -137,7 +137,7 @@ class GeneratorBulkImportService
             ->first();
 
         $wasExisting = $existing !== null;
-        $branchesCreated = 0;
+        $branchIds = [];
 
         if ($existing !== null) {
             if (! $existing->hasCapability('can_generate_waste')) {
@@ -160,7 +160,7 @@ class GeneratorBulkImportService
             $this->assertValidTaxIdType($group['tax_id_type']);
             $this->assertOrganizationEmailProvided($firstRowData);
             $organization = $this->createOrganization($group['tax_id'], $group['tax_id_type'], $legalName, $firstRowData, $actor);
-            $branchesCreated = $this->createBranches($organization, $group['rows'], $actor);
+            $branchIds = $this->createBranches($organization, $group['rows'], $actor);
         }
 
         // Hallazgo Crítico (especialista-seguridad, 2026-08-11): el
@@ -183,7 +183,11 @@ class GeneratorBulkImportService
             'legal_name' => $organization->legal_name,
             'tax_id' => $organization->tax_id,
             'was_existing' => $wasExisting,
-            'branches_created' => $branchesCreated,
+            'branches_created' => count($branchIds),
+            // IDs para que el controller registre la trazabilidad de creación
+            // de CADA registro (2026-08-14), no solo el total del lote.
+            'branch_ids' => $branchIds,
+            'user_id' => $userResult['user']->id ?? null,
             'user_created' => $userResult !== null,
             'username' => $userResult['user']->username ?? null,
             'temporary_password' => $userResult['temporary_password'] ?? null,
@@ -228,20 +232,24 @@ class GeneratorBulkImportService
     }
 
     /**
+     * Devuelve los IDs de las sedes creadas (no un conteo): el controller los
+     * necesita para registrar la trazabilidad de creación de CADA sede.
+     *
      * @param  list<array{row: int, data: array<string, mixed>}>  $rows
+     * @return list<int>
      */
-    private function createBranches(Organization $organization, array $rows, User $actor): int
+    private function createBranches(Organization $organization, array $rows, User $actor): array
     {
         // Sede administrativa por defecto -- el CSV no incluye
         // `branch_type_id` en este primer corte (ver plan), se reclasifica
         // manualmente después desde Sedes si hace falta.
         $branchType = BranchType::query()->where('code', 'ADM')->firstOrFail();
-        $created = 0;
+        $createdIds = [];
 
         foreach ($rows as $rowEntry) {
             $rowData = $rowEntry['data'];
 
-            Branch::query()->create([
+            $createdIds[] = Branch::query()->create([
                 'organization_id' => $organization->id,
                 'branch_type_id' => $branchType->id,
                 'name' => trim((string) $rowData['nombre_sede']),
@@ -253,11 +261,10 @@ class GeneratorBulkImportService
                 'is_active' => true,
                 'created_by' => $actor->id,
                 'updated_by' => $actor->id,
-            ]);
-            $created++;
+            ])->id;
         }
 
-        return $created;
+        return $createdIds;
     }
 
     /**

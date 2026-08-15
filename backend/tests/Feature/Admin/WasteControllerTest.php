@@ -1050,3 +1050,75 @@ test('activity exige AMBOS: audit.read Y accesibilidad del residuo', function ()
     $events = collect($response->json('data'))->pluck('event_type');
     expect($events)->toContain('WASTE_DEACTIVATED');
 });
+
+// Reporte del usuario (2026-08-14): como Gestor evaluando un residuo, la
+// pestaña Actividad devolvía "No tiene acceso a este residuo". `activity()`
+// usaba `isAccessibleBy()` (dueño o platform staff) mientras `show()` usa
+// `WastePolicy::view()`, que sí contempla al Gestor/Subgestor vinculado.
+// Incoherente: si puede ver el residuo, puede ver su trazabilidad.
+
+test('activity: un Gestor con relación ACTIVA hacia el Generador puede ver la trazabilidad', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $gestorOrganization = Organization::factory()->create();
+    wasteGestorRelationship($generatorOrganization->id, $gestorOrganization->id);
+
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'CLS']);
+    $actor = wasteActor(['audit.read'], $gestorOrganization->id);
+
+    $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}/activity")->assertOk();
+});
+
+test('activity: un Subgestor con relación ACTIVA también puede verla', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    wasteSubgestorRelationship($generatorOrganization->id, $subgestorOrganization->id);
+
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'CLS']);
+    $actor = wasteActor(['audit.read'], $subgestorOrganization->id);
+
+    $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}/activity")->assertOk();
+});
+
+test('activity: sigue DENEGANDO a un actor sin relación con el Generador', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id, 'status' => 'CLS']);
+
+    $actor = wasteActor(['audit.read'], Organization::factory()->create()->id);
+
+    $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}/activity")->assertForbidden();
+});
+
+// Segunda mitad del mismo reporte: la evaluación ya resuelta (con tratamiento
+// asignado) no dejaba rastro en la Actividad del residuo. Faltaban DOS cosas:
+// los eventos no estaban en WASTE_EVENTS, y no llevaban `waste_id` en su
+// metadata, así que tampoco habrían cruzado el filtro.
+test('activity incluye los eventos de EVALUACIÓN del residuo, no solo los de declaración', function () {
+    // El motor de Workflow gobierna las transiciones de la evaluación y
+    // autoriza por ROL (`workflow_transition_roles`), no por permiso -- de ahí
+    // el seed y el rol ADMINISTRADOR, misma equivalencia que documenta
+    // `treatmentApprovalActor()` en WasteTreatmentApprovalControllerTest.
+    $this->seed(\Database\Seeders\RoleSeeder::class);
+    $this->seed(RespelStatusSeeder::class);
+    $this->seed(\Database\Seeders\WorkflowSeeder::class);
+
+    $organization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $organization->id]);
+    $approval = WasteTreatmentApproval::factory()->create([
+        'organization_id' => $organization->id,
+        'waste_id' => $waste->id,
+    ]);
+
+    $actor = wasteActor(['audit.read', 'treatment_approvals.evaluate', 'treatment_approvals.update'], $organization->id);
+    UserRole::query()->create([
+        'user_id' => $actor->id,
+        'role_id' => Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->id,
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($actor)->postJson("/api/admin/treatment-approvals/{$approval->id}/approve-technical")->assertOk();
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}/activity")->assertOk();
+
+    expect(collect($response->json('data'))->pluck('event_type'))
+        ->toContain('WASTE_TREATMENT_APPROVAL_TECHNICAL_APPROVED');
+});

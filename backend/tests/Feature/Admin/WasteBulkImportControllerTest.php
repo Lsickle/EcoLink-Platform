@@ -12,6 +12,7 @@ use App\Models\OrganizationBusinessRole;
 use App\Models\PhysicalState;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\SecurityLog;
 use App\Models\RolePermission;
 use App\Models\UnCode;
 use App\Models\User;
@@ -396,4 +397,55 @@ test('el rate limiter de carga masiva de residuos (5/hora por actor) responde 42
     $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
         'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo 6'])),
     ])->assertStatus(429);
+});
+
+// ---- Trazabilidad por registro ----
+// Pedido del usuario (2026-08-14): la carga masiva registraba UN evento
+// agregado con los totales, así que cada residuo importado quedaba sin
+// historia propia -- su pestaña "Actividad" salía vacía y no había forma de
+// saber quién lo creó ni cuándo.
+
+test('cada residuo importado queda con su propio evento de creación, no solo el total del lote', function () {
+    $organization = Organization::factory()->create();
+    $actor = wbiActor(['wastes.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
+        'file' => wbiCsvFile(wbiCsv(
+            ['nombre' => 'Residuo Trazable Uno'],
+            ['nombre' => 'Residuo Trazable Dos'],
+        )),
+    ])->assertOk()->assertJsonPath('created', 2);
+
+    foreach (['Residuo Trazable Uno', 'Residuo Trazable Dos'] as $name) {
+        $waste = Waste::query()->where('name', $name)->firstOrFail();
+
+        $log = SecurityLog::query()
+            ->where('event_type', 'WASTE_CREATED')
+            ->where('metadata->waste_id', $waste->id)
+            ->first();
+
+        // La metadata debe llevar `waste_id`: es la clave por la que filtra
+        // `WasteController::activity()`. Sin ella el evento existiría pero no
+        // aparecería en la pestaña del residuo.
+        expect($log)->not->toBeNull()
+            ->and($log->user_id)->toBe($actor->id)
+            ->and($log->metadata['source'])->toBe('BULK_IMPORT');
+    }
+
+    // El evento agregado del lote se conserva, no se reemplaza.
+    expect(SecurityLog::query()->where('event_type', 'WASTE_BULK_IMPORT_EXECUTED')->exists())->toBeTrue();
+});
+
+test('el residuo importado guarda quién lo creó y cuándo en la propia fila', function () {
+    $organization = Organization::factory()->create();
+    $actor = wbiActor(['wastes.create'], $organization->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/wastes/bulk-import', [
+        'file' => wbiCsvFile(wbiCsv(['nombre' => 'Residuo Con Autoría'])),
+    ])->assertOk();
+
+    $waste = Waste::query()->where('name', 'Residuo Con Autoría')->firstOrFail();
+
+    expect($waste->created_by)->toBe($actor->id)
+        ->and($waste->created_at)->not->toBeNull();
 });
