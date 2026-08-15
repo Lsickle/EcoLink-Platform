@@ -52,6 +52,17 @@ class WasteTreatmentApprovalPolicy
         return $actor->hasPermission('treatment_approvals.update') && $treatmentApproval->isEditableBy($actor);
     }
 
+    /**
+     * Aprobacion FINAL (CLS -> APR). Permiso propio y distinto de `evaluate`
+     * a proposito: son dos pares de ojos dentro de la misma organizacion
+     * Gestora. Cada organizacion decide a que rol se lo asigna.
+     */
+    public function approveFinal(User $actor, WasteTreatmentApproval $treatmentApproval): bool
+    {
+        return $actor->hasPermission('treatment_approvals.approve')
+            && $treatmentApproval->isEditableBy($actor);
+    }
+
     public function evaluate(User $actor, WasteTreatmentApproval $treatmentApproval): bool
     {
         return $actor->hasPermission('treatment_approvals.evaluate') && $treatmentApproval->isEditableBy($actor);

@@ -95,6 +95,7 @@ class Permission extends Model
     public const GESTOR_ONLY_CODES = [
         'treatment_approvals.update',
         'treatment_approvals.evaluate',
+        'treatment_approvals.approve',
         'preapproved_wastes.read',
         'preapproved_wastes.manage',
     ];

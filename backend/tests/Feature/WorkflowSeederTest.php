@@ -113,8 +113,13 @@ test('siembra exactamente 17 transiciones en total (3 técnicas + 14 comerciales
     expect($version->transitions()->count())->toBe(17);
 });
 
-test('todas las transiciones están autorizadas SOLO para ADMINISTRADOR (mismo permiso único treatment_approvals.evaluate del controller)', function () {
-    $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
+// Antes este test fijaba que las 17 transiciones estuvieran atadas al rol
+// ADMINISTRADOR. Eso producía un bug vivo: un TECNICO_AMBIENTAL CON el permiso
+// `treatment_approvals.evaluate` recibía 403 del motor de workflow, porque su
+// rol no estaba en la lista. Decisión del usuario (2026-08-14): la
+// autorización la decide el PERMISO, asignable al rol que cada organización
+// elija -- así que el workflow base no restringe por rol.
+test('las transiciones NO restringen por rol: la autorización la decide el permiso', function () {
     $version = Workflow::query()->where('code', 'RESPEL')->firstOrFail()->currentVersion;
 
     $transitions = $version->transitions()->with('roles')->get();
@@ -122,8 +127,6 @@ test('todas las transiciones están autorizadas SOLO para ADMINISTRADOR (mismo p
     expect($transitions)->toHaveCount(17);
 
     foreach ($transitions as $transition) {
-        expect($transition->roles)->toHaveCount(1);
-        expect($transition->roles->first()->role_id)->toBe($administrador->id);
-        expect($transition->roles->first()->business_role_id)->toBeNull();
+        expect($transition->roles)->toHaveCount(0);
     }
 });

@@ -1806,12 +1806,18 @@ export type AdminWasteOperationalStatus = {
   updated_at: string
 }
 
-// Workflow de declaración (`wastes.status`, SIN motor de workflow
-// configurable, esquema-bd punto 14/L-22): BR (Borrador) -> DEC (Declarado)
-// -> REV (En Revisión) -> CLS (Clasificado); RCH (Rechazado, reversible a
-// BR). DISTINTO de `operational_status_id` (catálogo `waste_operational_statuses`,
-// eje independiente is_active/ACTIVE-SUSPENDED-etc).
-export type WasteStatus = 'BR' | 'DEC' | 'REV' | 'CLS' | 'RCH'
+// Workflow de declaración (`wastes.status`, esquema-bd punto 14/L-22):
+// BR (Borrador) -> DEC (Declarado) -> REV (En Revisión) -> CLS (Clasificado)
+// -> APR (Aprobado); APR <-> SUS (Suspendido). DISTINTO de
+// `operational_status_id` (catálogo `waste_operational_statuses`, eje
+// independiente is_active/ACTIVE-SUSPENDED-etc).
+// Ciclo de vida del residuo -- espejo de `Waste::STATUS_*` (backend).
+// `RCH` se retiró (2026-08-14): figuraba aquí y en los filtros del listado,
+// pero ninguna transición del backend lo producía. El rechazo técnico devuelve
+// el residuo a `DEC`, porque rechaza ESA evaluación, no el residuo.
+// `APR` es el único estado que habilita Solicitudes de Servicio; `SUS` lo
+// retira de circulación conservando la trazabilidad, y solo lo aplica EcoLink.
+export type WasteStatus = 'BR' | 'DEC' | 'REV' | 'CLS' | 'APR' | 'SUS'
 
 // Pivote residuo<->corriente Y/A, tal como lo expone
 // `wasteStreamAssignments.wasteStream` en show() -- mismo criterio de forma
@@ -1951,9 +1957,11 @@ export type CreateWastePayload = {
 // PUT /api/admin/wastes/{id} -- mismos campos que `CreateWastePayload` MENOS
 // `organization_id` (inmutable tras crear). Todos `sometimes` en el backend
 // -- el wizard manda solo los campos del paso actual en cada "Guardar
-// Borrador"/"Siguiente". Solo editable mientras `status` sea BR o RCH (el
-// backend no bloquea explícitamente por status en update(), pero el flujo
-// de negocio del wizard asume eso -- ver docblock de WasteDetailScreen).
+// Borrador"/"Siguiente". Solo editable mientras `status` sea BR (el backend
+// no bloquea explícitamente por status en update(), pero el flujo de negocio
+// del wizard asume eso -- ver docblock de WasteDetailScreen). Una vez
+// Aprobado la corrección va por soporte de EcoLink, normalmente creando un
+// residuo nuevo.
 export type UpdateWastePayload = Omit<CreateWastePayload, 'organization_id'>
 
 // POST /api/admin/wastes/{id}/reject -- ver `WasteController::reject()`.
@@ -2044,6 +2052,9 @@ export type TreatmentApprovalWasteRef = {
   name: string
   code: string | null
   organization_id: number
+  // Es lo que decide si la pantalla ofrece la aprobación final (solo desde
+  // `CLS`) y si el residuo ya sirve para Solicitudes (`APR`).
+  status: WasteStatus
   organization?: { id: number; legal_name: string } | null
 }
 
@@ -2230,8 +2241,11 @@ export type RejectTreatmentApprovalTechnicalPayload = {
 }
 
 // POST .../reject-commercial -- `commercial_notes` opcional.
+// `commercial_notes` es OBLIGATORIO desde 2026-08-14 (el backend responde 422
+// sin él), por simetría con el rechazo técnico: un rechazo sin motivo deja a
+// la contraparte sin saber qué corregir.
 export type RejectTreatmentApprovalCommercialPayload = {
-  commercial_notes?: string
+  commercial_notes: string
 }
 
 // ---- "Residuos Preaprobados" (/api/admin/preapproved-wastes) --------------

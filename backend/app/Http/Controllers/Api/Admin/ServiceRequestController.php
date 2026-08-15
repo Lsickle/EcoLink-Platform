@@ -462,9 +462,25 @@ class ServiceRequestController extends Controller
                 // exigen is_active=true además de ambos ejes APPROVED -- esta
                 // validación de "aprobación viable" al crear un ítem se había
                 // quedado corta, permitiendo asignar una aprobación desactivada.
-                if ($approval->technical_status !== 'APPROVED' || $approval->commercial_status !== 'APPROVED' || ! $approval->is_active) {
+                // El eje COMERCIAL dejo de exigirse (2026-08-14): se resuelve fuera
+                // de la plataforma y no bloquea. Lo que habilita una solicitud es
+                // que el RESIDUO este APROBADO -- un unico dato visible, en vez de
+                // una regla invisible sobre dos ejes de la evaluacion.
+                if ($approval->technical_status !== 'APPROVED' && $approval->technical_status !== 'RESTRICTED') {
                     throw ValidationException::withMessages([
-                        "items.{$index}.waste_treatment_approval_id" => ['La aprobación de tratamiento indicada no tiene ambos ejes (técnico y comercial) aprobados.'],
+                        "items.{$index}.waste_treatment_approval_id" => ['La aprobación de tratamiento indicada no tiene el eje técnico aprobado.'],
+                    ]);
+                }
+
+                if (! $approval->is_active) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.waste_treatment_approval_id" => ['La aprobación de tratamiento indicada no está vigente.'],
+                    ]);
+                }
+
+                if ($waste->status !== Waste::STATUS_APPROVED) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.waste_id" => ['Solo se pueden solicitar servicios para residuos en estado Aprobado.'],
                     ]);
                 }
 

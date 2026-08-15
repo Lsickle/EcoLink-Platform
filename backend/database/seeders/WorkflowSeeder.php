@@ -82,7 +82,15 @@ class WorkflowSeeder extends Seeder
 
     public function run(): void
     {
-        $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
+        // Sin filas en `workflow_transition_roles` (2026-08-14, confirmado por
+        // el usuario): la autorizacion la decide el PERMISO del controller,
+        // asignable al rol que cada organizacion elija. Atarlas a
+        // ADMINISTRADOR producia un bug vivo -- un TECNICO_AMBIENTAL con el
+        // permiso `treatment_approvals.evaluate` recibia 403 del motor.
+        //
+        // PRECIO ASUMIDO: se pierde la personalizacion por rol que ofrece el
+        // motor para estas transiciones. Si el negocio la necesita, habria que
+        // extender `workflow_transition_roles` para condicionar por permiso.
 
         $workflow = Workflow::query()->updateOrCreate(
             ['tenant_organization_id' => null, 'code' => 'RESPEL'],
@@ -109,16 +117,10 @@ class WorkflowSeeder extends Seeder
         }
 
         foreach ([...self::TECHNICAL_TRANSITIONS, ...self::COMMERCIAL_TRANSITIONS] as [$from, $to, $requiresApproval]) {
-            $transition = WorkflowTransition::query()->updateOrCreate(
+            WorkflowTransition::query()->updateOrCreate(
                 ['workflow_version_id' => $version->id, 'from_status_code' => $from, 'to_status_code' => $to],
                 ['is_automatic' => false, 'requires_approval' => $requiresApproval],
             );
-
-            WorkflowTransitionRole::query()->firstOrCreate([
-                'workflow_transition_id' => $transition->id,
-                'role_id' => $administrador->id,
-                'business_role_id' => null,
-            ]);
         }
 
         foreach (['technical_status_id', 'commercial_status_id'] as $statusColumn) {

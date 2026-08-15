@@ -94,8 +94,8 @@ beforeEach(function () {
     $this->seed(RolePermissionSeeder::class);
 });
 
-test('siembra exactamente 121 permisos con los códigos exactos del catálogo', function () {
-    expect(Permission::query()->count())->toBe(127);
+test('siembra exactamente 129 permisos con los códigos exactos del catálogo', function () {
+    expect(Permission::query()->count())->toBe(129);
 
     $expectedCodes = [
         'users.create', 'users.read', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.reset-password',
@@ -123,8 +123,8 @@ test('siembra exactamente 121 permisos con los códigos exactos del catálogo', 
         'generation_frequencies.read', 'generation_frequencies.manage',
         'waste_operational_statuses.read', 'waste_operational_statuses.manage',
         'wastes.read', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate',
-        'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject',
-        'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate',
+        'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'wastes.suspend',
+        'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'treatment_approvals.approve',
         'preapproved_wastes.read', 'preapproved_wastes.manage',
         'workflows.manage',
         'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate',
@@ -239,8 +239,8 @@ test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, A
         'generation_frequencies.read', 'generation_frequencies.manage',
         'waste_operational_statuses.read', 'waste_operational_statuses.manage',
         'wastes.read', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate',
-        'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject',
-        'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate',
+        'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'wastes.suspend',
+        'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'treatment_approvals.approve',
         'preapproved_wastes.read', 'preapproved_wastes.manage',
         'workflows.manage',
         'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate',
@@ -313,7 +313,7 @@ test('marca is_critical=true solo en los 5 permisos confirmados por el usuario (
     expect(Permission::query()->where('is_critical', true)->pluck('code')->sort()->values()->all())
         ->toBe(collect($expectedCritical)->sort()->values()->all());
 
-    expect(Permission::query()->where('is_critical', false)->count())->toBe(127 - count($expectedCritical));
+    expect(Permission::query()->where('is_critical', false)->count())->toBe(129 - count($expectedCritical));
 });
 
 test('los seeders son idempotentes (correr dos veces no duplica filas)', function () {
@@ -321,9 +321,9 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
     $this->seed(RoleSeeder::class);
     $this->seed(RolePermissionSeeder::class);
 
-    expect(Permission::query()->count())->toBe(127)
+    expect(Permission::query()->count())->toBe(129)
         ->and(Role::query()->count())->toBe(4)
-        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(127)
+        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(129)
         ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(28)
         ->and(Role::query()->where('code', 'OPERACIONES')->firstOrFail()->permissions()->count())->toBe(17)
         ->and(Role::query()->where('code', 'TECNICO_AMBIENTAL')->firstOrFail()->permissions()->count())->toBe(5);

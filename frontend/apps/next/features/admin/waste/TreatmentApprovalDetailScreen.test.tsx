@@ -11,6 +11,7 @@ const rejectTreatmentApprovalCommercialMock = vi.fn()
 const quoteTreatmentApprovalMock = vi.fn()
 const negotiateTreatmentApprovalMock = vi.fn()
 const cancelTreatmentApprovalMock = vi.fn()
+const approveTreatmentApprovalFinalMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('app/features/admin/api')>()
@@ -25,6 +26,7 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     quoteTreatmentApproval: (...args: unknown[]) => quoteTreatmentApprovalMock(...args),
     negotiateTreatmentApproval: (...args: unknown[]) => negotiateTreatmentApprovalMock(...args),
     cancelTreatmentApproval: (...args: unknown[]) => cancelTreatmentApprovalMock(...args),
+    approveTreatmentApprovalFinal: (...args: unknown[]) => approveTreatmentApprovalFinalMock(...args),
   }
 })
 
@@ -77,6 +79,7 @@ function baseDetail(overrides: Partial<Record<string, unknown>> = {}) {
       name: 'Aceite Lubricante Usado',
       code: 'RES-0001',
       organization_id: 1,
+      status: 'CLS',
       organization: { id: 1, legal_name: 'Hospital San José' },
       waste_stream_assignments: [
         { id: 1, waste_stream_id: 119, waste_stream: { id: 119, code: 'Y9', name: 'Mezclas y emulsiones de aceite y agua', tipo: 'Y' } },
@@ -235,6 +238,106 @@ describe('TreatmentApprovalDetailScreen', () => {
 
     await vi.waitFor(() => {
       expect(updateTreatmentApprovalMock).toHaveBeenCalledWith(5, expect.objectContaining({ unit_price: 150 }))
+    })
+  })
+
+  // Aprobación FINAL (2026-08-14): es la que lleva el residuo a Aprobado y,
+  // con eso, lo habilita para Solicitudes de Servicio. Permiso PROPIO,
+  // separado del de evaluar -- control de cuatro ojos.
+  describe('aprobación final del residuo', () => {
+    test('con el permiso propio y el residuo en Clasificado, ofrece "Aprobar Residuo"', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: false,
+        permissions: ['treatment_approvals.read', 'treatment_approvals.approve'],
+        tenant_organization_id: 2,
+      }
+      fetchTreatmentApprovalMock.mockResolvedValue({
+        treatment_approval: { ...baseDetail(), technical_status: 'APPROVED' },
+      })
+      approveTreatmentApprovalFinalMock.mockResolvedValue({
+        waste: { id: 20, status: 'APR' },
+        treatment_approval: { technical_status: 'APPROVED' },
+      })
+
+      render(<TreatmentApprovalDetailScreen treatmentApprovalId={5} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Aprobar Residuo' }))
+
+      await vi.waitFor(() => expect(approveTreatmentApprovalFinalMock).toHaveBeenCalledWith(5))
+      expect(await screen.findByText(/ya puede usarse en Solicitudes de Servicio/i)).toBeInTheDocument()
+    })
+
+    test('poder evaluar NO alcanza para aprobar: son permisos distintos', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: false,
+        permissions: ['treatment_approvals.read', 'treatment_approvals.update', 'treatment_approvals.evaluate'],
+        tenant_organization_id: 2,
+      }
+      fetchTreatmentApprovalMock.mockResolvedValue({
+        treatment_approval: { ...baseDetail(), technical_status: 'APPROVED' },
+      })
+
+      render(<TreatmentApprovalDetailScreen treatmentApprovalId={5} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      expect(screen.queryByRole('button', { name: 'Aprobar Residuo' })).not.toBeInTheDocument()
+    })
+
+    test('sin aprobación técnica todavía no se ofrece la aprobación final', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: false,
+        permissions: ['treatment_approvals.read', 'treatment_approvals.approve'],
+        tenant_organization_id: 2,
+      }
+      fetchTreatmentApprovalMock.mockResolvedValue({
+        treatment_approval: { ...baseDetail(), technical_status: 'PENDING' },
+      })
+
+      render(<TreatmentApprovalDetailScreen treatmentApprovalId={5} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      expect(screen.queryByRole('button', { name: 'Aprobar Residuo' })).not.toBeInTheDocument()
+    })
+
+    // El eje comercial se resuelve fuera de la plataforma y no debe bloquear.
+    test('el eje comercial sin cerrar no impide la aprobación final', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: false,
+        permissions: ['treatment_approvals.read', 'treatment_approvals.approve'],
+        tenant_organization_id: 2,
+      }
+      fetchTreatmentApprovalMock.mockResolvedValue({
+        treatment_approval: { ...baseDetail(), technical_status: 'APPROVED', commercial_status: 'DRAFT' },
+      })
+
+      render(<TreatmentApprovalDetailScreen treatmentApprovalId={5} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      expect(screen.getByRole('button', { name: 'Aprobar Residuo' })).toBeInTheDocument()
+    })
+
+    test('un residuo ya Aprobado no vuelve a ofrecer la acción', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: false,
+        permissions: ['treatment_approvals.read', 'treatment_approvals.approve'],
+        tenant_organization_id: 2,
+      }
+      const detail = baseDetail()
+      fetchTreatmentApprovalMock.mockResolvedValue({
+        treatment_approval: { ...detail, technical_status: 'APPROVED', waste: { ...detail.waste, status: 'APR' } },
+      })
+
+      render(<TreatmentApprovalDetailScreen treatmentApprovalId={5} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      expect(screen.queryByRole('button', { name: 'Aprobar Residuo' })).not.toBeInTheDocument()
+      expect(screen.getByText(/ya puede usarse en Solicitudes de Servicio/i)).toBeInTheDocument()
     })
   })
 })

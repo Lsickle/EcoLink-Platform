@@ -126,6 +126,52 @@ function baseWaste(overrides: Partial<Record<string, unknown>> = {}) {
   }
 }
 
+// Evaluación del Gestor tal como la devuelve
+// `GET /admin/wastes/{waste}/treatment-approvals`.
+function approvalFixture() {
+  return {
+    id: 5,
+    uuid: 'ta-5',
+    organization_id: 2,
+    waste_id: 20,
+    branch_treatment_id: 10,
+    version: 1,
+    commercial_status: 'QUOTED',
+    technical_status: 'APPROVED',
+    unit_price: '150.00',
+    currency: 'COP',
+    billing_unit: 'KG',
+    minimum_quantity: null,
+    maximum_quantity: null,
+    requires_lab_analysis: false,
+    requires_sds: false,
+    restrictions: null,
+    commercial_notes: null,
+    technical_notes: null,
+    technical_approved_at: null,
+    technical_approved_by: null,
+    commercial_approved_at: null,
+    commercial_approved_by: null,
+    valid_from: null,
+    valid_until: null,
+    is_active: true,
+    metadata: null,
+    created_at: '2026-07-01T00:00:00Z',
+    updated_at: '2026-07-01T00:00:00Z',
+    organization: { id: 2, legal_name: 'EcoGestor SAS' },
+    branch_treatment: {
+      id: 10,
+      operational_name: 'Horno 1',
+      branch_id: 7,
+      treatment_id: 3,
+      max_capacity: null,
+      capacity_unit: 'KG',
+      treatment: { id: 3, uuid: 'treat-3', code: 'INCIN', name: 'Incineración' },
+      branch: { id: 7, name: 'Planta Norte' },
+    },
+  }
+}
+
 describe('WasteDetailScreen', () => {
   beforeEach(() => {
     currentUser = {
@@ -278,47 +324,7 @@ describe('WasteDetailScreen', () => {
   test('Tratamientos tab lists existing evaluations with status badges and price', async () => {
     fetchWasteTreatmentApprovalsMock.mockResolvedValue({
       data: [
-        {
-          id: 5,
-          uuid: 'ta-5',
-          organization_id: 2,
-          waste_id: 20,
-          branch_treatment_id: 10,
-          version: 1,
-          commercial_status: 'QUOTED',
-          technical_status: 'APPROVED',
-          unit_price: '150.00',
-          currency: 'COP',
-          billing_unit: 'KG',
-          minimum_quantity: null,
-          maximum_quantity: null,
-          requires_lab_analysis: false,
-          requires_sds: false,
-          restrictions: null,
-          commercial_notes: null,
-          technical_notes: null,
-          technical_approved_at: null,
-          technical_approved_by: null,
-          commercial_approved_at: null,
-          commercial_approved_by: null,
-          valid_from: null,
-          valid_until: null,
-          is_active: true,
-          metadata: null,
-          created_at: '2026-07-01T00:00:00Z',
-          updated_at: '2026-07-01T00:00:00Z',
-          organization: { id: 2, legal_name: 'EcoGestor SAS' },
-          branch_treatment: {
-            id: 10,
-            operational_name: 'Horno 1',
-            branch_id: 7,
-            treatment_id: 3,
-            max_capacity: null,
-            capacity_unit: 'KG',
-            treatment: { id: 3, uuid: 'treat-3', code: 'INCIN', name: 'Incineración' },
-            branch: { id: 7, name: 'Planta Norte' },
-          },
-        },
+        approvalFixture(),
       ],
       current_page: 1,
       last_page: 1,
@@ -336,6 +342,31 @@ describe('WasteDetailScreen', () => {
     expect(screen.getByText('Aprobado')).toBeInTheDocument()
     expect(screen.getByText('Cotizado')).toBeInTheDocument()
     expect(screen.getByText('150.00 COP/KG')).toBeInTheDocument()
+  })
+
+  // Pedido del usuario (2026-08-14): el rechazo debe llegar al Generador CON
+  // el motivo. Antes solo veía el badge "Rechazado" y no sabía qué corregir.
+  test('Tratamientos tab shows the rejection reason so the owner knows why', async () => {
+    fetchWasteTreatmentApprovalsMock.mockResolvedValue({
+      data: [
+        {
+          ...approvalFixture(),
+          technical_status: 'REJECTED',
+          technical_notes: 'El tratamiento no aplica a esta corriente.',
+        },
+      ],
+      current_page: 1,
+      last_page: 1,
+      total: 1,
+      per_page: 15,
+    })
+
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
+
+    expect(await screen.findByText('El tratamiento no aplica a esta corriente.')).toBeInTheDocument()
   })
 
   test('Tratamientos tab shows an empty message when there are no evaluations', async () => {

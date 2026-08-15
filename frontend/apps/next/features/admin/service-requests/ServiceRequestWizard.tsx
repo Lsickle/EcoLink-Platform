@@ -147,12 +147,20 @@ type EligibleWaste = {
 }
 
 async function loadEligibleWastes(organizationId?: number | string): Promise<EligibleWaste[]> {
-  const { data: wastes } = await fetchWastes({ perPage: 100, organizationId, withViableTreatment: true })
+  // El gate es el ESTADO: solo un residuo Aprobado puede solicitarse
+  // (`ServiceRequestController::resolveAndValidateItems()`). Antes se pedía
+  // `withViableTreatment`, un eje aparte e invisible para el usuario.
+  const { data: wastes } = await fetchWastes({ perPage: 100, organizationId, status: 'APR' })
   const results: EligibleWaste[] = []
   for (const waste of wastes) {
     try {
       const { data: approvals } = await fetchWasteTreatmentApprovals(waste.id, { perPage: 50 })
-      const viable = approvals.filter((a) => a.technical_status === 'APPROVED' && a.commercial_status === 'APPROVED')
+      // El eje comercial NO se exige: se resuelve fuera de la plataforma y no
+      // debe bloquear. Este filtro solo sirve para ofrecer los tratamientos
+      // realmente aplicables en el selector del ítem.
+      const viable = approvals.filter(
+        (a) => (a.technical_status === 'APPROVED' || a.technical_status === 'RESTRICTED') && a.is_active
+      )
       if (viable.length > 0) {
         results.push({ waste, approvals: viable })
       }

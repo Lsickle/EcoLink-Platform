@@ -43,28 +43,16 @@ import {
   type TreatmentApprovalCommercialStatus,
   type TreatmentApprovalTechnicalStatus,
   type WasteFilesByCategory,
-  type WasteStatus,
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
 import { HAZARD_RISK_LEVEL_LABELS, hazardRiskLevel } from 'app/features/admin/hazardRiskLevel'
 import { HazardRiskLevelInfo } from '../HazardRiskLevelInfo'
+import {
+  isWasteEditableByOwner,
+  WASTE_STATUS_BADGE_VARIANT,
+  WASTE_STATUS_LABELS,
+} from 'app/features/admin/wasteStatus'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
-
-const STATUS_LABELS: Record<WasteStatus, string> = {
-  BR: 'Borrador',
-  DEC: 'Declarado',
-  REV: 'En Revisión',
-  CLS: 'Clasificado',
-  RCH: 'Rechazado',
-}
-
-const STATUS_BADGE_VARIANT: Record<WasteStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  BR: 'secondary',
-  DEC: 'outline',
-  REV: 'outline',
-  CLS: 'default',
-  RCH: 'destructive',
-}
 
 const FILE_CATEGORY_LABELS: Record<string, string> = {
   WASTE_PHOTO: 'Fotografías',
@@ -286,7 +274,7 @@ function TreatmentApprovalRequestDialog({
 // Mismo patrón de layout que VehicleDetailScreen.tsx/BranchTreatmentDetailScreen.tsx:
 // header con badges + acciones, tabs (General/Evidencias/Tratamientos/
 // Actividad). DECISIÓN PROPIA de este lote: la edición de los campos del
-// residuo mientras `status` es BR/RCH NO se duplica aquí como un formulario
+// residuo mientras `status` es BR NO se duplica aquí como un formulario
 // inline -- se reutiliza el mismo wizard de 5 pasos (`/admin/wastes/{id}/edit`,
 // WasteWizard.tsx) que ya sabe retomar un Borrador, evitando dos superficies
 // de edición divergentes para el mismo conjunto de campos.
@@ -564,7 +552,11 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
   const canReview = canEditWaste && permissions.includes('wastes.review')
   const canClassify = canEditWaste && permissions.includes('wastes.classify')
   const canReject = canEditWaste && permissions.includes('wastes.reject')
-  const canEditDraft = canEditWaste && permissions.includes('wastes.update') && (waste.status === 'BR' || waste.status === 'RCH')
+  // Solo en Borrador. Antes también aceptaba `RCH`, un estado que ninguna
+  // transición del backend produce. Y una vez Aprobado la correccion va por
+  // soporte de EcoLink, porque el residuo ya arrastra solicitudes y
+  // certificados que quedarian describiendo algo distinto.
+  const canEditDraft = canEditWaste && permissions.includes('wastes.update') && isWasteEditableByOwner(waste.status)
   const canRequestTreatmentApproval = treatmentApprovalMode !== null
   const canToggleActive =
     canEditWaste &&
@@ -595,7 +587,7 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <CardTitle className="text-xl">{waste.name}</CardTitle>
-                <Badge variant={STATUS_BADGE_VARIANT[waste.status]}>{STATUS_LABELS[waste.status]}</Badge>
+                <Badge variant={WASTE_STATUS_BADGE_VARIANT[waste.status]}>{WASTE_STATUS_LABELS[waste.status]}</Badge>
                 {waste.waste_danger && (
                   <Badge variant="destructive">{waste.waste_danger_characteristic?.name ?? waste.waste_danger}</Badge>
                 )}
@@ -884,6 +876,13 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
                                 <Badge variant={TECHNICAL_STATUS_BADGE_VARIANT[approval.technical_status]}>
                                   {TECHNICAL_STATUS_LABELS[approval.technical_status]}
                                 </Badge>
+                                {/* El motivo del rechazo tiene que llegar a quien
+                                    declaró el residuo: sin esto solo veía el badge
+                                    "Rechazado" y no sabía qué corregir. El backend lo
+                                    exige obligatorio al rechazar. */}
+                                {approval.technical_status === 'REJECTED' && approval.technical_notes && (
+                                  <p className="mt-1 max-w-xs text-xs text-muted-foreground">{approval.technical_notes}</p>
+                                )}
                               </TableCell>
                               <TableCell>
                                 <Badge variant={COMMERCIAL_STATUS_BADGE_VARIANT[approval.commercial_status]}>

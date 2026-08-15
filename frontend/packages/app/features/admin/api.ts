@@ -2005,6 +2005,21 @@ export async function rejectWaste(id: number | string, payload: RejectWastePaylo
   return apiFetch(`/api/admin/wastes/${id}/reject`, { method: 'POST', body: JSON.stringify(payload) })
 }
 
+// APR <-> SUS. Exclusivo del staff de EcoLink (permiso `wastes.suspend` Y
+// `isPlatformStaff()`): un residuo Aprobado ya arrastra solicitudes y
+// certificados, así que retirarlo de circulación no es una acción del cliente.
+// Nunca retrocede a Borrador -- se conserva toda su trazabilidad.
+export async function suspendWaste(
+  id: number | string,
+  payload: { reason: string }
+): Promise<{ waste: AdminWaste }> {
+  return apiFetch(`/api/admin/wastes/${id}/suspend`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export async function reactivateWaste(id: number | string): Promise<{ waste: AdminWaste }> {
+  return apiFetch(`/api/admin/wastes/${id}/reactivate`, { method: 'POST' })
+}
+
 // Reemplaza la pivote COMPLETA de corrientes Y/A asignadas -- Paso 2 del
 // wizard (Caracterización). Ver `WasteController::syncWasteStreams()`.
 export async function syncWasteWasteStreams(
@@ -2285,6 +2300,16 @@ export async function rejectTreatmentApprovalTechnical(
   })
 }
 
+// Aprobación FINAL: lleva el residuo de Clasificado a Aprobado, que es lo
+// único que habilita Solicitudes de Servicio. Permiso propio
+// (`treatment_approvals.approve`), separado a propósito del de evaluar: quien
+// asigna el tratamiento no se da a sí mismo el visto bueno.
+export async function approveTreatmentApprovalFinal(
+  id: number | string
+): Promise<{ waste: AdminWaste; treatment_approval: AdminTreatmentApproval }> {
+  return apiFetch(`/api/admin/treatment-approvals/${id}/approve-final`, { method: 'POST' })
+}
+
 // Exige que `unit_price` ya esté fijado -- el backend responde 422 si no.
 export async function approveTreatmentApprovalCommercial(
   id: number | string
@@ -2294,7 +2319,7 @@ export async function approveTreatmentApprovalCommercial(
 
 export async function rejectTreatmentApprovalCommercial(
   id: number | string,
-  payload: RejectTreatmentApprovalCommercialPayload = {}
+  payload: RejectTreatmentApprovalCommercialPayload
 ): Promise<{ treatment_approval: AdminTreatmentApproval }> {
   return apiFetch(`/api/admin/treatment-approvals/${id}/reject-commercial`, {
     method: 'POST',

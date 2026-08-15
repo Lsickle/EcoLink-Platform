@@ -105,7 +105,7 @@ class WasteTreatmentApprovalController extends Controller
             ->when($wasteId, fn ($query) => $query->where('waste_id', $wasteId))
             ->with([
                 'organization:id,legal_name',
-                'waste:id,name,code,organization_id',
+                'waste:id,name,code,organization_id,status',
                 'waste.organization:id,legal_name',
                 'forwardedByOrganization:id,legal_name',
                 'branchTreatment:id,operational_name,branch_id,treatment_id',
@@ -133,7 +133,7 @@ class WasteTreatmentApprovalController extends Controller
 
         $treatmentApproval->load([
             'organization:id,legal_name',
-            'waste:id,name,code,organization_id',
+            'waste:id,name,code,organization_id,status',
             'waste.organization:id,legal_name',
             'forwardedByOrganization:id,legal_name',
             // El Gestor evaluador (dueño de organization_id de esta fila) NO
@@ -244,7 +244,103 @@ class WasteTreatmentApprovalController extends Controller
             ['waste_treatment_approval_id' => $treatmentApproval->id, 'waste_id' => $treatmentApproval->waste_id, 'organization_id' => $treatmentApproval->organization_id],
         );
 
+        // Tratamiento asignado -> el residuo queda CLASIFICADO. Falta la
+        // aprobacion final para que pueda usarse en Solicitudes de Servicio.
+        $this->syncWasteStatus(
+            $request, $treatmentApproval, Waste::STATUS_CLASSIFIED,
+            'WASTE_CLASSIFIED', 'Residuo clasificado: un Gestor le asigno un tratamiento.',
+        );
+
         return response()->json(['treatment_approval' => $treatmentApproval->fresh()]);
+    }
+
+    /**
+     * POST .../approve-final -- CLASIFICADO -> APROBADO.
+     *
+     * Segundo par de ojos dentro de la MISMA organizacion Gestora: quien
+     * asigna el tratamiento (`treatment_approvals.evaluate`) y quien da el
+     * visto bueno final (`treatment_approvals.approve`) son personas
+     * distintas, separadas por PERMISO -- no por rol, para que cada
+     * organizacion se lo asigne al cargo que corresponda.
+     *
+     * Es la unica via hacia APROBADO, y APROBADO es lo unico que habilita una
+     * Solicitud de Servicio.
+     *
+     * El eje COMERCIAL no participa: se completa fuera de la plataforma y no
+     * bloquea (confirmado por el usuario, 2026-08-14).
+     */
+    public function approveFinal(Request $request, WasteTreatmentApproval $treatmentApproval)
+    {
+        Gate::authorize('approveFinal', $treatmentApproval);
+
+        if ($treatmentApproval->technical_status !== 'APPROVED' && $treatmentApproval->technical_status !== 'RESTRICTED') {
+            throw ValidationException::withMessages([
+                'technical_status' => ['Solo se puede aprobar un residuo cuyo tratamiento ya fue aprobado tecnicamente.'],
+            ]);
+        }
+
+        if (! $treatmentApproval->is_active) {
+            throw ValidationException::withMessages([
+                'is_active' => ['Esta evaluacion no esta vigente.'],
+            ]);
+        }
+
+        $waste = $treatmentApproval->waste;
+
+        if ($waste === null || $waste->status !== Waste::STATUS_CLASSIFIED) {
+            throw ValidationException::withMessages([
+                'status' => ['Solo se puede aprobar un residuo en estado Clasificado.'],
+            ]);
+        }
+
+        $this->syncWasteStatus(
+            $request, $treatmentApproval, Waste::STATUS_APPROVED,
+            'WASTE_APPROVED', 'Residuo aprobado: ya puede usarse en Solicitudes de Servicio.',
+        );
+
+        return response()->json(['waste' => $waste->fresh(), 'treatment_approval' => $treatmentApproval->fresh()]);
+    }
+
+    /**
+     * El estado del residuo lo gobierna la EVALUACION, no su dueno (modelo
+     * confirmado por el usuario, 2026-08-14). Estas transiciones son
+     * AUTOMATICAS: no hay un boton aparte que se pueda olvidar, ni forma de
+     * que el residuo quede diciendo "Declarado" mientras ya tiene tratamiento.
+     *
+     * NUNCA toca un residuo APROBADO o SUSPENDIDO: una vez aprobado, solo
+     * EcoLink puede moverlo (`WasteController::suspend()/reactivate()`). Eso
+     * protege la trazabilidad de las solicitudes, programaciones y
+     * certificados que ya cuelgan de el.
+     */
+    private function syncWasteStatus(Request $request, WasteTreatmentApproval $treatmentApproval, string $toStatus, string $eventType, string $description): void
+    {
+        $waste = $treatmentApproval->waste;
+
+        if ($waste === null) {
+            return;
+        }
+
+        $frozen = [Waste::STATUS_APPROVED, Waste::STATUS_SUSPENDED];
+
+        // Al aprobar FINAL si se entra a APR desde CLS; el resto de
+        // transiciones no puede tocar un residuo ya congelado.
+        if ($toStatus !== Waste::STATUS_APPROVED && in_array($waste->status, $frozen, true)) {
+            return;
+        }
+
+        if ($waste->status === $toStatus) {
+            return;
+        }
+
+        $waste->forceFill(['status' => $toStatus, 'updated_by' => $request->user()->id])->save();
+
+        // Mismo mecanismo que las transiciones manuales del residuo: el evento
+        // lleva `waste_id` en la metadata, que es por donde filtra la pestana
+        // Actividad (`WasteController::activity()`).
+        $this->logSecurityEvent(
+            $request, $eventType, 'SUCCESS', $description, $request->user(),
+            ['waste_id' => $waste->id, 'waste_treatment_approval_id' => $treatmentApproval->id, 'organization_id' => $treatmentApproval->organization_id],
+        );
     }
 
     /**
@@ -283,6 +379,19 @@ class WasteTreatmentApprovalController extends Controller
             "Evaluación técnica '{$treatmentApproval->id}' rechazada: {$data['technical_notes']}", $request->user(),
             ['waste_treatment_approval_id' => $treatmentApproval->id, 'waste_id' => $treatmentApproval->waste_id, 'organization_id' => $treatmentApproval->organization_id],
         );
+
+        // Vuelve a DECLARADO, no a Borrador: sigue visible para los demas
+        // Gestores vinculados, que pueden evaluarlo. El rechazo es de ESTA
+        // evaluacion, no del residuo. Solo se degrada si NO queda ninguna otra
+        // evaluacion con el eje tecnico aprobado -- varios Gestores pueden
+        // evaluar el mismo residuo en paralelo y uno no debe tumbar el trabajo
+        // de otro.
+        if ($treatmentApproval->waste !== null && ! $treatmentApproval->waste->fresh()->hasViableTreatment()) {
+            $this->syncWasteStatus(
+                $request, $treatmentApproval, Waste::STATUS_DECLARED,
+                'WASTE_RETURNED_TO_DECLARED', 'Residuo devuelto a Declarado tras un rechazo tecnico: '.$data['technical_notes'],
+            );
+        }
 
         return response()->json(['treatment_approval' => $treatmentApproval->fresh()]);
     }
@@ -335,8 +444,10 @@ class WasteTreatmentApprovalController extends Controller
     {
         Gate::authorize('evaluate', $treatmentApproval);
 
+        // Obligatorio, por simetria con el rechazo tecnico: un rechazo sin
+        // motivo deja a la contraparte sin saber que corregir.
         $data = $request->validate([
-            'commercial_notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'commercial_notes' => ['required', 'string', 'max:1000'],
         ]);
 
         $this->assertCommercialNotFinal($treatmentApproval);
@@ -347,7 +458,7 @@ class WasteTreatmentApprovalController extends Controller
 
         $treatmentApproval->forceFill([
             'commercial_status' => 'REJECTED',
-            'commercial_notes' => $data['commercial_notes'] ?? $treatmentApproval->commercial_notes,
+            'commercial_notes' => $data['commercial_notes'],
         ])->save();
 
         $this->logWorkflowTransition(
@@ -582,6 +693,15 @@ class WasteTreatmentApprovalController extends Controller
             ['waste_treatment_approval_id' => $approval->id, 'waste_id' => $waste->id, 'organization_id' => $approval->organization_id, 'forwarded_by_organization_id' => $approval->forwarded_by_organization_id],
         );
 
+        // Hay una evaluacion en curso -> EN REVISION. Distingue un residuo
+        // declarado que nadie ha tomado (DEC) de uno que ya esta en manos de
+        // un Gestor.
+        $approval->setRelation('waste', $waste);
+        $this->syncWasteStatus(
+            $request, $approval, Waste::STATUS_IN_REVIEW,
+            'WASTE_REVIEW_STARTED', 'Residuo en revision: hay una evaluacion de tratamiento en curso.',
+        );
+
         return response()->json(['treatment_approval' => $approval->fresh(['organization:id,legal_name', 'branchTreatment.treatment'])], 201);
     }
 
@@ -779,13 +899,15 @@ class WasteTreatmentApprovalController extends Controller
      * `isPlatformStaff()` siempre pasa (mismo override ya usado en el resto
      * del proyecto). Si la transición no tiene ninguna fila de
      * `workflow_transition_roles` configurada, no hay restricción adicional
-     * (el workflow no la definió). Para el workflow BASE sembrado en este
-     * lote, las 17 transiciones están autorizadas para el rol `ADMINISTRADOR`
-     * -- proxy ROL del único permiso (`treatment_approvals.evaluate`) que
-     * `Gate::authorize('evaluate', ...)` ya exige más arriba en cada método
-     * (ver `WorkflowSeederTest`, que confirma esa equivalencia); un Gestor
-     * con workflow personalizado puede apuntar sus transiciones a un rol o
-     * `business_role` propio en vez de `ADMINISTRADOR`.
+     * (el workflow no la definió) y la autoridad es el PERMISO que
+     * `Gate::authorize(...)` ya exigió más arriba en cada método.
+     *
+     * Ese es hoy el caso del workflow BASE: sus 17 transiciones se siembran
+     * SIN filas de rol (2026-08-14). Antes estaban atadas a `ADMINISTRADOR`,
+     * lo que producía un bug vivo -- un `TECNICO_AMBIENTAL` con el permiso
+     * `treatment_approvals.evaluate` recibía 403 de aquí. Un Gestor con
+     * workflow personalizado sí puede atar sus transiciones a un `role` o
+     * `business_role` propio; ese camino sigue vigente y probado.
      */
     private function assertActorAuthorizedForTransition(User $actor, WorkflowTransition $transition): void
     {

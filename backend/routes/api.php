@@ -407,6 +407,8 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('wastes/{waste}/start-review', [WasteController::class, 'startReview'])->name('wastes.start-review');
         Route::post('wastes/{waste}/classify', [WasteController::class, 'classify'])->name('wastes.classify');
         Route::post('wastes/{waste}/reject', [WasteController::class, 'reject'])->name('wastes.reject');
+        Route::post('wastes/{waste}/suspend', [WasteController::class, 'suspend'])->name('wastes.suspend');
+        Route::post('wastes/{waste}/reactivate', [WasteController::class, 'reactivate'])->name('wastes.reactivate');
         Route::put('wastes/{waste}/waste-streams', [WasteController::class, 'syncWasteStreams'])->name('wastes.waste-streams.sync');
         Route::put('wastes/{waste}/un-codes', [WasteController::class, 'syncUnCodes'])->name('wastes.un-codes.sync');
         Route::put('wastes/{waste}/hazard-characteristics', [WasteController::class, 'syncHazardCharacteristics'])->name('wastes.hazard-characteristics.sync');
@@ -432,6 +434,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('treatment-approvals/{treatmentApproval}/approve-technical', [WasteTreatmentApprovalController::class, 'approveTechnical'])->name('treatment-approvals.approve-technical');
         Route::post('treatment-approvals/{treatmentApproval}/reject-technical', [WasteTreatmentApprovalController::class, 'rejectTechnical'])->name('treatment-approvals.reject-technical');
         Route::post('treatment-approvals/{treatmentApproval}/approve-commercial', [WasteTreatmentApprovalController::class, 'approveCommercial'])->name('treatment-approvals.approve-commercial');
+        Route::post('treatment-approvals/{treatmentApproval}/approve-final', [WasteTreatmentApprovalController::class, 'approveFinal'])->name('treatment-approvals.approve-final');
         Route::post('treatment-approvals/{treatmentApproval}/reject-commercial', [WasteTreatmentApprovalController::class, 'rejectCommercial'])->name('treatment-approvals.reject-commercial');
         Route::post('treatment-approvals/{treatmentApproval}/quote', [WasteTreatmentApprovalController::class, 'quote'])->name('treatment-approvals.quote');
         Route::post('treatment-approvals/{treatmentApproval}/negotiate', [WasteTreatmentApprovalController::class, 'negotiate'])->name('treatment-approvals.negotiate');

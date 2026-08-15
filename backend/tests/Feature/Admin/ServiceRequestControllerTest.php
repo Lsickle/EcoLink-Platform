@@ -122,7 +122,7 @@ function srGestorOrganization(): Organization
  */
 function srViableItemFixture(Organization $generator, Organization $gestor): array
 {
-    $waste = Waste::factory()->create(['organization_id' => $generator->id]);
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
     $approval = WasteTreatmentApproval::factory()->viable()->create([
         'organization_id' => $gestor->id,
         'waste_id' => $waste->id,
@@ -168,7 +168,7 @@ test('store crea la cabecera en DRAFT + ítems, con item_status PENDING', functi
 test('store rechaza un waste_id que NO pertenece a la organización actora (IDOR)', function () {
     $generator = srGeneratorOrganization();
     $otherOrganization = Organization::factory()->create();
-    $waste = Waste::factory()->create(['organization_id' => $otherOrganization->id]);
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $otherOrganization->id]);
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
 
     $actor = srActor(['service_requests.create'], $generator->id);
@@ -196,10 +196,13 @@ test('store rechaza un waste_treatment_approval_id que pertenece a OTRO residuo 
     ])->assertUnprocessable()->assertJsonValidationErrors('items.0.waste_treatment_approval_id');
 });
 
-test('store rechaza una aprobación SIN ambos ejes aprobados (tratamiento no viable)', function () {
+// El eje COMERCIAL dejó de bloquear (2026-08-14): se resuelve fuera de la
+// plataforma y no debe frenar el flujo. Este test antes exigía AMBOS ejes;
+// ahora fija lo contrario -- con el eje técnico aprobado basta.
+test('store ACEPTA una aprobación con el eje comercial sin resolver', function () {
     $generator = srGeneratorOrganization();
     $gestor = srGestorOrganization();
-    $waste = Waste::factory()->create(['organization_id' => $generator->id]);
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
     $approval = WasteTreatmentApproval::factory()->create([
         'organization_id' => $gestor->id,
         'waste_id' => $waste->id,
@@ -213,7 +216,47 @@ test('store rechaza una aprobación SIN ambos ejes aprobados (tratamiento no via
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
         'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated();
+});
+
+test('store rechaza una aprobación con el eje TÉCNICO sin aprobar', function () {
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
+    $approval = WasteTreatmentApproval::factory()->create([
+        'organization_id' => $gestor->id,
+        'waste_id' => $waste->id,
+        'technical_status' => 'PENDING',
+    ]);
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $actor = srActor(['service_requests.create'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'items' => [srItemPayload($waste, $approval)],
     ])->assertUnprocessable()->assertJsonValidationErrors('items.0.waste_treatment_approval_id');
+});
+
+// APROBADO es lo ÚNICO que habilita una Solicitud de Servicio: un residuo
+// Clasificado, aunque ya tenga tratamiento asignado, todavía no sirve.
+test('store rechaza un residuo que aún NO está Aprobado', function () {
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_CLASSIFIED, 'organization_id' => $generator->id]);
+    $approval = WasteTreatmentApproval::factory()->create([
+        'organization_id' => $gestor->id,
+        'waste_id' => $waste->id,
+        'technical_status' => 'APPROVED',
+    ]);
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $actor = srActor(['service_requests.create'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertUnprocessable()->assertJsonValidationErrors('items.0.waste_id');
 });
 
 test('store rechaza cuando la cartera Generador<->Gestor está bloqueada (D-S04/D-S12)', function () {
@@ -265,7 +308,7 @@ test('store permite crear cuando la cartera está en un estado que NO bloquea (e
 test('store rechaza si la organización actora NO tiene la capacidad can_generate_waste', function () {
     $nonGenerator = Organization::factory()->create();
     $branch = Branch::factory()->create(['organization_id' => $nonGenerator->id]);
-    $waste = Waste::factory()->create(['organization_id' => $nonGenerator->id]);
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $nonGenerator->id]);
 
     $actor = srActor(['service_requests.create'], $nonGenerator->id);
 
@@ -279,7 +322,7 @@ test('store rechaza si la organización actora NO tiene la capacidad can_generat
 
 test('submit exige waste_treatment_approval_id/estimated_quantity/measurement_unit_id completos en TODOS los ítems', function () {
     $generator = srGeneratorOrganization();
-    $waste = Waste::factory()->create(['organization_id' => $generator->id]);
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     $actor = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
 
@@ -743,7 +786,7 @@ test('store rechaza más de 100 ítems', function () {
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     $actor = srActor(['service_requests.create'], $generator->id);
     $measurementUnitId = MeasurementUnit::factory()->create()->id;
-    $waste = Waste::factory()->create(['organization_id' => $generator->id]);
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
 
     $items = array_fill(0, 101, ['waste_id' => $waste->id, 'estimated_quantity' => 50, 'measurement_unit_id' => $measurementUnitId]);
 
@@ -756,7 +799,7 @@ test('store rechaza más de 100 ítems', function () {
 test('store rechaza una aprobación con is_active=false aunque ambos ejes estén APPROVED', function () {
     $generator = srGeneratorOrganization();
     $gestor = srGestorOrganization();
-    $waste = Waste::factory()->create(['organization_id' => $generator->id]);
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
     $approval = WasteTreatmentApproval::factory()->viable()->create([
         'organization_id' => $gestor->id,
         'waste_id' => $waste->id,

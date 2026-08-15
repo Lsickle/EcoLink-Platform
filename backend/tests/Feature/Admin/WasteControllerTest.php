@@ -748,6 +748,29 @@ test('show expone treatment_approval_mode: owner para el dueño, forward para el
     $this->actingAs($gestor)->getJson("/api/admin/wastes/{$waste->id}")->assertOk()->assertJsonPath('waste.treatment_approval_mode', 'offer');
 });
 
+// Un residuo retirado de circulacion no debe volver a ofrecerse a un Gestor.
+// Un Aprobado si puede reenviarse: una evaluacion adicional no lo hace
+// retroceder.
+test('un residuo Suspendido ya no es reenviable, pero uno Aprobado si', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    wasteSubgestorRelationship($generatorOrganization->id, $subgestorOrganization->id);
+
+    $subgestor = wasteActor(['wastes.read', 'treatment_approvals.create'], $subgestorOrganization->id);
+
+    $approved = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => Waste::STATUS_APPROVED,
+    ]);
+    $suspended = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => Waste::STATUS_SUSPENDED,
+    ]);
+
+    expect($approved->isForwardableBySubgestor($subgestor))->toBeTrue()
+        ->and($suspended->isForwardableBySubgestor($subgestor))->toBeFalse();
+});
+
 test('startReview transiciona DEC->REV', function () {
     $organization = Organization::factory()->create();
     $waste = Waste::factory()->create(['organization_id' => $organization->id, 'status' => 'DEC']);
@@ -1036,21 +1059,6 @@ test('show incluye has_viable_treatment: true solo cuando existe una aprobación
 
 // ---- activity() ----
 
-test('activity exige AMBOS: audit.read Y accesibilidad del residuo', function () {
-    $organization = Organization::factory()->create();
-    $waste = Waste::factory()->create(['organization_id' => $organization->id]);
-
-    $noAuditRead = wasteActor(['wastes.update', 'wastes.activate', 'wastes.deactivate'], $organization->id);
-    $this->actingAs($noAuditRead)->getJson("/api/admin/wastes/{$waste->id}/activity")->assertForbidden();
-
-    $actor = wasteActor(['wastes.update', 'wastes.activate', 'wastes.deactivate', 'audit.read'], $organization->id);
-    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/deactivate")->assertOk();
-
-    $response = $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}/activity")->assertOk();
-    $events = collect($response->json('data'))->pluck('event_type');
-    expect($events)->toContain('WASTE_DEACTIVATED');
-});
-
 // Reporte del usuario (2026-08-14): como Gestor evaluando un residuo, la
 // pestaña Actividad devolvía "No tiene acceso a este residuo". `activity()`
 // usaba `isAccessibleBy()` (dueño o platform staff) mientras `show()` usa
@@ -1121,4 +1129,93 @@ test('activity incluye los eventos de EVALUACIÓN del residuo, no solo los de de
 
     expect(collect($response->json('data'))->pluck('event_type'))
         ->toContain('WASTE_TREATMENT_APPROVAL_TECHNICAL_APPROVED');
+});
+
+test('activity exige AMBOS: audit.read Y accesibilidad del residuo', function () {
+    $organization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $organization->id]);
+
+    $noAuditRead = wasteActor(['wastes.update', 'wastes.activate', 'wastes.deactivate'], $organization->id);
+    $this->actingAs($noAuditRead)->getJson("/api/admin/wastes/{$waste->id}/activity")->assertForbidden();
+
+    $actor = wasteActor(['wastes.update', 'wastes.activate', 'wastes.deactivate', 'audit.read'], $organization->id);
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/deactivate")->assertOk();
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}/activity")->assertOk();
+    $events = collect($response->json('data'))->pluck('event_type');
+    expect($events)->toContain('WASTE_DEACTIVATED');
+});
+
+// ---- Fase 1: suspender / reactivar (APR <-> SUS), exclusivo de EcoLink ----
+//
+// Un residuo Aprobado ya arrastra solicitudes, programaciones y certificados:
+// no retrocede a Borrador ni lo edita libremente su dueño. Retirarlo de
+// circulación conservando la trazabilidad es SUS, y solo lo hace EcoLink.
+
+test('el staff de EcoLink suspende un residuo Aprobado y luego lo reactiva', function () {
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED]);
+    $actor = wastePlatformStaffActor(['wastes.suspend']);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/suspend", [
+        'reason' => 'Licencia ambiental del Gestor vencida.',
+    ])->assertOk()->assertJsonPath('waste.status', Waste::STATUS_SUSPENDED);
+
+    // El motivo queda en la trazabilidad, no solo en la respuesta.
+    $log = SecurityLog::query()->where('event_type', 'WASTE_SUSPENDED')->first();
+    expect($log)->not->toBeNull()
+        ->and($log->metadata['waste_id'] ?? null)->toBe($waste->id)
+        ->and($log->metadata['reason'] ?? null)->toContain('Licencia');
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/reactivate")
+        ->assertOk()->assertJsonPath('waste.status', Waste::STATUS_APPROVED);
+});
+
+test('suspender exige un motivo', function () {
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED]);
+    $actor = wastePlatformStaffActor(['wastes.suspend']);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/suspend")
+        ->assertUnprocessable()->assertJsonValidationErrors('reason');
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_APPROVED);
+});
+
+test('una organización cliente NO puede suspender, aunque tenga el permiso', function () {
+    $organization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $organization->id,
+        'status' => Waste::STATUS_APPROVED,
+    ]);
+
+    // Doble barrera: el permiso solo no alcanza, hace falta ser staff de la
+    // plataforma. Ni siquiera sobre un residuo propio.
+    $actor = wasteActor(['wastes.suspend'], $organization->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/suspend", [
+        'reason' => 'Ya no lo generamos.',
+    ])->assertForbidden();
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_APPROVED);
+});
+
+test('el staff de EcoLink sin el permiso wastes.suspend tampoco puede suspender', function () {
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED]);
+    $actor = wastePlatformStaffActor(['wastes.read']);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/suspend", [
+        'reason' => 'Motivo cualquiera.',
+    ])->assertForbidden();
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_APPROVED);
+});
+
+test('solo se suspende desde Aprobado: un residuo Clasificado no es suspendible', function () {
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_CLASSIFIED]);
+    $actor = wastePlatformStaffActor(['wastes.suspend']);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/suspend", [
+        'reason' => 'Motivo cualquiera.',
+    ])->assertUnprocessable()->assertJsonValidationErrors('status');
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
 });

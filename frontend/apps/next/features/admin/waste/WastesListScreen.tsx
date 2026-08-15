@@ -25,39 +25,28 @@ import {
   type WasteKpis,
   type WasteStatus,
 } from 'app/features/admin/api'
+import {
+  WASTE_DECLARATION_STATUSES,
+  WASTE_STATUS_BADGE_VARIANT,
+  WASTE_STATUS_LABELS,
+} from 'app/features/admin/wasteStatus'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { OrganizationSearchSelect } from '../OrganizationSearchSelect'
+import { WasteStatusFlowInfo } from './WasteStatusFlowInfo'
 
 const PER_PAGE = 15
 const SEARCH_DEBOUNCE_MS = 300
 const allFilterValue = 'all'
 
 // RN del wizard de Residuos (esquema-bd punto 14/L-22): workflow de
-// declaración BR/DEC/REV/CLS/RCH -- DISTINTO de `operational_status_id`
+// declaración BR/DEC/REV/CLS/APR/SUS -- DISTINTO de `operational_status_id`
 // (eje independiente, no filtrado aquí por simplicidad, igual que
 // VehiclesListScreen no filtra por catálogos secundarios sin selector
-// propio de Figma).
-const DECLARATION_STATUSES: WasteStatus[] = ['BR', 'DEC', 'REV', 'CLS', 'RCH']
-
-const STATUS_LABELS: Record<WasteStatus, string> = {
-  BR: 'Borrador',
-  DEC: 'Declarado',
-  REV: 'En Revisión',
-  CLS: 'Clasificado',
-  RCH: 'Rechazado',
-}
-
-const STATUS_BADGE_VARIANT: Record<WasteStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  BR: 'secondary',
-  DEC: 'outline',
-  REV: 'outline',
-  CLS: 'default',
-  RCH: 'destructive',
-}
-
+// propio de Figma). Etiquetas y colores en `wasteStatus.ts`, compartidos con
+// el detalle y el diagrama de ayuda.
 const statusFilterOptions = [
   { value: allFilterValue, label: 'Todos' },
-  ...DECLARATION_STATUSES.map((status) => ({ value: status, label: STATUS_LABELS[status] })),
+  ...WASTE_DECLARATION_STATUSES.map((status) => ({ value: status, label: WASTE_STATUS_LABELS[status] })),
 ]
 
 const emptyKpis: WasteKpis = { total: 0, active: 0, inactive: 0 }
@@ -326,7 +315,12 @@ export function WastesListScreen() {
                 <TableHead>Residuo</TableHead>
                 <TableHead>Categoría</TableHead>
                 <TableHead>Peligrosidad</TableHead>
-                <TableHead>Estado</TableHead>
+                <TableHead>
+                  <span className="flex items-center gap-1.5">
+                    Estado
+                    <WasteStatusFlowInfo />
+                  </span>
+                </TableHead>
                 {showsOrganizationColumn && <TableHead>Organización</TableHead>}
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
@@ -360,7 +354,7 @@ export function WastesListScreen() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={STATUS_BADGE_VARIANT[waste.status]}>{STATUS_LABELS[waste.status]}</Badge>
+                    <Badge variant={WASTE_STATUS_BADGE_VARIANT[waste.status]}>{WASTE_STATUS_LABELS[waste.status]}</Badge>
                   </TableCell>
                   {showsOrganizationColumn && (
                     <TableCell className="text-muted-foreground">{waste.organization?.legal_name ?? '—'}</TableCell>

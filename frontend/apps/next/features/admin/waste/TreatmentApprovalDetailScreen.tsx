@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import {
   ApiValidationError,
   approveTreatmentApprovalCommercial,
+  approveTreatmentApprovalFinal,
   approveTreatmentApprovalTechnical,
   cancelTreatmentApproval,
   fetchTreatmentApproval,
@@ -257,6 +258,24 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
     }
   }
 
+  // Aprobación FINAL: es la que lleva el residuo a Aprobado y, con eso, lo
+  // habilita para Solicitudes de Servicio.
+  async function handleApproveFinal() {
+    if (!detail) return
+    setTransitionError(null)
+    setIsTransitioning(true)
+    try {
+      const { waste, treatment_approval: updated } = await approveTreatmentApprovalFinal(detail.id)
+      setDetail((current) =>
+        current ? { ...mergeScalarFields(current, updated), waste: { ...current.waste, status: waste.status } } : current
+      )
+    } catch (error) {
+      setTransitionError(errorMessage(error, 'status'))
+    } finally {
+      setIsTransitioning(false)
+    }
+  }
+
   async function handleConfirmRejectTechnical() {
     if (!detail) return
     setTransitionError(null)
@@ -323,7 +342,7 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
     setIsTransitioning(true)
     try {
       const { treatment_approval: updated } = await rejectTreatmentApprovalCommercial(detail.id, {
-        commercial_notes: commercialRejectReason || undefined,
+        commercial_notes: commercialRejectReason,
       })
       setDetail((current) => (current ? mergeScalarFields(current, updated) : current))
       setIsRejectingCommercial(false)
@@ -372,6 +391,12 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
 
   const canEditTerms = isEvaluatingGestor && permissions.includes('treatment_approvals.update')
   const canEvaluate = isEvaluatingGestor && permissions.includes('treatment_approvals.evaluate')
+  // Permiso PROPIO, no el de evaluar: quien asigna el tratamiento no se da a
+  // sí mismo el visto bueno final. Cada organización lo asigna al rol que
+  // corresponda.
+  const canApproveFinal = isEvaluatingGestor && permissions.includes('treatment_approvals.approve')
+  const technicalIsApproved = detail.technical_status === 'APPROVED' || detail.technical_status === 'RESTRICTED'
+  const canApproveWasteNow = canApproveFinal && technicalIsApproved && detail.is_active && detail.waste.status === 'CLS'
 
   const commercialIsFinal = TERMINAL_COMMERCIAL_STATUSES.includes(detail.commercial_status)
 
@@ -403,6 +428,24 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
           )}
         </CardHeader>
         <CardContent className="flex flex-col gap-3 pb-4">
+          {canApproveWasteNow && (
+            <div className="flex flex-col gap-2 rounded-lg border border-emerald-600/30 bg-emerald-500/10 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm">
+                El tratamiento ya está aprobado técnicamente. Falta el visto bueno final para que el residuo quede{' '}
+                <span className="font-semibold">Aprobado</span> y pueda usarse en Solicitudes de Servicio.
+              </p>
+              <Button size="sm" disabled={isTransitioning} onClick={handleApproveFinal}>
+                Aprobar Residuo
+              </Button>
+            </div>
+          )}
+
+          {detail.waste.status === 'APR' && (
+            <p className="rounded-lg bg-emerald-500/10 p-3 text-sm">
+              Residuo <span className="font-semibold">Aprobado</span>: ya puede usarse en Solicitudes de Servicio.
+            </p>
+          )}
+
           {canEvaluate && (
             <div className="flex flex-wrap items-center gap-2">
               {detail.technical_status === 'PENDING' && !isRejectingTechnical && (
@@ -467,9 +510,9 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
           {isRejectingCommercial && (
             <div className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-end">
               <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor="commercialRejectReason">
-                  Motivo del rechazo comercial <span className="text-muted-foreground">(opcional)</span>
-                </Label>
+                {/* Obligatorio desde 2026-08-14, por simetría con el rechazo
+                    técnico: el backend ya responde 422 sin motivo. */}
+                <Label htmlFor="commercialRejectReason">Motivo del rechazo comercial</Label>
                 <Input
                   id="commercialRejectReason"
                   value={commercialRejectReason}
@@ -477,7 +520,11 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
                 />
               </div>
               <div className="flex gap-2">
-                <Button size="sm" disabled={isTransitioning} onClick={handleConfirmRejectCommercial}>
+                <Button
+                  size="sm"
+                  disabled={isTransitioning || !commercialRejectReason.trim()}
+                  onClick={handleConfirmRejectCommercial}
+                >
                   Confirmar Rechazo Comercial
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setIsRejectingCommercial(false)}>

@@ -58,6 +58,9 @@ class WasteController extends Controller
         'WASTE_TREATMENT_APPROVAL_TECHNICAL_APPROVED', 'WASTE_TREATMENT_APPROVAL_TECHNICAL_REJECTED',
         'WASTE_TREATMENT_APPROVAL_COMMERCIAL_APPROVED', 'WASTE_TREATMENT_APPROVAL_COMMERCIAL_REJECTED',
         'WASTE_TREATMENT_APPROVAL_CANCELLED', 'WASTE_TREATMENT_APPROVAL_PREAPPROVED_MATCH_USED',
+        // Transiciones que ahora dispara la EVALUACION (2026-08-14), mas la
+        // suspension/reactivacion exclusiva de EcoLink.
+        'WASTE_APPROVED', 'WASTE_RETURNED_TO_DECLARED', 'WASTE_SUSPENDED', 'WASTE_REACTIVATED',
     ];
 
     /**
@@ -320,7 +323,7 @@ class WasteController extends Controller
     {
         Gate::authorize('submit', $waste);
 
-        if ($waste->status !== 'BR') {
+        if ($waste->status !== Waste::STATUS_DRAFT) {
             throw ValidationException::withMessages([
                 'status' => ['Solo se puede declarar un residuo en estado Borrador.'],
             ]);
@@ -350,7 +353,7 @@ class WasteController extends Controller
             ]);
         }
 
-        $waste->forceFill(['status' => 'DEC', 'updated_by' => $request->user()->id])->save();
+        $waste->forceFill(['status' => Waste::STATUS_DECLARED, 'updated_by' => $request->user()->id])->save();
 
         $this->logSecurityEvent(
             $request, 'WASTE_SUBMITTED', 'SUCCESS',
@@ -371,13 +374,13 @@ class WasteController extends Controller
     {
         Gate::authorize('startReview', $waste);
 
-        if ($waste->status !== 'DEC') {
+        if ($waste->status !== Waste::STATUS_DECLARED) {
             throw ValidationException::withMessages([
                 'status' => ['Solo se puede iniciar revisión desde el estado Declarado.'],
             ]);
         }
 
-        $waste->forceFill(['status' => 'REV', 'updated_by' => $request->user()->id])->save();
+        $waste->forceFill(['status' => Waste::STATUS_IN_REVIEW, 'updated_by' => $request->user()->id])->save();
 
         $this->logSecurityEvent(
             $request, 'WASTE_REVIEW_STARTED', 'SUCCESS',
@@ -395,14 +398,14 @@ class WasteController extends Controller
     {
         Gate::authorize('classify', $waste);
 
-        if ($waste->status !== 'REV') {
+        if ($waste->status !== Waste::STATUS_IN_REVIEW) {
             throw ValidationException::withMessages([
                 'status' => ['Solo se puede clasificar un residuo en estado En Revisión.'],
             ]);
         }
 
         $waste->forceFill([
-            'status' => 'CLS',
+            'status' => Waste::STATUS_CLASSIFIED,
             'last_classification_review_at' => now(),
             'updated_by' => $request->user()->id,
         ])->save();
@@ -428,13 +431,13 @@ class WasteController extends Controller
             'reason' => ['required', 'string', 'max:1000'],
         ]);
 
-        if (! in_array($waste->status, ['DEC', 'REV'], true)) {
+        if (! in_array($waste->status, [Waste::STATUS_DECLARED, Waste::STATUS_IN_REVIEW], true)) {
             throw ValidationException::withMessages([
                 'status' => ['Solo se puede rechazar un residuo en estado Declarado o En Revisión.'],
             ]);
         }
 
-        $waste->forceFill(['status' => 'BR', 'updated_by' => $request->user()->id])->save();
+        $waste->forceFill(['status' => Waste::STATUS_DRAFT, 'updated_by' => $request->user()->id])->save();
 
         $this->logSecurityEvent(
             $request, 'WASTE_REJECTED', 'SUCCESS',
@@ -536,6 +539,76 @@ class WasteController extends Controller
         $waste->recalculateWasteDanger();
 
         return response()->json(['waste' => $waste->fresh(['wasteHazardCharacteristics.hazardCharacteristic', 'wasteDangerCharacteristic:code,name'])]);
+    }
+
+    /**
+     * POST /admin/wastes/{waste}/suspend -- APROBADO -> SUSPENDIDO.
+     *
+     * Un residuo aprobado NO retrocede (confirmado por el usuario,
+     * 2026-08-14): ya arrastra solicitudes de servicio, programaciones y
+     * posiblemente certificados emitidos. Devolverlo a Borrador rompería esa
+     * trazabilidad. Suspender lo retira de circulación conservandola intacta.
+     *
+     * Exclusivo de EcoLink: ni el Gestor, ni el Subgestor, ni el Generador
+     * pueden hacerlo -- se solicita por soporte.
+     */
+    public function suspend(Request $request, Waste $waste)
+    {
+        $this->assertPlatformStaffCanSuspend($request);
+
+        if ($waste->status !== Waste::STATUS_APPROVED) {
+            throw ValidationException::withMessages([
+                'status' => ['Solo se puede suspender un residuo Aprobado.'],
+            ]);
+        }
+
+        $data = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
+
+        $waste->forceFill(['status' => Waste::STATUS_SUSPENDED, 'updated_by' => $request->user()->id])->save();
+
+        $this->logSecurityEvent(
+            $request, 'WASTE_SUSPENDED', 'SUCCESS',
+            "Residuo '{$waste->name}' suspendido: {$data['reason']}", $request->user(),
+            ['waste_id' => $waste->id, 'organization_id' => $waste->organization_id, 'reason' => $data['reason']],
+        );
+
+        return response()->json(['waste' => $waste->fresh()]);
+    }
+
+    /**
+     * POST /admin/wastes/{waste}/reactivate -- SUSPENDIDO -> APROBADO.
+     * Vuelve a la aprobación que ya tenía, sin repetir la evaluación.
+     */
+    public function reactivate(Request $request, Waste $waste)
+    {
+        $this->assertPlatformStaffCanSuspend($request);
+
+        if ($waste->status !== Waste::STATUS_SUSPENDED) {
+            throw ValidationException::withMessages([
+                'status' => ['Solo se puede reactivar un residuo Suspendido.'],
+            ]);
+        }
+
+        $waste->forceFill(['status' => Waste::STATUS_APPROVED, 'updated_by' => $request->user()->id])->save();
+
+        $this->logSecurityEvent(
+            $request, 'WASTE_REACTIVATED', 'SUCCESS',
+            "Residuo '{$waste->name}' reactivado.", $request->user(),
+            ['waste_id' => $waste->id, 'organization_id' => $waste->organization_id],
+        );
+
+        return response()->json(['waste' => $waste->fresh()]);
+    }
+
+    /**
+     * DOS chequeos, no uno: el permiso `wastes.suspend` Y pertenecer al tenant
+     * plataforma. El permiso solo no basta -- un admin de tenant podría tenerlo
+     * asignado por error y esto es una accion reservada a EcoLink.
+     */
+    private function assertPlatformStaffCanSuspend(Request $request): void
+    {
+        abort_unless($request->user()->isPlatformStaff(), 403, 'Solo el staff de la plataforma puede suspender o reactivar un residuo.');
+        abort_unless($request->user()->hasPermission('wastes.suspend'), 403, 'No tiene permiso para suspender o reactivar residuos.');
     }
 
     /**
@@ -651,7 +724,9 @@ class WasteController extends Controller
         return $query->where(function ($query) use ($actor) {
             $query->where('organization_id', $actor->tenant_organization_id)
                 ->orWhere(function ($query) use ($actor) {
-                    $query->where('status', '!=', 'BR')
+                    // Solo el Borrador se oculta. Un Suspendido SI se sigue
+                    // viendo: retirarlo de circulacion no borra su historia.
+                    $query->where('status', '!=', Waste::STATUS_DRAFT)
                         ->where(function ($query) use ($actor) {
                             $query->whereIn('organization_id', GeneratorSubgestorRelationship::query()
                                 ->where('subgestor_organization_id', $actor->tenant_organization_id)

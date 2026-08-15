@@ -38,17 +38,18 @@ use Database\Seeders\WorkflowSeeder;
 // WasteTreatmentApproval::isAccessibleBy()/isEditableBy().
 //
 // item 17/D-WF-02: cada transición (approveTechnical/rejectTechnical/
-// approveCommercial/rejectCommercial/quote/negotiate/cancel) ahora resuelve
-// el workflow BASE "RESPEL" (WorkflowSeeder) y valida
-// `workflow_transition_roles` contra el actor -- de ahí la seeding chain
-// (RoleSeeder/RespelStatusSeeder/WorkflowSeeder) y que
-// `treatmentApprovalActor()` otorgue TAMBIÉN el rol literal `ADMINISTRADOR`
-// cuando se pide el permiso `treatment_approvals.evaluate`: en producción
-// ese permiso SOLO lo tiene ese rol (RolePermissionSeeder), y las 17
-// transiciones del workflow BASE están autorizadas exactamente para ese rol
-// (WorkflowSeeder/WorkflowSeederTest) -- se replica esa misma equivalencia
-// aquí en vez de inventar un mecanismo de autorización nuevo para los
-// tests.
+// approveCommercial/rejectCommercial/quote/negotiate/cancel) resuelve el
+// workflow BASE "RESPEL" (WorkflowSeeder) -- de ahí la seeding chain
+// (RoleSeeder/RespelStatusSeeder/WorkflowSeeder).
+//
+// Antes `treatmentApprovalActor()` otorgaba TAMBIÉN el rol literal
+// `ADMINISTRADOR` junto al permiso, porque el motor autorizaba por ROL
+// (`workflow_transition_roles`) y sin ese rol toda transición daba 403.
+// Ese andamio se retiró (2026-08-14) junto con las filas de rol del
+// seeder: la autorización la decide el PERMISO. Gracias a eso, cada test
+// de evaluación de este archivo prueba ahora que basta el permiso, sin
+// necesidad de un rol concreto -- que es justo el bug que sufría
+// TECNICO_AMBIENTAL en producción.
 beforeEach(function () {
     $this->seed(OrganizationStatusSeeder::class);
     $this->seed(PlatformOrganizationSeeder::class);
@@ -74,18 +75,6 @@ function treatmentApprovalActor(array $codes = [], ?int $tenantOrganizationId = 
 
         UserRole::query()->create(['user_id' => $actor->id, 'role_id' => $role->id, 'is_active' => true]);
 
-        // Ver docblock de arriba: el motor de Workflow autoriza por ROL
-        // (workflow_transition_roles.role_id), no por permiso -- se otorga
-        // el rol ADMINISTRADOR real además del permiso ad hoc de siempre,
-        // replicando la equivalencia rol<->permiso ya documentada/probada
-        // en WorkflowSeeder/WorkflowSeederTest.
-        if (in_array('treatment_approvals.evaluate', $codes, true)) {
-            $administrador = Role::query()->where('code', 'ADMINISTRADOR')->first();
-
-            if ($administrador !== null) {
-                UserRole::query()->create(['user_id' => $actor->id, 'role_id' => $administrador->id, 'is_active' => true]);
-            }
-        }
     }
 
     return $actor;
@@ -783,14 +772,17 @@ test('transiciones comerciales rechazan operar sobre un estado final (APPROVED/R
 
 // ---- Waste::hasViableTreatment() / scopeWithViableTreatment() ----
 
-test('Waste::hasViableTreatment() refleja correctamente ambos estados aprobados', function () {
+// El eje COMERCIAL dejó de exigirse (2026-08-14): se resuelve fuera de la
+// plataforma y no debe bloquear. Este test antes fijaba lo contrario -- que
+// con el eje técnico aprobado NO bastaba.
+test('Waste::hasViableTreatment() basta con el eje TÉCNICO aprobado', function () {
     $waste = Waste::factory()->create();
 
     expect($waste->hasViableTreatment())->toBeFalse();
 
     WasteTreatmentApproval::factory()->create([
         'waste_id' => $waste->id,
-        'technical_status' => 'APPROVED',
+        'technical_status' => 'PENDING',
         'commercial_status' => 'DRAFT',
     ]);
 
@@ -799,7 +791,7 @@ test('Waste::hasViableTreatment() refleja correctamente ambos estados aprobados'
     WasteTreatmentApproval::factory()->create([
         'waste_id' => $waste->id,
         'technical_status' => 'APPROVED',
-        'commercial_status' => 'APPROVED',
+        'commercial_status' => 'DRAFT',
     ]);
 
     $waste->refresh();
@@ -1075,10 +1067,28 @@ test('un Gestor con workflow personalizado tiene la transición extra TECH_PENDI
     $actorForCustom = treatmentApprovalActor(['treatment_approvals.evaluate'], $customGestor->id);
     $actorForUnpersonalized = treatmentApprovalActor(['treatment_approvals.evaluate'], $unpersonalizedGestor->id);
 
-    $this->actingAs($actorForCustom)->postJson("/api/admin/treatment-approvals/{$customApproval->id}/approve-technical")
+    // (c1) El workflow BASE ya no restringe por rol (2026-08-14): basta el
+    // permiso. Antes esta llamada exigía además el rol ADMINISTRADOR, y por
+    // eso un TECNICO_AMBIENTAL con el permiso recibía 403 en producción.
+    $this->actingAs($actorForUnpersonalized)->postJson("/api/admin/treatment-approvals/{$unpersonalizedApproval->id}/approve-technical")
         ->assertOk()->assertJsonPath('treatment_approval.technical_status', 'APPROVED');
 
-    $this->actingAs($actorForUnpersonalized)->postJson("/api/admin/treatment-approvals/{$unpersonalizedApproval->id}/approve-technical")
+    // (c2) La personalización por organización SÍ conserva la restricción por
+    // rol: el clon ató sus transiciones a ADMINISTRADOR, así que el mismo
+    // permiso que basta en el workflow base NO alcanza aquí. Es la
+    // contrapartida de haber quitado esas filas del seeder -- la capacidad
+    // sigue disponible para quien la configure, solo dejó de imponerse por
+    // defecto.
+    $this->actingAs($actorForCustom)->postJson("/api/admin/treatment-approvals/{$customApproval->id}/approve-technical")
+        ->assertForbidden();
+
+    UserRole::query()->create([
+        'user_id' => $actorForCustom->id,
+        'role_id' => Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->id,
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($actorForCustom)->postJson("/api/admin/treatment-approvals/{$customApproval->id}/approve-technical")
         ->assertOk()->assertJsonPath('treatment_approval.technical_status', 'APPROVED');
 });
 
@@ -1147,4 +1157,228 @@ test('approveTechnical registra workflow_logs.tenant_organization_id de la organ
 
     expect($log->tenant_organization_id)->toBe($gestor->id)
         ->and($log->tenant_organization_id)->not->toBe($platformActor->tenant_organization_id);
+});
+
+// ---- Fase 1: el ESTADO del residuo lo gobierna la evaluación del Gestor ----
+//
+// Antes el ciclo terminaba en CLS y lo que habilitaba una Solicitud era un eje
+// aparte e invisible (`hasViableTreatment()` exigiendo AMBOS ejes). Ahora el
+// estado es la única señal que hay que mirar, y el eje comercial no bloquea.
+
+/**
+ * Devuelve [evaluación, residuo, gestor] listos para evaluar.
+ *
+ * @return array{0: WasteTreatmentApproval, 1: Waste, 2: Organization}
+ */
+function evaluableApproval(string $wasteStatus = Waste::STATUS_DECLARED): array
+{
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => $wasteStatus,
+    ]);
+
+    $gestor = gestorOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $gestor->id]);
+    $branchTreatment = BranchTreatment::factory()->create([
+        'organization_id' => $gestor->id,
+        'branch_id' => $branch->id,
+        'treatment_id' => Treatment::factory()->create()->id,
+    ]);
+
+    $approval = WasteTreatmentApproval::factory()->create([
+        'waste_id' => $waste->id,
+        'organization_id' => $gestor->id,
+        'branch_treatment_id' => $branchTreatment->id,
+        'technical_status' => 'PENDING',
+        'commercial_status' => 'DRAFT',
+        'is_active' => true,
+    ]);
+
+    return [$approval, $waste, $gestor];
+}
+
+test('storeForWaste mueve el residuo de Declarado a En Revisión', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => Waste::STATUS_DECLARED,
+    ]);
+
+    $gestor = gestorOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $gestor->id]);
+    $branchTreatment = BranchTreatment::factory()->create([
+        'organization_id' => $gestor->id,
+        'branch_id' => $branch->id,
+        'treatment_id' => Treatment::factory()->create()->id,
+    ]);
+
+    $actor = treatmentApprovalActor(['wastes.update', 'treatment_approvals.create'], $generatorOrganization->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertCreated();
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_IN_REVIEW);
+
+    // La transición tiene que caer en la pestaña Actividad del residuo, que
+    // filtra por `metadata->waste_id`.
+    $log = SecurityLog::query()->where('event_type', 'WASTE_REVIEW_STARTED')->first();
+    expect($log)->not->toBeNull()
+        ->and($log->metadata['waste_id'] ?? null)->toBe($waste->id);
+});
+
+test('la aprobación técnica deja el residuo en Clasificado', function () {
+    [$approval, $waste, $gestor] = evaluableApproval(Waste::STATUS_IN_REVIEW);
+    $actor = treatmentApprovalActor(['treatment_approvals.update', 'treatment_approvals.evaluate'], $gestor->id);
+
+    $this->actingAs($actor)
+        ->postJson("/api/admin/treatment-approvals/{$approval->id}/approve-technical")
+        ->assertOk();
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
+});
+
+test('el rechazo técnico devuelve el residuo a Declarado y exige observación', function () {
+    [$approval, $waste, $gestor] = evaluableApproval(Waste::STATUS_IN_REVIEW);
+    $actor = treatmentApprovalActor(['treatment_approvals.update', 'treatment_approvals.evaluate'], $gestor->id);
+
+    // La observación es obligatoria: es lo que el Generador va a leer para
+    // saber por qué se lo rechazaron.
+    $this->actingAs($actor)
+        ->postJson("/api/admin/treatment-approvals/{$approval->id}/reject-technical")
+        ->assertUnprocessable()->assertJsonValidationErrors('technical_notes');
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_IN_REVIEW);
+
+    $this->actingAs($actor)->postJson("/api/admin/treatment-approvals/{$approval->id}/reject-technical", [
+        'technical_notes' => 'El tratamiento no aplica a esta corriente.',
+    ])->assertOk();
+
+    // Vuelve a DEC, no a BR: sigue visible para los demás Gestores vinculados.
+    // El rechazo es de ESA evaluación, no del residuo.
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_DECLARED)
+        ->and($approval->fresh()->technical_notes)->toContain('no aplica');
+});
+
+test('un rechazo NO devuelve a Declarado si otra evaluación ya lo dejó viable', function () {
+    [$approval, $waste, $gestor] = evaluableApproval(Waste::STATUS_CLASSIFIED);
+
+    // Segundo Gestor que YA lo aprobó técnicamente.
+    WasteTreatmentApproval::factory()->create([
+        'waste_id' => $waste->id,
+        'organization_id' => gestorOrganization()->id,
+        'technical_status' => 'APPROVED',
+        'is_active' => true,
+    ]);
+
+    $actor = treatmentApprovalActor(['treatment_approvals.update', 'treatment_approvals.evaluate'], $gestor->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/treatment-approvals/{$approval->id}/reject-technical", [
+        'technical_notes' => 'No lo tratamos nosotros.',
+    ])->assertOk();
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
+});
+
+test('la aprobación final lleva el residuo de Clasificado a Aprobado', function () {
+    [$approval, $waste, $gestor] = evaluableApproval(Waste::STATUS_CLASSIFIED);
+    $approval->forceFill(['technical_status' => 'APPROVED'])->save();
+
+    $actor = treatmentApprovalActor(['treatment_approvals.update', 'treatment_approvals.approve'], $gestor->id);
+
+    $this->actingAs($actor)
+        ->postJson("/api/admin/treatment-approvals/{$approval->id}/approve-final")
+        ->assertOk()
+        ->assertJsonPath('waste.status', Waste::STATUS_APPROVED);
+
+    $log = SecurityLog::query()->where('event_type', 'WASTE_APPROVED')->first();
+    expect($log)->not->toBeNull()
+        ->and($log->metadata['waste_id'] ?? null)->toBe($waste->id);
+});
+
+test('la aprobación final NO exige el eje comercial: se resuelve fuera de la plataforma', function () {
+    [$approval, $waste, $gestor] = evaluableApproval(Waste::STATUS_CLASSIFIED);
+    $approval->forceFill(['technical_status' => 'APPROVED', 'commercial_status' => 'DRAFT'])->save();
+
+    $actor = treatmentApprovalActor(['treatment_approvals.update', 'treatment_approvals.approve'], $gestor->id);
+
+    $this->actingAs($actor)
+        ->postJson("/api/admin/treatment-approvals/{$approval->id}/approve-final")
+        ->assertOk();
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_APPROVED);
+});
+
+test('la aprobación final exige el permiso propio: no basta con poder evaluar', function () {
+    [$approval, $waste, $gestor] = evaluableApproval(Waste::STATUS_CLASSIFIED);
+    $approval->forceFill(['technical_status' => 'APPROVED'])->save();
+
+    // Control de cuatro ojos: quien asigna el tratamiento no se da a sí mismo
+    // el visto bueno final.
+    $actor = treatmentApprovalActor(['treatment_approvals.update', 'treatment_approvals.evaluate'], $gestor->id);
+
+    $this->actingAs($actor)
+        ->postJson("/api/admin/treatment-approvals/{$approval->id}/approve-final")
+        ->assertForbidden();
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
+});
+
+test('no se puede aprobar un residuo cuyo tratamiento no fue aprobado técnicamente', function () {
+    [$approval, $waste, $gestor] = evaluableApproval(Waste::STATUS_CLASSIFIED);
+    $actor = treatmentApprovalActor(['treatment_approvals.update', 'treatment_approvals.approve'], $gestor->id);
+
+    $this->actingAs($actor)
+        ->postJson("/api/admin/treatment-approvals/{$approval->id}/approve-final")
+        ->assertUnprocessable()->assertJsonValidationErrors('technical_status');
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
+});
+
+test('un residuo ya Aprobado no retrocede por una evaluación posterior', function () {
+    [$approval, $waste, $gestor] = evaluableApproval(Waste::STATUS_APPROVED);
+    $actor = treatmentApprovalActor(['treatment_approvals.update', 'treatment_approvals.evaluate'], $gestor->id);
+
+    // Otro Gestor rechaza SU evaluación -- el residuo aprobado no se toca:
+    // ya arrastra solicitudes, programaciones y certificados.
+    $this->actingAs($actor)->postJson("/api/admin/treatment-approvals/{$approval->id}/reject-technical", [
+        'technical_notes' => 'No lo tratamos nosotros.',
+    ])->assertOk();
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_APPROVED);
+});
+
+// `rejectCommercial()` no tenía NINGÚN test (la ruta existía, nadie la
+// ejercitaba). El motivo pasó a ser obligatorio, por simetría con el rechazo
+// técnico: un rechazo sin motivo deja a la contraparte sin saber qué corregir.
+test('el rechazo comercial exige motivo y lo guarda', function () {
+    [$approval, , $gestor] = evaluableApproval(Waste::STATUS_CLASSIFIED);
+    $actor = treatmentApprovalActor(['treatment_approvals.update', 'treatment_approvals.evaluate'], $gestor->id);
+
+    $this->actingAs($actor)
+        ->postJson("/api/admin/treatment-approvals/{$approval->id}/reject-commercial")
+        ->assertUnprocessable()->assertJsonValidationErrors('commercial_notes');
+
+    expect($approval->fresh()->commercial_status)->toBe('DRAFT');
+
+    $this->actingAs($actor)->postJson("/api/admin/treatment-approvals/{$approval->id}/reject-commercial", [
+        'commercial_notes' => 'Fuera de nuestro rango de precio.',
+    ])->assertOk();
+
+    expect($approval->fresh()->commercial_status)->toBe('REJECTED')
+        ->and($approval->fresh()->commercial_notes)->toContain('rango de precio');
+});
+
+// El eje comercial ya no gobierna nada del ciclo del residuo: se resuelve
+// fuera de la plataforma. Rechazarlo no debe mover el estado.
+test('el rechazo comercial NO altera el estado del residuo', function () {
+    [$approval, $waste, $gestor] = evaluableApproval(Waste::STATUS_CLASSIFIED);
+    $actor = treatmentApprovalActor(['treatment_approvals.update', 'treatment_approvals.evaluate'], $gestor->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/treatment-approvals/{$approval->id}/reject-commercial", [
+        'commercial_notes' => 'Fuera de nuestro rango de precio.',
+    ])->assertOk();
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
 });

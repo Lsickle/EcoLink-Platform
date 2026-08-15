@@ -20,7 +20,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 // propia organización -- ver `isAccessibleBy()`/`WastePolicy`. SIN
 // restricción de business_role (confirmado por el usuario).
 //
-// `status` (workflow de declaración BR/DEC/REV/CLS/RCH) es DISTINTO de
+// `status` (ciclo de vida BR/DEC/REV/CLS/APR/SUS -- ver constantes) es
+// DISTINTO de
 // `operational_status_id` (catálogo `waste_operational_statuses`) -- dos
 // conceptos distintos, ver docblock de la migración.
 //
@@ -44,6 +45,48 @@ class Waste extends Model
 {
     /** @use HasFactory<WasteFactory> */
     use HasFactory, HasUuid, SoftDeletes;
+
+    /*
+     * Ciclo de vida del residuo (modelo confirmado por el usuario, 2026-08-14).
+     *
+     *   BR --submit--> DEC --toma--> REV --aprob. técnica--> CLS --aprob. final--> APR
+     *                   ^                                                          |
+     *                   +---- rechazo técnico (con observación) ----+      EcoLink |
+     *                                                                      APR <-> SUS
+     *
+     * `REV -> CLS` y `CLS -> APR` son AUTOMÁTICAS: las dispara la resolución de
+     * la evaluación (`WasteTreatmentApprovalController`), no un botón aparte
+     * que se pueda olvidar. El estado del residuo lo gobierna el GESTOR que
+     * evalúa, no su dueño.
+     *
+     * `APR` es lo ÚNICO que habilita una Solicitud de Servicio.
+     *
+     * `RCH` (Rechazado) se retiró: figuraba en etiquetas y filtros pero ninguna
+     * transición lo producía -- rechazar devolvía (y devuelve) a un estado
+     * anterior, nunca a RCH.
+     */
+    public const STATUS_DRAFT = 'BR';
+
+    public const STATUS_DECLARED = 'DEC';
+
+    public const STATUS_IN_REVIEW = 'REV';
+
+    public const STATUS_CLASSIFIED = 'CLS';
+
+    public const STATUS_APPROVED = 'APR';
+
+    public const STATUS_SUSPENDED = 'SUS';
+
+    /** Estados en los que el residuo NO es visible para una contraparte vinculada. */
+    public const STATUSES_HIDDEN_CROSS_TENANT = [self::STATUS_DRAFT];
+
+    /**
+     * Estados que impiden pedir una evaluación nueva. Al borrador invisible se
+     * suma `SUS`: un residuo retirado de circulación no debe volver a
+     * ofrecerse a un Gestor. Un `APR` sí puede reenviarse -- una evaluación
+     * adicional no lo hace retroceder (lo garantiza `syncWasteStatus()`).
+     */
+    public const STATUSES_NOT_FORWARDABLE = [self::STATUS_DRAFT, self::STATUS_SUSPENDED];
 
     protected function casts(): array
     {
@@ -215,7 +258,8 @@ class Waste extends Model
      */
     public function isForwardableBySubgestor(User $actor): bool
     {
-        return $this->status !== 'BR' && GeneratorSubgestorRelationship::query()
+        return ! in_array($this->status, self::STATUSES_NOT_FORWARDABLE, true)
+            && GeneratorSubgestorRelationship::query()
             ->where('generator_organization_id', $this->organization_id)
             ->where('subgestor_organization_id', $actor->tenant_organization_id)
             ->where('is_active', true)
@@ -237,7 +281,8 @@ class Waste extends Model
      */
     public function isForwardableByGestor(User $actor): bool
     {
-        return $this->status !== 'BR' && GeneratorGestorRelationship::query()
+        return ! in_array($this->status, self::STATUSES_NOT_FORWARDABLE, true)
+            && GeneratorGestorRelationship::query()
             ->where('generator_organization_id', $this->organization_id)
             ->where('gestor_organization_id', $actor->tenant_organization_id)
             ->where('is_active', true)
@@ -245,17 +290,24 @@ class Waste extends Model
     }
 
     /**
-     * "Tratamiento viable" (mecanismo de preaprobación + gating de la futura
-     * Solicitud de Servicio): AMBOS ejes de al menos UNA evaluación activa
-     * deben estar aprobados (`technical_status=APPROVED` AND
-     * `commercial_status=APPROVED`). Ambos ejes son independientes entre sí
-     * (ver docblock de WasteTreatmentApproval).
+     * "Tratamiento viable": existe AL MENOS UNA evaluación activa con el eje
+     * TÉCNICO aprobado.
+     *
+     * El eje COMERCIAL dejó de exigirse (confirmado por el usuario,
+     * 2026-08-14): los stakeholders priorizan la viabilización técnica, y el
+     * proceso comercial -- precio, condiciones -- ocurre FUERA de la
+     * plataforma y ANTES de declarar el residuo. Exigirlo aquí bloqueaba el
+     * flujo por información que se completa después, cuando llegue.
+     *
+     * OJO: esto NO es lo que habilita una Solicitud de Servicio -- eso lo
+     * decide `status === STATUS_APPROVED`, que además exige la aprobación
+     * final. Este helper solo responde "¿algún Gestor ya le asignó un
+     * tratamiento?".
      */
     public function hasViableTreatment(): bool
     {
         return $this->treatmentApprovals()
             ->technicalStatusCode('APPROVED')
-            ->commercialStatusCode('APPROVED')
             ->where('is_active', true)
             ->exists();
     }
@@ -269,7 +321,6 @@ class Waste extends Model
     {
         return $query->whereHas('treatmentApprovals', function (Builder $query) {
             $query->technicalStatusCode('APPROVED')
-                ->commercialStatusCode('APPROVED')
                 ->where('is_active', true);
         });
     }
@@ -288,7 +339,6 @@ class Waste extends Model
     {
         return $query->whereDoesntHave('treatmentApprovals', function (Builder $query) {
             $query->technicalStatusCode('APPROVED')
-                ->commercialStatusCode('APPROVED')
                 ->where('is_active', true);
         });
     }

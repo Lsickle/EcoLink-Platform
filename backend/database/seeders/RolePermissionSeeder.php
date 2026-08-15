@@ -47,8 +47,8 @@ class RolePermissionSeeder extends Seeder
         'generation_frequencies.read', 'generation_frequencies.manage',
         'waste_operational_statuses.read', 'waste_operational_statuses.manage',
         'wastes.read', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate',
-        'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject',
-        'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate',
+        'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'wastes.suspend',
+        'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'treatment_approvals.approve',
         'preapproved_wastes.read', 'preapproved_wastes.manage',
         'workflows.manage',
         'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate',
@@ -193,6 +193,10 @@ class RolePermissionSeeder extends Seeder
      * no este seeder.
      */
     private const TECNICO_AMBIENTAL_PERMISSION_CODES = [
+        // SIN `treatment_approvals.approve` a proposito (2026-08-14): quien
+        // asigna el tratamiento no debe darse a si mismo el visto bueno final.
+        // Ese permiso queda en ADMINISTRADOR y cada organizacion lo asigna al
+        // rol que corresponda -- control de cuatro ojos.
         'treatment_approvals.read', 'treatment_approvals.update', 'treatment_approvals.evaluate',
         'preapproved_wastes.read', 'preapproved_wastes.manage',
     ];

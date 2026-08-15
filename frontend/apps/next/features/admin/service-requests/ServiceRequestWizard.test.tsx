@@ -180,13 +180,16 @@ describe('ServiceRequestWizard', () => {
     expect(screen.getByLabelText('Sede Solicitante *')).toBeInTheDocument()
   })
 
-  test('Step 2 loads eligible wastes (filtered to viable treatment approvals) and lists them for selection', async () => {
+  // El gate pasó a ser el ESTADO del residuo (2026-08-14): antes se pedía
+  // `withViableTreatment`, un eje aparte que el usuario no veía en ninguna
+  // pantalla. Ahora solo un residuo Aprobado puede solicitarse, que es lo
+  // mismo que valida `ServiceRequestController::resolveAndValidateItems()`.
+  test('Step 2 loads only APPROVED wastes and lists them for selection', async () => {
     render(<ServiceRequestWizard />)
     await goToStep2()
 
-    await vi.waitFor(() =>
-      expect(fetchWastesMock).toHaveBeenCalledWith(expect.objectContaining({ withViableTreatment: true }))
-    )
+    await vi.waitFor(() => expect(fetchWastesMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'APR' })))
+    expect(fetchWastesMock).not.toHaveBeenCalledWith(expect.objectContaining({ withViableTreatment: true }))
     await vi.waitFor(() => expect(fetchWasteTreatmentApprovalsMock).toHaveBeenCalledWith(20, expect.objectContaining({ perPage: 50 })))
     // Ya no hay N+1 de descubrimiento: fetchWastes() trae solo los residuos
     // elegibles (filtrados server-side), fetchWasteTreatmentApprovals() se
@@ -194,6 +197,36 @@ describe('ServiceRequestWizard', () => {
     expect(fetchWasteTreatmentApprovalsMock).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('Aceite Lubricante Usado')).toBeInTheDocument()
     expect(screen.getByText(/Coprocesamiento/)).toBeInTheDocument()
+  })
+
+  // El proceso comercial (precio, condiciones) ocurre FUERA de la plataforma
+  // y antes de declarar, así que no debe bloquear. Antes este filtro exigía
+  // `commercial_status === 'APPROVED'` y dejaba el residuo fuera del wizard.
+  test('un residuo Aprobado se ofrece aunque su evaluación no tenga el eje comercial cerrado', async () => {
+    fetchWasteTreatmentApprovalsMock.mockResolvedValue({
+      ...emptyPage,
+      data: [viableApproval({ commercial_status: 'DRAFT' })],
+    })
+
+    render(<ServiceRequestWizard />)
+    await goToStep2()
+
+    expect(await screen.findByText('Aceite Lubricante Usado')).toBeInTheDocument()
+  })
+
+  // ...pero el eje TÉCNICO sí manda: sin tratamiento asignado no hay nada que
+  // ofrecer en el selector de tratamiento del ítem.
+  test('un residuo sin aprobación técnica no aparece, aunque el backend lo haya devuelto', async () => {
+    fetchWasteTreatmentApprovalsMock.mockResolvedValue({
+      ...emptyPage,
+      data: [viableApproval({ technical_status: 'PENDING' })],
+    })
+
+    render(<ServiceRequestWizard />)
+    await goToStep2()
+
+    await vi.waitFor(() => expect(fetchWasteTreatmentApprovalsMock).toHaveBeenCalled())
+    expect(screen.queryByText('Aceite Lubricante Usado')).not.toBeInTheDocument()
   })
 
   test('"Guardar Borrador" without any selected item shows a validation error and does not call the API', async () => {
