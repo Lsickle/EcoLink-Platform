@@ -30,3 +30,25 @@ export const RISK_LEVEL_LABELS: Record<RiskLevel, string> = {
   alto: 'alto',
   critico: 'crítico',
 }
+
+/**
+ * Normaliza el valor que llega del backend antes de indexar los mapas de
+ * arriba.
+ *
+ * Hace falta porque el dato NO está normalizado en base de datos: el DEFAULT de
+ * la columna `organizations.risk_level` es `'BAJO'` (mayúscula) mientras
+ * `OrganizationController::store()` fuerza minúscula -- inconsistencia ya
+ * documentada en el docblock de ese controller. Cualquier organización creada
+ * sin pasar por ese endpoint (seeder, carga masiva, inserción directa) llega
+ * con `'BAJO'`, y ahí `RISK_LEVEL_CLASSES[...]` devolvía `undefined` y tumbaba
+ * la pantalla entera de detalle con un `TypeError` (encontrado en pruebas de
+ * navegador, 2026-08-15).
+ *
+ * Un valor de dato inesperado no debe dejar la pantalla en blanco: se cae a
+ * `bajo`, que es además el default que pretendía la columna.
+ */
+export function normalizeRiskLevel(value: string | null | undefined): RiskLevel {
+  const normalized = (value ?? '').toLowerCase()
+
+  return normalized in RISK_LEVEL_CLASSES ? (normalized as RiskLevel) : 'bajo'
+}

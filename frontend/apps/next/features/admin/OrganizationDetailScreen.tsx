@@ -39,7 +39,12 @@ import {
   type RoleActivityEvent,
 } from 'app/features/admin/api'
 import { COMPANY_SIZES, CURRENCIES, RISK_LEVELS, TIMEZONES } from 'app/features/admin/organizationCatalogs'
-import { RISK_LEVEL_BAR_CLASSES, RISK_LEVEL_CLASSES, RISK_LEVEL_LABELS } from 'app/features/admin/riskLevel'
+import {
+  RISK_LEVEL_BAR_CLASSES,
+  RISK_LEVEL_CLASSES,
+  RISK_LEVEL_LABELS,
+  normalizeRiskLevel,
+} from 'app/features/admin/riskLevel'
 import { formatDate } from 'app/features/admin/formatDate'
 import { useRequireAuth } from 'app/provider/auth'
 import { OrganizationContactsPanel } from './OrganizationContactsPanel'
@@ -478,7 +483,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
   return (
     <div className="flex flex-col gap-4">
       <Card className="overflow-hidden py-0">
-        <div className={cn('h-1.5 w-full', RISK_LEVEL_CLASSES[organization.risk_level].split(' ')[0])} />
+        <div className={cn('h-1.5 w-full', RISK_LEVEL_CLASSES[normalizeRiskLevel(organization.risk_level)].split(' ')[0])} />
         <CardHeader className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground">
@@ -1045,15 +1050,15 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                     key={level}
                     className={cn(
                       'h-2 flex-1 rounded-full bg-muted',
-                      level === organization.risk_level && RISK_LEVEL_BAR_CLASSES[level]
+                      level === normalizeRiskLevel(organization.risk_level) && RISK_LEVEL_BAR_CLASSES[level]
                     )}
                   />
                 ))}
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Riesgo actual</span>
-                <Badge className={RISK_LEVEL_CLASSES[organization.risk_level]}>
-                  {RISK_LEVEL_LABELS[organization.risk_level]}
+                <Badge className={RISK_LEVEL_CLASSES[normalizeRiskLevel(organization.risk_level)]}>
+                  {RISK_LEVEL_LABELS[normalizeRiskLevel(organization.risk_level)]}
                 </Badge>
               </div>
             </CardContent>
