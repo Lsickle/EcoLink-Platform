@@ -129,18 +129,17 @@ function ChecklistList({ items }: { items: ChecklistItem[] }) {
   )
 }
 
-// Residuo elegible para Solicitud de Servicio -- Paso 2. Cierre del GAP DE
-// CONTRATO señalado en el resumen del lote anterior (2026-07-19):
-// `WasteController::index()` ahora acepta `with_viable_treatment=1`
-// (reutiliza `Waste::scopeWithViableTreatment()`, ver `fetchWastes()` en
-// api.ts) -- el filtrado de elegibilidad YA NO se hace en cliente, una sola
-// llamada trae exactamente los residuos con al menos un tratamiento con
-// AMBOS ejes `APPROVED`. La llamada restante por residuo a
-// `fetchWasteTreatmentApprovals()` sigue siendo NECESARIA (no es el
-// workaround de filtrado eliminado): el filtro del backend solo determina
-// elegibilidad (booleano), pero `index()` no embebe las aprobaciones -- el
-// selector "Tratamiento" de cada ítem necesita el id/nombre real de cada
-// aprobación viable, que solo existe en ese endpoint dedicado.
+// Residuo elegible para Solicitud de Servicio -- Paso 2. La elegibilidad se
+// resuelve server-side con UNA llamada: `status=APR`, el mismo gate que aplica
+// `ServiceRequestController::resolveAndValidateItems()`.
+//
+// Hasta 2026-08-14 se pedía `with_viable_treatment=1` (ambos ejes APPROVED),
+// un eje invisible para el usuario: un residuo podía verse "Clasificado" y aun
+// así no aparecer aquí, sin que nada explicara por qué.
+//
+// La llamada restante por residuo a `fetchWasteTreatmentApprovals()` sigue
+// siendo NECESARIA: `index()` no embebe las aprobaciones y el selector
+// "Tratamiento" de cada ítem necesita el id/nombre real de cada una.
 type EligibleWaste = {
   waste: AdminWaste
   approvals: AdminTreatmentApprovalForWaste[]
@@ -689,7 +688,8 @@ export function ServiceRequestWizard() {
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-semibold text-muted-foreground">RESIDUOS DISPONIBLES PARA SOLICITAR</span>
                 <p className="text-xs text-muted-foreground">
-                  Solo se listan residuos con al menos un tratamiento aprobado (técnico y comercial) vigente.
+                  Solo se listan residuos en estado Aprobado. Si no ves uno, todavía le falta el visto bueno final del
+                  Gestor.
                 </p>
                 <Input
                   placeholder="Buscar por nombre o código…"
@@ -720,7 +720,7 @@ export function ServiceRequestWizard() {
                       {filteredWastes.length === 0 && (
                         <TableRow>
                           <TableCell colSpan={5} className="text-center text-muted-foreground">
-                            No hay residuos con tratamiento viable disponibles.
+                            No hay residuos Aprobados disponibles.
                           </TableCell>
                         </TableRow>
                       )}

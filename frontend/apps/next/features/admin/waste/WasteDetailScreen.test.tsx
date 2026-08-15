@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { WasteDetailScreen } from './WasteDetailScreen'
 
 const fetchWasteMock = vi.fn()
+const suspendWasteMock = vi.fn()
+const reactivateWasteMock = vi.fn()
 const fetchWasteFilesMock = vi.fn()
 const fetchWasteActivityMock = vi.fn()
 const startReviewWasteMock = vi.fn()
@@ -21,6 +23,8 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
   return {
     ...actual,
     fetchWaste: (...args: unknown[]) => fetchWasteMock(...args),
+    suspendWaste: (...args: unknown[]) => suspendWasteMock(...args),
+    reactivateWaste: (...args: unknown[]) => reactivateWasteMock(...args),
     fetchWasteFiles: (...args: unknown[]) => fetchWasteFilesMock(...args),
     fetchWasteActivity: (...args: unknown[]) => fetchWasteActivityMock(...args),
     startReviewWaste: (...args: unknown[]) => startReviewWasteMock(...args),
@@ -652,5 +656,105 @@ describe('WasteDetailScreen', () => {
     expect(screen.queryByRole('button', { name: 'Solicitar Evaluación' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reenviar a Gestor' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Ofrecer mi Tratamiento' })).not.toBeInTheDocument()
+  })
+
+  // Suspensión APR <-> SUS (2026-08-14). Se detectó en la pasada de navegador
+  // que las funciones del cliente de API existían pero ninguna pantalla las
+  // llamaba: la suspensión era API-only.
+  describe('suspender / reactivar', () => {
+    test('el staff de EcoLink suspende un residuo Aprobado indicando el motivo', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: true,
+        permissions: ['wastes.read', 'wastes.suspend'],
+        tenant_organization_id: 99,
+      }
+      fetchWasteMock.mockResolvedValue({ waste: { ...baseWaste(), status: 'APR' } })
+      suspendWasteMock.mockResolvedValue({ waste: { status: 'SUS' } })
+
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Suspender' }))
+
+      // El motivo es obligatorio: sin él no se puede confirmar.
+      const confirm = screen.getByRole('button', { name: 'Confirmar Suspensión' })
+      expect(confirm).toBeDisabled()
+
+      fireEvent.change(screen.getByLabelText('Motivo de la suspensión'), {
+        target: { value: 'Licencia ambiental del Gestor vencida.' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar Suspensión' }))
+
+      await vi.waitFor(() =>
+        expect(suspendWasteMock).toHaveBeenCalledWith(20, { reason: 'Licencia ambiental del Gestor vencida.' })
+      )
+      expect(await screen.findByText(/retirado de circulación/i)).toBeInTheDocument()
+    })
+
+    test('un residuo Suspendido ofrece Reactivar', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: true,
+        permissions: ['wastes.read', 'wastes.suspend'],
+        tenant_organization_id: 99,
+      }
+      fetchWasteMock.mockResolvedValue({ waste: { ...baseWaste(), status: 'SUS' } })
+      reactivateWasteMock.mockResolvedValue({ waste: { status: 'APR' } })
+
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reactivar' }))
+
+      await vi.waitFor(() => expect(reactivateWasteMock).toHaveBeenCalledWith(20))
+    })
+
+    // Doble barrera, igual que en el backend: el permiso solo no alcanza.
+    test('una organización cliente con el permiso NO ve la acción', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: false,
+        permissions: ['wastes.read', 'wastes.suspend'],
+        tenant_organization_id: 1,
+      }
+      fetchWasteMock.mockResolvedValue({ waste: { ...baseWaste(), status: 'APR' } })
+
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      expect(screen.queryByRole('button', { name: 'Suspender' })).not.toBeInTheDocument()
+    })
+
+    test('el staff sin el permiso tampoco la ve', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: true,
+        permissions: ['wastes.read'],
+        tenant_organization_id: 99,
+      }
+      fetchWasteMock.mockResolvedValue({ waste: { ...baseWaste(), status: 'APR' } })
+
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      expect(screen.queryByRole('button', { name: 'Suspender' })).not.toBeInTheDocument()
+    })
+
+    // Solo desde APR: un Clasificado todavía no está en circulación.
+    test('un residuo Clasificado no es suspendible', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: true,
+        permissions: ['wastes.read', 'wastes.suspend'],
+        tenant_organization_id: 99,
+      }
+      fetchWasteMock.mockResolvedValue({ waste: { ...baseWaste(), status: 'CLS' } })
+
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      expect(screen.queryByRole('button', { name: 'Suspender' })).not.toBeInTheDocument()
+    })
   })
 })

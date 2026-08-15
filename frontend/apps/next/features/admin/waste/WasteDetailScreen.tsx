@@ -32,8 +32,10 @@ import {
   fetchWastePreapprovedMatches,
   fetchWasteTreatmentApprovals,
   getFileDownloadUrl,
+  reactivateWaste,
   rejectWaste,
   startReviewWaste,
+  suspendWaste,
   usePreapprovedTreatmentMatch,
   type AdminTreatmentApprovalForWaste,
   type AdminWasteDetail,
@@ -312,6 +314,9 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
   const [isRejecting, setIsRejecting] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
 
+  const [isSuspending, setIsSuspending] = useState(false)
+  const [suspendReason, setSuspendReason] = useState('')
+
   const [files, setFiles] = useState<WasteFilesByCategory>({})
   const [filesLoaded, setFilesLoaded] = useState(false)
   const [filesLoading, setFilesLoading] = useState(false)
@@ -429,14 +434,50 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, isAuthorized, wasteId, canViewTreatmentApprovals])
 
+  // Tambien refresca el RESIDUO, no solo sus evaluaciones: solicitar/ofrecer
+  // una evaluacion mueve el residuo a En Revision (2026-08-14), y sin esto el
+  // badge de estado se quedaba en "Declarado" hasta recargar a mano.
+  // El motivo es obligatorio y queda en la trazabilidad: suspender retira de
+  // circulacion un residuo que ya puede arrastrar solicitudes y certificados,
+  // asi que "por que" tiene que quedar registrado.
+  async function handleConfirmSuspend() {
+    setTransitionError(null)
+    setIsTransitioning(true)
+    try {
+      const { waste: updated } = await suspendWaste(wasteId, { reason: suspendReason })
+      setWaste((current) => (current ? { ...current, status: updated.status } : current))
+      setIsSuspending(false)
+      setSuspendReason('')
+    } catch (error) {
+      setTransitionError(errorMessage(error, 'reason'))
+    } finally {
+      setIsTransitioning(false)
+    }
+  }
+
+  async function handleReactivate() {
+    setTransitionError(null)
+    setIsTransitioning(true)
+    try {
+      const { waste: updated } = await reactivateWaste(wasteId)
+      setWaste((current) => (current ? { ...current, status: updated.status } : current))
+    } catch (error) {
+      setTransitionError(errorMessage(error, 'status'))
+    } finally {
+      setIsTransitioning(false)
+    }
+  }
+
   async function refreshTreatmentApprovals() {
     try {
-      const [approvalsResult, matchesResult] = await Promise.all([
+      const [approvalsResult, matchesResult, wasteResult] = await Promise.all([
         fetchWasteTreatmentApprovals(wasteId, { perPage: 50 }),
         fetchWastePreapprovedMatches(wasteId),
+        fetchWaste(wasteId),
       ])
       setTreatmentApprovals(approvalsResult.data)
       setPreapprovedMatches(matchesResult.matches)
+      setWaste((current) => (current ? { ...current, status: wasteResult.waste.status } : current))
     } catch (error) {
       setApprovalsError(error instanceof Error ? error.message : 'Error inesperado.')
     }
@@ -558,6 +599,11 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
   // certificados que quedarian describiendo algo distinto.
   const canEditDraft = canEditWaste && permissions.includes('wastes.update') && isWasteEditableByOwner(waste.status)
   const canRequestTreatmentApproval = treatmentApprovalMode !== null
+  // APR <-> SUS: exclusivo del staff de EcoLink CON el permiso. Doble barrera,
+  // igual que en el backend (`assertPlatformStaffCanSuspend()`): un
+  // ADMINISTRADOR de organizacion tiene `wastes.suspend` en el catalogo base y
+  // aun asi no debe poder retirar de circulacion un residuo aprobado.
+  const canSuspend = isPlatformStaff && permissions.includes('wastes.suspend')
   const canToggleActive =
     canEditWaste &&
     (waste.is_active ? permissions.includes('wastes.deactivate') : permissions.includes('wastes.activate'))
@@ -624,6 +670,16 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
                 {waste.is_active ? 'Inactivar' : 'Activar'}
               </Button>
             )}
+            {canSuspend && waste.status === 'APR' && !isSuspending && (
+              <Button variant="outline" size="sm" disabled={isTransitioning} onClick={() => setIsSuspending(true)}>
+                Suspender
+              </Button>
+            )}
+            {canSuspend && waste.status === 'SUS' && (
+              <Button size="sm" disabled={isTransitioning} onClick={handleReactivate}>
+                Reactivar
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 pb-4">
@@ -633,6 +689,32 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
                 ? 'Estás viendo el residuo de un Generador cliente vinculado. Solo puedes consultarlo y ofrecer uno de tus propios tratamientos -- no puedes editarlo, clasificarlo ni rechazarlo.'
                 : 'Estás viendo el residuo de un Generador cliente. Solo puedes consultarlo y reenviarlo a un Gestor -- no puedes editarlo, clasificarlo ni rechazarlo.'}
             </p>
+          )}
+          {waste.status === 'SUS' && (
+            <p className="rounded-lg bg-destructive/10 p-2.5 text-sm" role="status">
+              Residuo <span className="font-semibold">Suspendido</span>: retirado de circulación, no puede usarse en
+              Solicitudes de Servicio. Conserva toda su trazabilidad y solo EcoLink puede reactivarlo.
+            </p>
+          )}
+          {isSuspending && (
+            <div className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-end">
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Label htmlFor="suspendReason">Motivo de la suspensión</Label>
+                <Input
+                  id="suspendReason"
+                  value={suspendReason}
+                  onChange={(event) => setSuspendReason(event.target.value)}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" disabled={isTransitioning || !suspendReason.trim()} onClick={handleConfirmSuspend}>
+                  Confirmar Suspensión
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setIsSuspending(false)}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
           )}
           {isRejecting && (
             <div className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-end">

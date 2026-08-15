@@ -244,6 +244,22 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
     }
   }
 
+  // Las transiciones TECNICAS mueven el ESTADO DEL RESIDUO en el backend
+  // (DEC->REV->CLS, y el rechazo de vuelta a DEC). Su respuesta solo trae la
+  // evaluacion, asi que sin esto la pantalla seguiria creyendo que el residuo
+  // esta donde estaba y no ofreceria la aprobacion final hasta recargar a
+  // mano. Se refresca SOLO `waste` para no pisar lo que el usuario tenga a
+  // medio escribir en el formulario de terminos.
+  async function refreshWasteStatus() {
+    try {
+      const { treatment_approval: fresh } = await fetchTreatmentApproval(treatmentApprovalId)
+      setDetail((current) => (current ? { ...current, waste: fresh.waste } : current))
+    } catch {
+      // Si el refresco falla, la pantalla conserva el estado anterior: la
+      // transicion ya quedo guardada en el backend de todos modos.
+    }
+  }
+
   async function handleApproveTechnical() {
     if (!detail) return
     setTransitionError(null)
@@ -251,6 +267,7 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
     try {
       const { treatment_approval: updated } = await approveTreatmentApprovalTechnical(detail.id, {})
       setDetail((current) => (current ? mergeScalarFields(current, updated) : current))
+      await refreshWasteStatus()
     } catch (error) {
       setTransitionError(errorMessage(error, 'technical_status'))
     } finally {
@@ -285,6 +302,7 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
         technical_notes: technicalRejectReason,
       })
       setDetail((current) => (current ? mergeScalarFields(current, updated) : current))
+      await refreshWasteStatus()
       setIsRejectingTechnical(false)
       setTechnicalRejectReason('')
     } catch (error) {
