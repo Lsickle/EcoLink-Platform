@@ -61,6 +61,8 @@ class WasteController extends Controller
         // Transiciones que ahora dispara la EVALUACION (2026-08-14), mas la
         // suspension/reactivacion exclusiva de EcoLink.
         'WASTE_APPROVED', 'WASTE_RETURNED_TO_DECLARED', 'WASTE_SUSPENDED', 'WASTE_REACTIVATED',
+        // Fase 2: asignacion en nombre de un Gestor de referencia.
+        'WASTE_TREATMENT_APPROVAL_DELEGATED',
     ];
 
     /**

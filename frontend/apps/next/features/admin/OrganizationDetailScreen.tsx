@@ -27,6 +27,7 @@ import {
   fetchOrganizationStatuses,
   fetchOrganizationUsers,
   revokeBusinessRoleFromOrganization,
+  setOrganizationGestorOperatingMode,
   updateOrganization,
   type AdminBusinessRole,
   type AdminCountry,
@@ -148,6 +149,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
   const [toggleError, setToggleError] = useState<string | null>(null)
 
   const [businessRoleError, setBusinessRoleError] = useState<string | null>(null)
+  const [isSavingOperatingMode, setIsSavingOperatingMode] = useState(false)
   const [busyBusinessRoleId, setBusyBusinessRoleId] = useState<number | null>(null)
 
   const [activeTab, setActiveTab] = useState<'sedes' | 'contactos' | 'usuarios' | 'auditoria'>('sedes')
@@ -456,6 +458,30 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
       setBusinessRoleError(error instanceof Error ? error.message : 'Error inesperado.')
     } finally {
       setBusyBusinessRoleId(null)
+    }
+  }
+
+  // Fase 2 (2026-08-15): marca si el Gestor OPERA dentro de EcoLink o es DE
+  // REFERENCIA. Se aplica sobre el rol de negocio que trata residuos -- por eso
+  // se busca `can_treat_waste` en vez de asumir un codigo concreto.
+  async function handleToggleOperatingMode(nextOperatesInPlatform: boolean) {
+    if (!organization) return
+    const treatingRole = businessRoles.find(
+      (role) => role.can_treat_waste && assignedBusinessRoleNames.has(role.name)
+    )
+    if (!treatingRole) return
+
+    setBusinessRoleError(null)
+    setIsSavingOperatingMode(true)
+    try {
+      await setOrganizationGestorOperatingMode(organization.id, treatingRole.id, nextOperatesInPlatform)
+      setOrganization((current) =>
+        current ? { ...current, gestor_operates_in_platform: nextOperatesInPlatform } : current
+      )
+    } catch (error) {
+      setBusinessRoleError(error instanceof Error ? error.message : 'Error inesperado.')
+    } finally {
+      setIsSavingOperatingMode(false)
     }
   }
 
@@ -856,6 +882,29 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                   </div>
                 ))}
               </div>
+
+              {/* Fase 2: solo aparece si la organizacion trata residuos --
+                  `null` significa que la marca no le aplica. */}
+              {organization.gestor_operates_in_platform !== null && (
+                <div className="mt-2 flex flex-col gap-2 rounded-lg border border-border p-3">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="org-gestor-operates-in-platform"
+                      checked={organization.gestor_operates_in_platform}
+                      disabled={isSavingOperatingMode}
+                      onCheckedChange={(checked) => handleToggleOperatingMode(checked === true)}
+                    />
+                    <Label htmlFor="org-gestor-operates-in-platform" className="font-normal">
+                      Este Gestor opera dentro de EcoLink
+                    </Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {organization.gestor_operates_in_platform
+                      ? 'Sus usuarios entran a la plataforma y resuelven aquí las evaluaciones que se les soliciten.'
+                      : 'Gestor de referencia: maneja todo en su propia plataforma y no tiene usuarios aquí. No se le pueden solicitar evaluaciones — su resultado se registra como asignación delegada por EcoLink o por un Subgestor vinculado.'}
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 

@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Branch;
+use App\Models\SubgestorGestorRelationship;
 use App\Models\BranchTreatment;
 use App\Models\BusinessRole;
 use App\Models\Organization;
@@ -475,4 +476,93 @@ test('index calcula los KPIs (total/active/inactive) con la MISMA visibilidad qu
         'active' => 2,
         'inactive' => 1,
     ]);
+});
+
+// ---- Fase 2: filtro `delegated_only` de available() (2026-08-15) ----
+//
+// Sin él, el selector de la asignación delegada ofrecería Gestores que el
+// backend luego rechaza con 422: el usuario descubriría la regla a base de
+// errores.
+
+function btGestorWithMode(bool $operatesInPlatform): Organization
+{
+    $organization = Organization::factory()->create();
+    $gestor = BusinessRole::factory()->create(['can_treat_waste' => true]);
+
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id,
+        'business_role_id' => $gestor->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+        'operates_in_platform' => $operatesInPlatform,
+    ]);
+
+    return $organization->fresh();
+}
+
+test('available con delegated_only devuelve SOLO Gestores de referencia', function () {
+    $operational = btGestorWithMode(true);
+    $reference = btGestorWithMode(false);
+
+    $operationalTreatment = BranchTreatment::factory()->create([
+        'organization_id' => $operational->id,
+        'branch_id' => Branch::factory()->create(['organization_id' => $operational->id])->id,
+        'treatment_id' => Treatment::factory()->create()->id,
+        'is_active' => true,
+    ]);
+    $referenceTreatment = BranchTreatment::factory()->create([
+        'organization_id' => $reference->id,
+        'branch_id' => Branch::factory()->create(['organization_id' => $reference->id])->id,
+        'treatment_id' => Treatment::factory()->create()->id,
+        'is_active' => true,
+    ]);
+
+    $actor = branchTreatmentPlatformStaffActor(['branch_treatments.read']);
+
+    $ids = collect($this->actingAs($actor)->getJson('/api/admin/branch-treatments/available?delegated_only=1')
+        ->assertOk()->json('branch_treatments'))->pluck('id');
+
+    expect($ids)->toContain($referenceTreatment->id)
+        ->and($ids)->not->toContain($operationalTreatment->id);
+
+    // Sin el filtro siguen apareciendo ambos -- no se cambió el default.
+    $allIds = collect($this->actingAs($actor)->getJson('/api/admin/branch-treatments/available')
+        ->assertOk()->json('branch_treatments'))->pluck('id');
+
+    expect($allIds)->toContain($referenceTreatment->id)
+        ->and($allIds)->toContain($operationalTreatment->id);
+});
+
+test('un Subgestor solo ve los Gestores de referencia que tiene VINCULADOS', function () {
+    $subgestorOrganization = Organization::factory()->create();
+
+    $linked = btGestorWithMode(false);
+    $unlinked = btGestorWithMode(false);
+
+    SubgestorGestorRelationship::factory()->create([
+        'subgestor_organization_id' => $subgestorOrganization->id,
+        'gestor_organization_id' => $linked->id,
+        'is_active' => true,
+    ]);
+
+    $linkedTreatment = BranchTreatment::factory()->create([
+        'organization_id' => $linked->id,
+        'branch_id' => Branch::factory()->create(['organization_id' => $linked->id])->id,
+        'treatment_id' => Treatment::factory()->create()->id,
+        'is_active' => true,
+    ]);
+    $unlinkedTreatment = BranchTreatment::factory()->create([
+        'organization_id' => $unlinked->id,
+        'branch_id' => Branch::factory()->create(['organization_id' => $unlinked->id])->id,
+        'treatment_id' => Treatment::factory()->create()->id,
+        'is_active' => true,
+    ]);
+
+    $actor = branchTreatmentActor(['branch_treatments.read'], $subgestorOrganization->id);
+
+    $ids = collect($this->actingAs($actor)->getJson('/api/admin/branch-treatments/available?delegated_only=1')
+        ->assertOk()->json('branch_treatments'))->pluck('id');
+
+    expect($ids)->toContain($linkedTreatment->id)
+        ->and($ids)->not->toContain($unlinkedTreatment->id);
 });

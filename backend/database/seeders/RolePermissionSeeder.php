@@ -49,6 +49,11 @@ class RolePermissionSeeder extends Seeder
         'wastes.read', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate',
         'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject', 'wastes.suspend',
         'treatment_approvals.read', 'treatment_approvals.create', 'treatment_approvals.update', 'treatment_approvals.evaluate', 'treatment_approvals.approve',
+        // Fase 2 (2026-08-15): lo ejercen EcoLink y los Subgestores sobre
+        // Gestores DE REFERENCIA. Cada organizacion puede reasignarlo al rol
+        // que corresponda, igual que la aprobacion final.
+        'treatment_approvals.assign_delegated',
+        'subgestor_gestor_relationships.read', 'subgestor_gestor_relationships.create', 'subgestor_gestor_relationships.revoke',
         'preapproved_wastes.read', 'preapproved_wastes.manage',
         'workflows.manage',
         'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel', 'service_requests.evaluate',

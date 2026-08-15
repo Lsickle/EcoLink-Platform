@@ -876,6 +876,9 @@ export type AdminBusinessRole = {
   description: string | null
   sort_order: number
   is_active: boolean
+  // Fase 2 (2026-08-15): identifica al tipo que trata residuos, para aplicarle
+  // la marca operativo/referencia sin asumir un código concreto.
+  can_treat_waste: boolean
 }
 
 // GET /api/admin/organization-statuses -- cierre del gap declarado en
@@ -984,6 +987,11 @@ export type AdminOrganizationDetail = Omit<AdminOrganization, 'created_by'> & {
   branches_count: number
   contacts_count: number
   users_count: number
+  // Fase 2 (2026-08-15): `true` = Gestor OPERATIVO (evalúa dentro de EcoLink),
+  // `false` = DE REFERENCIA (maneja todo en su plataforma, sin usuarios aquí),
+  // `null` = no trata residuos, así que la marca no aplica y la UI no ofrece
+  // el interruptor.
+  gestor_operates_in_platform: boolean | null
 }
 
 // GET /api/admin/organizations/{id}/branches (tab "Sedes") -- modelo Branch
@@ -3787,6 +3795,46 @@ export type CreateGeneratorGestorRelationshipPayload = {
   // Solo platform staff -- un tenant admin SIEMPRE registra desde SU PROPIA
   // organización (anti-role-smuggling, ver docblock del controller).
   gestor_organization_id?: number
+}
+
+// Vínculo comercial Subgestor -> Gestor (Fase 2 del ciclo de vida del residuo,
+// 2026-08-15). Primera relación comercial SIN Generador en ninguno de sus
+// lados. Acota a qué Gestores puede delegarle una asignación de tratamiento
+// cada Subgestor.
+//
+// Aquí gestiona el SUBGESTOR, al revés que en la relación Generador-Gestor: un
+// Gestor DE REFERENCIA no tiene usuarios en la plataforma.
+export type AdminSubgestorGestorRelationship = {
+  id: number
+  uuid: string
+  subgestor_organization_id: number
+  gestor_organization_id: number
+  authorized_by: number | null
+  authorized_at: string | null
+  revoked_by: number | null
+  revoked_at: string | null
+  observations: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  subgestor_organization?: { id: number; legal_name: string }
+  gestor_organization?: { id: number; legal_name: string }
+}
+
+export type CreateSubgestorGestorRelationshipPayload = {
+  gestor_organization_id: number
+  observations?: string
+  // Solo platform staff -- un tenant admin SIEMPRE vincula desde SU PROPIA
+  // organización (anti-role-smuggling, ver docblock del controller).
+  subgestor_organization_id?: number
+}
+
+// Registrar la evaluación de un Gestor DE REFERENCIA, resuelta en su propia
+// plataforma. `technical_notes` es obligatorio: es la constancia de qué se
+// evaluó y con qué resultado.
+export type CreateDelegatedTreatmentApprovalPayload = {
+  branch_treatment_id: number
+  technical_notes: string
 }
 
 // Carga Masiva de Generadores (CSV) por Subgestor/Gestor -- autoservicio

@@ -209,6 +209,12 @@ class OrganizationController extends Controller
         $data['branches_count'] = $organization->branches_count;
         $data['contacts_count'] = $organization->contacts_count;
         $data['users_count'] = $organization->users_count;
+        // Fase 2 (2026-08-15): la marca operativo/referencia solo tiene sentido
+        // para roles que tratan residuos. `null` = esta organizacion no es
+        // Gestor, asi que la UI no ofrece el interruptor.
+        $data['gestor_operates_in_platform'] = $organization->hasCapability('can_treat_waste')
+            ? $organization->isOperationalGestor()
+            : null;
 
         return response()->json(['organization' => $data]);
     }
@@ -934,6 +940,56 @@ class OrganizationController extends Controller
         );
 
         return response()->json(['message' => 'Tipo de organización asignado.']);
+    }
+
+    /**
+     * Fase 2 (2026-08-15): marca si el Gestor OPERA dentro de EcoLink o es de
+     * REFERENCIA (maneja todo en su propia plataforma, sin usuarios aqui).
+     *
+     * Gobierna las dos barreras del cruce: a un Gestor de referencia no se le
+     * puede SOLICITAR una evaluacion (se quedaria colgada), y sobre uno
+     * operativo no se puede DELEGAR (podria desmentirla).
+     *
+     * Solo aplica a roles con `can_treat_waste`; para el resto la columna no
+     * significa nada. Solo platform staff, igual que el resto de la gestion de
+     * organizaciones.
+     */
+    public function setBusinessRoleOperatingMode(Request $request, Organization $organization, BusinessRole $businessRole)
+    {
+        abort_unless($request->user()->isPlatformStaff(), 403, 'Solo el staff de la plataforma puede gestionar organizaciones.');
+
+        if (! $businessRole->can_treat_waste) {
+            throw ValidationException::withMessages([
+                'business_role_id' => ['Solo aplica a tipos de organización que tratan residuos.'],
+            ]);
+        }
+
+        $data = $request->validate([
+            'operates_in_platform' => ['required', 'boolean'],
+        ]);
+
+        $updated = OrganizationBusinessRole::query()
+            ->where('organization_id', $organization->id)
+            ->where('business_role_id', $businessRole->id)
+            ->where('is_active', true)
+            ->update(['operates_in_platform' => $data['operates_in_platform']]);
+
+        if ($updated === 0) {
+            throw ValidationException::withMessages([
+                'business_role_id' => ['Esta organización no tiene ese tipo asignado.'],
+            ]);
+        }
+
+        $this->logSecurityEvent(
+            $request, 'BUSINESS_ROLE_OPERATING_MODE_CHANGED', 'SUCCESS',
+            "'{$organization->legal_name}' marcada como Gestor ".($data['operates_in_platform'] ? 'operativo en EcoLink' : 'de referencia').'.', $request->user(),
+            ['organization_id' => $organization->id, 'business_role_id' => $businessRole->id, 'operates_in_platform' => $data['operates_in_platform']],
+        );
+
+        return response()->json([
+            'message' => 'Modalidad del Gestor actualizada.',
+            'operates_in_platform' => (bool) $data['operates_in_platform'],
+        ]);
     }
 
     /**

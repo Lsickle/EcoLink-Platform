@@ -22,6 +22,7 @@ import {
   ApiValidationError,
   activateWaste,
   classifyWaste,
+  createDelegatedTreatmentApproval,
   createWasteTreatmentApprovalRequest,
   deactivateWaste,
   fetchAvailableBranchTreatments,
@@ -272,6 +273,135 @@ function TreatmentApprovalRequestDialog({
   )
 }
 
+// Registrar la evaluación de un Gestor DE REFERENCIA (Fase 2, 2026-08-15).
+// Ese Gestor la resolvió en SU propia plataforma y no tiene usuarios aquí:
+// esto solo deja constancia del resultado, por eso el residuo queda
+// directamente Clasificado.
+//
+// El selector pide `delegatedOnly` para ofrecer únicamente Gestores de
+// referencia que el actor pueda usar -- un Subgestor solo ve los que tenga
+// vinculados.
+function DelegatedTreatmentApprovalDialog({
+  open,
+  onOpenChange,
+  wasteId,
+  wasteStreamIds,
+  unCodeIds,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  wasteId: number | string
+  wasteStreamIds: number[]
+  unCodeIds: number[]
+  onCreated: () => void
+}) {
+  const [options, setOptions] = useState<AvailableBranchTreatment[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [technicalNotes, setTechnicalNotes] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setIsLoading(true)
+    setError(null)
+    fetchAvailableBranchTreatments({ wasteStreamIds, unCodeIds, delegatedOnly: true })
+      .then((result) => setOptions(result.branch_treatments))
+      .catch(() => setOptions([]))
+      .finally(() => setIsLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  async function handleConfirm() {
+    if (!selectedId || !technicalNotes.trim()) return
+    setIsSubmitting(true)
+    setError(null)
+    try {
+      await createDelegatedTreatmentApproval(wasteId, {
+        branch_treatment_id: selectedId,
+        technical_notes: technicalNotes.trim(),
+      })
+      setSelectedId(null)
+      setTechnicalNotes('')
+      onCreated()
+      onOpenChange(false)
+    } catch (err) {
+      setError(errorMessage(err, 'branch_treatment_id'))
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Registrar Evaluación Externa</DialogTitle>
+          <DialogDescription>
+            Deja constancia de una evaluación que el Gestor resolvió en su propia plataforma. El residuo quedará
+            Clasificado y la trazabilidad registrará que el tratamiento se asignó por delegación.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            Cargando tratamientos…
+          </p>
+        ) : options.length === 0 ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            No hay Gestores de referencia vinculados con un tratamiento compatible para este residuo.
+          </p>
+        ) : (
+          <div className="flex max-h-60 flex-col gap-2 overflow-y-auto">
+            {options.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setSelectedId(option.id)}
+                className={`rounded-lg border p-2.5 text-left text-sm ${
+                  selectedId === option.id ? 'border-primary ring-1 ring-primary' : 'border-border'
+                }`}
+              >
+                <span className="font-medium">{option.treatment_name}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {option.organization_name} · {option.branch_name}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="delegatedTechnicalNotes">Resultado de la evaluación</Label>
+          <Input
+            id="delegatedTechnicalNotes"
+            value={technicalNotes}
+            onChange={(event) => setTechnicalNotes(event.target.value)}
+            placeholder="Qué se evaluó y con qué resultado"
+          />
+        </div>
+
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button disabled={!selectedId || !technicalNotes.trim() || isSubmitting} onClick={handleConfirm}>
+            {isSubmitting ? 'Registrando…' : 'Registrar'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // Núcleo del Módulo Residuos -- detalle (Figma fileKey pX6vqXxnJ66YSIYpE7v9pV).
 // Mismo patrón de layout que VehicleDetailScreen.tsx/BranchTreatmentDetailScreen.tsx:
 // header con badges + acciones, tabs (General/Evidencias/Tratamientos/
@@ -334,6 +464,7 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
   const [approvalsError, setApprovalsError] = useState<string | null>(null)
 
   const [isRequestDialogOpen, setIsRequestDialogOpen] = useState(false)
+  const [isDelegatedDialogOpen, setIsDelegatedDialogOpen] = useState(false)
   const [isUsingMatch, setIsUsingMatch] = useState(false)
   const [useMatchMessage, setUseMatchMessage] = useState<string | null>(null)
   const [useMatchError, setUseMatchError] = useState<string | null>(null)
@@ -599,6 +730,10 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
   // certificados que quedarian describiendo algo distinto.
   const canEditDraft = canEditWaste && permissions.includes('wastes.update') && isWasteEditableByOwner(waste.status)
   const canRequestTreatmentApproval = treatmentApprovalMode !== null
+  // Fase 2: registrar la evaluacion de un Gestor DE REFERENCIA. Permiso
+  // propio, fuera de `GESTOR_ONLY_CODES`: lo ejercen EcoLink y los
+  // Subgestores, que no tratan residuos ellos mismos.
+  const canAssignDelegated = permissions.includes('treatment_approvals.assign_delegated')
   // APR <-> SUS: exclusivo del staff de EcoLink CON el permiso. Doble barrera,
   // igual que en el backend (`assertPlatformStaffCanSuspend()`): un
   // ADMINISTRADOR de organizacion tiene `wastes.suspend` en el catalogo base y
@@ -908,15 +1043,22 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
 
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold">Evaluaciones de Tratamiento</h3>
-                    {canRequestTreatmentApproval && (
-                      <Button size="sm" onClick={() => setIsRequestDialogOpen(true)}>
-                        {treatmentApprovalMode === 'forward'
-                          ? 'Reenviar a Gestor'
-                          : treatmentApprovalMode === 'offer'
-                            ? 'Ofrecer mi Tratamiento'
-                            : 'Solicitar Evaluación'}
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {canAssignDelegated && (
+                        <Button size="sm" variant="outline" onClick={() => setIsDelegatedDialogOpen(true)}>
+                          Registrar Evaluación Externa
+                        </Button>
+                      )}
+                      {canRequestTreatmentApproval && (
+                        <Button size="sm" onClick={() => setIsRequestDialogOpen(true)}>
+                          {treatmentApprovalMode === 'forward'
+                            ? 'Reenviar a Gestor'
+                            : treatmentApprovalMode === 'offer'
+                              ? 'Ofrecer mi Tratamiento'
+                              : 'Solicitar Evaluación'}
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
                   {approvalsError && (
@@ -987,6 +1129,15 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
                     unCodeIds={unCodeIds}
                     onCreated={refreshTreatmentApprovals}
                     mode={treatmentApprovalMode ?? 'owner'}
+                  />
+
+                  <DelegatedTreatmentApprovalDialog
+                    open={isDelegatedDialogOpen}
+                    onOpenChange={setIsDelegatedDialogOpen}
+                    wasteId={wasteId}
+                    wasteStreamIds={wasteStreamIds}
+                    unCodeIds={unCodeIds}
+                    onCreated={refreshTreatmentApprovals}
                   />
                 </>
               )}

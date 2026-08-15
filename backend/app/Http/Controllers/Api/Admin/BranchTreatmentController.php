@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\BranchTreatment;
+use App\Models\SubgestorGestorRelationship;
 use App\Models\Organization;
 use App\Models\SecurityLog;
 use App\Models\UnCode;
@@ -107,9 +108,36 @@ class BranchTreatmentController extends Controller
         $wasteStreamIds = array_values(array_filter((array) $request->input('waste_stream_ids', [])));
         $unCodeIds = array_values(array_filter((array) $request->input('un_code_ids', [])));
 
+        // Fase 2 (2026-08-15): `delegated_only=1` devuelve SOLO los tratamientos
+        // sobre los que el actor puede registrar una evaluacion delegada --
+        // Gestores DE REFERENCIA (no operan aqui) y, si el actor no es staff de
+        // plataforma, unicamente los que tenga vinculados
+        // (`subgestor_gestor_relationships`).
+        //
+        // Sin este filtro el selector ofreceria Gestores que el backend luego
+        // rechaza con 422: el usuario descubriria la regla a base de errores.
+        $delegatedOnly = $request->boolean('delegated_only');
+        $actor = $request->user();
+
         $branchTreatments = BranchTreatment::query()
             ->where('is_active', true)
             ->whereHas('organization', fn ($query) => $query->withCapability('can_treat_waste'))
+            ->when($delegatedOnly, function ($query) use ($actor) {
+                $query->whereHas('organization', fn ($query) => $query->whereHas(
+                    'businessRoles',
+                    fn ($query) => $query->where('organization_business_roles.is_active', true)
+                        ->where('organization_business_roles.operates_in_platform', false)
+                        ->where('business_roles.is_active', true)
+                        ->where('can_treat_waste', true),
+                ));
+
+                if (! $actor->isPlatformStaff()) {
+                    $query->whereIn('organization_id', SubgestorGestorRelationship::query()
+                        ->where('subgestor_organization_id', $actor->tenant_organization_id)
+                        ->where('is_active', true)
+                        ->pluck('gestor_organization_id'));
+                }
+            })
             ->when($wasteStreamIds !== [], fn ($query) => $query->whereHas(
                 'allowedWasteStreams', fn ($query) => $query->whereIn('waste_streams.id', $wasteStreamIds),
             ))

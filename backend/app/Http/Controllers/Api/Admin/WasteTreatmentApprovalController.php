@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
 use App\Models\BranchTreatment;
 use App\Models\Organization;
+use App\Models\SubgestorGestorRelationship;
 use App\Models\User;
 use App\Models\Waste;
 use App\Models\WasteTreatmentApproval;
@@ -606,7 +607,15 @@ class WasteTreatmentApprovalController extends Controller
 
         $approvals = WasteTreatmentApproval::query()
             ->where('waste_id', $waste->id)
-            ->when($isForwardingSubgestor, fn ($query) => $query->where('forwarded_by_organization_id', $actor->tenant_organization_id))
+            // El Subgestor ve las que REENVIO y tambien las que registro por
+            // DELEGACION (Fase 2, 2026-08-15). Sin la segunda mitad, quien
+            // acaba de registrar una evaluacion externa no la ve en la lista:
+            // esa fila pertenece al Gestor de referencia y su
+            // `forwarded_by_organization_id` es NULL.
+            ->when($isForwardingSubgestor, fn ($query) => $query->where(function ($query) use ($actor) {
+                $query->where('forwarded_by_organization_id', $actor->tenant_organization_id)
+                    ->orWhere('delegated_by_organization_id', $actor->tenant_organization_id);
+            }))
             // Ya cubre al Gestor que ofrece directo ($isOfferingGestor): ni
             // dueño ni Subgestor reenviando -> solo ve SU PROPIA evaluación
             // (`organization_id` = el Gestor evaluador), sin cambios aquí.
@@ -662,6 +671,7 @@ class WasteTreatmentApprovalController extends Controller
 
         $branchTreatment = BranchTreatment::query()->findOrFail($data['branch_treatment_id']);
         $this->assertBranchTreatmentOrganizationCanTreatWaste($branchTreatment);
+        $this->assertGestorOperatesInPlatform($branchTreatment);
         $this->assertNoActiveDuplicateRequest($waste->id, $branchTreatment->id);
 
         $actor = $request->user();
@@ -985,6 +995,151 @@ class WasteTreatmentApprovalController extends Controller
      * organizaciones con business_role GESTOR (`can_treat_waste=true`)
      * pueden ser evaluadoras.
      */
+
+    /**
+     * POST /admin/wastes/{waste}/delegated-treatment-approvals -- registra la
+     * evaluacion de un Gestor DE REFERENCIA (Fase 2, 2026-08-15).
+     *
+     * El Gestor resolvio la evaluacion en SU propia plataforma; aqui solo se
+     * deja constancia del resultado, por eso nace con el eje tecnico ya
+     * APROBADO y lleva el residuo directo a `CLS`. No es un atajo: es que la
+     * evaluacion ya ocurrio, fuera.
+     *
+     * Quien puede: EcoLink (staff de plataforma) y un Subgestor CON vinculo
+     * comercial activo hacia ese Gestor (`subgestor_gestor_relationships`).
+     * Sin ese vinculo, un Subgestor con el permiso podria registrar
+     * evaluaciones en nombre de cualquier Gestor del sistema.
+     *
+     * `delegated_by_organization_id` deja en la fila quien la registro -- es lo
+     * que pediste que quedara en la trazabilidad.
+     */
+    public function storeDelegatedForWaste(Request $request, Waste $waste)
+    {
+        $actor = $request->user();
+        abort_unless(
+            $actor->hasPermission('treatment_approvals.assign_delegated'),
+            403,
+            'No tiene permiso para asignar tratamientos en nombre de un Gestor.',
+        );
+
+        $data = $request->validate([
+            'branch_treatment_id' => [
+                'required', 'integer',
+                Rule::exists('branch_treatments', 'id')->where('is_active', true)->whereNull('deleted_at'),
+            ],
+            'technical_notes' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $branchTreatment = BranchTreatment::query()->findOrFail($data['branch_treatment_id']);
+        $this->assertBranchTreatmentOrganizationCanTreatWaste($branchTreatment);
+        $this->assertGestorIsReference($branchTreatment);
+        $this->assertActorMayDelegateTo($actor, $branchTreatment, $waste);
+        $this->assertNoActiveDuplicateRequest($waste->id, $branchTreatment->id);
+
+        $approval = WasteTreatmentApproval::query()->create([
+            'organization_id' => $branchTreatment->organization_id,
+            'waste_id' => $waste->id,
+            'branch_treatment_id' => $branchTreatment->id,
+            'delegated_by_organization_id' => $actor->tenant_organization_id,
+            'technical_notes' => $data['technical_notes'],
+            'is_active' => true,
+        ]);
+
+        // `technical_status` es un atributo VIRTUAL sobre `technical_status_id`
+        // y NO esta en $fillable -- pasarlo por `create()` lo descarta en
+        // silencio. Mismo `forceFill()` que usa `approveTechnical()`.
+        //
+        // Nace ya APROBADO tecnicamente: la evaluacion real ocurrio en la
+        // plataforma del Gestor, aqui solo se deja constancia del resultado.
+        $approval->forceFill([
+            'technical_status' => 'APPROVED',
+            'technical_approved_at' => now(),
+            'technical_approved_by' => $actor->id,
+        ])->save();
+
+        $this->logSecurityEvent(
+            $request, 'WASTE_TREATMENT_APPROVAL_DELEGATED', 'SUCCESS',
+            "Tratamiento asignado por delegación en nombre del Gestor '{$branchTreatment->organization_id}' para el residuo '{$waste->name}'.", $actor,
+            [
+                'waste_treatment_approval_id' => $approval->id,
+                'waste_id' => $waste->id,
+                'organization_id' => $approval->organization_id,
+                'delegated_by_organization_id' => $approval->delegated_by_organization_id,
+            ],
+        );
+
+        $approval->setRelation('waste', $waste);
+        $this->syncWasteStatus(
+            $request, $approval, Waste::STATUS_CLASSIFIED,
+            'WASTE_CLASSIFIED', 'Residuo clasificado: tratamiento asignado por delegación.',
+        );
+
+        return response()->json(['treatment_approval' => $approval->fresh(['organization:id,legal_name', 'branchTreatment.treatment'])], 201);
+    }
+
+    /**
+     * EcoLink puede delegar sobre cualquier Gestor de referencia. Un Subgestor
+     * solo sobre los que tenga vinculados, y solo para residuos de Generadores
+     * que sean clientes suyos -- las dos mitades del vinculo, no una sola.
+     */
+    private function assertActorMayDelegateTo(User $actor, BranchTreatment $branchTreatment, Waste $waste): void
+    {
+        if ($actor->isPlatformStaff()) {
+            return;
+        }
+
+        $hasGestorLink = SubgestorGestorRelationship::query()
+            ->where('subgestor_organization_id', $actor->tenant_organization_id)
+            ->where('gestor_organization_id', $branchTreatment->organization_id)
+            ->where('is_active', true)
+            ->exists();
+
+        abort_unless($hasGestorLink, 403, 'No tiene un vínculo activo con ese Gestor.');
+
+        abort_unless(
+            $waste->isAccessibleBy($actor) || $waste->isForwardableBySubgestor($actor),
+            403,
+            'No tiene acceso a este residuo.',
+        );
+    }
+
+    /**
+     * BARRERA DEL CRUCE entre los dos caminos de evaluacion (Fase 2,
+     * 2026-08-15). Solicitar una evaluacion solo tiene sentido sobre un Gestor
+     * OPERATIVO: uno de referencia no tiene usuarios que puedan entrar a
+     * resolverla, asi que la solicitud se quedaria colgada para siempre y el
+     * residuo atrapado en `REV`.
+     *
+     * Es la contraparte de `assertGestorIsReference()`: la via delegada solo
+     * aplica sobre Gestores de referencia. Sin estas dos barreras, un Subgestor
+     * podria registrar una evaluacion "en nombre de" un Gestor que si entra a
+     * la plataforma y podria desmentirla.
+     */
+    private function assertGestorOperatesInPlatform(BranchTreatment $branchTreatment): void
+    {
+        $organization = Organization::query()->find($branchTreatment->organization_id);
+
+        if (! $organization?->isOperationalGestor()) {
+            throw ValidationException::withMessages([
+                'branch_treatment_id' => ['Ese Gestor no opera dentro de EcoLink: su evaluacion debe registrarse como asignacion delegada.'],
+            ]);
+        }
+    }
+
+    /**
+     * Espejo de `assertGestorOperatesInPlatform()` para la via delegada.
+     */
+    private function assertGestorIsReference(BranchTreatment $branchTreatment): void
+    {
+        $organization = Organization::query()->find($branchTreatment->organization_id);
+
+        if (! $organization?->isReferenceGestor()) {
+            throw ValidationException::withMessages([
+                'branch_treatment_id' => ['Ese Gestor opera dentro de EcoLink: debe evaluar el residuo el mismo, no se le puede asignar por delegacion.'],
+            ]);
+        }
+    }
+
     private function assertBranchTreatmentOrganizationCanTreatWaste(BranchTreatment $branchTreatment): void
     {
         $organization = Organization::query()->find($branchTreatment->organization_id);

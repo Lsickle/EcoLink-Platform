@@ -52,6 +52,7 @@ use Illuminate\Support\Str;
 #[Fillable([
     'tenant_organization_id', 'organization_id', 'waste_id', 'branch_treatment_id',
     'forwarded_by_organization_id',
+    'delegated_by_organization_id',
     'unit_price', 'currency', 'billing_unit', 'minimum_quantity', 'maximum_quantity',
     'requires_lab_analysis', 'requires_sds', 'requires_special_transport',
     'requires_special_ppe', 'restrictions', 'commercial_notes',
@@ -250,6 +251,17 @@ class WasteTreatmentApproval extends Model
     public function forwardedByOrganization(): BelongsTo
     {
         return $this->belongsTo(Organization::class, 'forwarded_by_organization_id');
+    }
+
+    /**
+     * Quien REGISTRO esta evaluacion en nombre de un Gestor de referencia
+     * (Fase 2, 2026-08-15). NULL = evaluacion normal, hecha por el propio
+     * Gestor dentro de EcoLink. Distinto de `forwardedByOrganization()`,
+     * que es del lado del RESIDUO -- ver la migracion.
+     */
+    public function delegatedByOrganization(): BelongsTo
+    {
+        return $this->belongsTo(Organization::class, 'delegated_by_organization_id');
     }
 
     public function technicalApprovedBy(): BelongsTo

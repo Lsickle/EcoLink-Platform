@@ -94,8 +94,8 @@ beforeEach(function () {
     $this->seed(RolePermissionSeeder::class);
 });
 
-test('siembra exactamente 129 permisos con los códigos exactos del catálogo', function () {
-    expect(Permission::query()->count())->toBe(129);
+test('siembra exactamente 133 permisos con los códigos exactos del catálogo', function () {
+    expect(Permission::query()->count())->toBe(133);
 
     $expectedCodes = [
         'users.create', 'users.read', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.reset-password',
@@ -139,6 +139,9 @@ test('siembra exactamente 129 permisos con los códigos exactos del catálogo', 
         'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
         'generator_subgestor_relationships.read', 'generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke',
         'generator_gestor_relationships.read', 'generator_gestor_relationships.create', 'generator_gestor_relationships.revoke',
+        // Fase 2 (2026-08-15): vínculo Subgestor-Gestor y asignación delegada.
+        'subgestor_gestor_relationships.read', 'subgestor_gestor_relationships.create', 'subgestor_gestor_relationships.revoke',
+        'treatment_approvals.assign_delegated',
     ];
 
     expect(Permission::query()->pluck('code')->sort()->values()->all())
@@ -255,6 +258,9 @@ test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, A
         'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
         'generator_subgestor_relationships.read', 'generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke',
         'generator_gestor_relationships.read', 'generator_gestor_relationships.create', 'generator_gestor_relationships.revoke',
+        // Fase 2 (2026-08-15): vínculo Subgestor-Gestor y asignación delegada.
+        'subgestor_gestor_relationships.read', 'subgestor_gestor_relationships.create', 'subgestor_gestor_relationships.revoke',
+        'treatment_approvals.assign_delegated',
     ])->sort()->values()->all();
 
     expect($codes)->toBe($expected);
@@ -313,7 +319,7 @@ test('marca is_critical=true solo en los 5 permisos confirmados por el usuario (
     expect(Permission::query()->where('is_critical', true)->pluck('code')->sort()->values()->all())
         ->toBe(collect($expectedCritical)->sort()->values()->all());
 
-    expect(Permission::query()->where('is_critical', false)->count())->toBe(129 - count($expectedCritical));
+    expect(Permission::query()->where('is_critical', false)->count())->toBe(133 - count($expectedCritical));
 });
 
 test('los seeders son idempotentes (correr dos veces no duplica filas)', function () {
@@ -321,9 +327,9 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
     $this->seed(RoleSeeder::class);
     $this->seed(RolePermissionSeeder::class);
 
-    expect(Permission::query()->count())->toBe(129)
+    expect(Permission::query()->count())->toBe(133)
         ->and(Role::query()->count())->toBe(4)
-        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(129)
+        ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(133)
         ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(28)
         ->and(Role::query()->where('code', 'OPERACIONES')->firstOrFail()->permissions()->count())->toBe(17)
         ->and(Role::query()->where('code', 'TECNICO_AMBIENTAL')->firstOrFail()->permissions()->count())->toBe(5);

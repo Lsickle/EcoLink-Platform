@@ -346,6 +346,15 @@ const data = {
       icon: <NetworkIcon />,
       permission: "generator_gestor_relationships.read",
     },
+    // Vínculo Subgestor -> Gestor (Fase 2 del ciclo de vida del residuo,
+    // 2026-08-15). Acota a qué Gestores se les puede registrar una evaluación
+    // resuelta fuera de la plataforma.
+    {
+      title: "Gestores Vinculados",
+      url: "/admin/subgestor-gestor-relationships",
+      icon: <NetworkIcon />,
+      permission: "subgestor_gestor_relationships.read",
+    },
     // Carga Masiva de Generadores (CSV) -- autoservicio de Subgestor/Gestor
     // confirmado por el usuario, 2026-08-11. Visible con CUALQUIERA de los
     // dos permisos `.create` (OR), ver `hasRequiredPermission()` arriba.

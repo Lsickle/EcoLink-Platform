@@ -17,6 +17,7 @@ import type {
   AdminBranchLocation,
   AdminBranchLocationDetail,
   AdminGeneratorGestorRelationship,
+  AdminSubgestorGestorRelationship,
   AdminGeneratorSubgestorRelationship,
   AdminGestorCarrierAuthorization,
   AdminManifestLoad,
@@ -95,7 +96,9 @@ import type {
   CreateBranchPayload,
   CreateBranchTreatmentPayload,
   CreateBranchTypePayload,
+  CreateDelegatedTreatmentApprovalPayload,
   CreateGeneratorGestorRelationshipPayload,
+  CreateSubgestorGestorRelationshipPayload,
   CreateGeneratorSubgestorRelationshipPayload,
   CreateGestorCarrierAuthorizationPayload,
   CreateServiceRequestPayload,
@@ -1467,6 +1470,21 @@ export async function assignBusinessRoleToOrganization(
   })
 }
 
+// Fase 2 (2026-08-15): Gestor OPERATIVO (evalúa dentro de EcoLink) vs. DE
+// REFERENCIA. Gobierna las dos barreras del cruce -- a un Gestor de referencia
+// no se le puede solicitar evaluación, y sobre uno operativo no se puede
+// delegar. Solo platform staff.
+export async function setOrganizationGestorOperatingMode(
+  organizationId: number | string,
+  businessRoleId: number,
+  operatesInPlatform: boolean
+): Promise<{ message?: string; operates_in_platform: boolean }> {
+  return apiFetch(`/api/admin/organizations/${organizationId}/business-roles/${businessRoleId}/operating-mode`, {
+    method: 'POST',
+    body: JSON.stringify({ operates_in_platform: operatesInPlatform }),
+  })
+}
+
 export async function revokeBusinessRoleFromOrganization(
   organizationId: number | string,
   businessRoleId: number
@@ -2182,11 +2200,16 @@ export function getFileDownloadUrl(id: number | string): string {
 // compatibles (arrays -- de ahí el `URLSearchParams.append` manual en vez de
 // `buildQuery`, que solo soporta valores escalares).
 export async function fetchAvailableBranchTreatments(
-  params: { wasteStreamIds?: number[]; unCodeIds?: number[] } = {}
+  // `delegatedOnly` (Fase 2, 2026-08-15): solo Gestores DE REFERENCIA sobre los
+  // que el actor puede registrar una evaluación delegada. Para un Subgestor,
+  // además, solo los que tenga vinculados. Sin él, el selector ofrecería
+  // Gestores que el backend rechaza con 422.
+  params: { wasteStreamIds?: number[]; unCodeIds?: number[]; delegatedOnly?: boolean } = {}
 ): Promise<{ branch_treatments: AvailableBranchTreatment[] }> {
   const query = new URLSearchParams()
   for (const id of params.wasteStreamIds ?? []) query.append('waste_stream_ids[]', String(id))
   for (const id of params.unCodeIds ?? []) query.append('un_code_ids[]', String(id))
+  if (params.delegatedOnly) query.append('delegated_only', '1')
   const qs = query.toString()
   return apiFetch(`/api/admin/branch-treatments/available${qs ? `?${qs}` : ''}`)
 }
@@ -3179,6 +3202,50 @@ export async function revokeGeneratorGestorRelationship(
   id: number | string
 ): Promise<{ generator_gestor_relationship: AdminGeneratorGestorRelationship }> {
   return apiFetch(`/api/admin/generator-gestor-relationships/${id}/revoke`, { method: 'POST' })
+}
+
+// ---- Vínculo Subgestor -> Gestor (Fase 2, 2026-08-15) ---------------------
+// Acota a qué Gestores puede delegarle una asignación de tratamiento cada
+// Subgestor. Mismo contrato que la relación Generador-Gestor, pero aquí el
+// lado que gestiona es el SUBGESTOR.
+export async function fetchSubgestorGestorRelationships(
+  params: {
+    page?: number
+    perPage?: number
+    activeOnly?: boolean
+  } = {}
+): Promise<Paginated<AdminSubgestorGestorRelationship>> {
+  const query = buildQuery({
+    page: params.page,
+    per_page: params.perPage,
+    active_only: params.activeOnly ? 1 : undefined,
+  })
+  return apiFetch(`/api/admin/subgestor-gestor-relationships${query}`)
+}
+
+export async function createSubgestorGestorRelationship(
+  payload: CreateSubgestorGestorRelationshipPayload
+): Promise<{ subgestor_gestor_relationship: AdminSubgestorGestorRelationship }> {
+  return apiFetch('/api/admin/subgestor-gestor-relationships', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export async function revokeSubgestorGestorRelationship(
+  id: number | string
+): Promise<{ subgestor_gestor_relationship: AdminSubgestorGestorRelationship }> {
+  return apiFetch(`/api/admin/subgestor-gestor-relationships/${id}/revoke`, { method: 'POST' })
+}
+
+// POST /api/admin/wastes/{waste}/delegated-treatment-approvals -- registra la
+// evaluación de un Gestor DE REFERENCIA, resuelta fuera de la plataforma.
+// Nace con el eje técnico APROBADO y deja el residuo en Clasificado.
+export async function createDelegatedTreatmentApproval(
+  wasteId: number | string,
+  payload: CreateDelegatedTreatmentApprovalPayload
+): Promise<{ treatment_approval: AdminTreatmentApproval }> {
+  return apiFetch(`/api/admin/wastes/${wasteId}/delegated-treatment-approvals`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }
 
 // ---- Carga Masiva de Generadores (CSV) por Subgestor/Gestor --

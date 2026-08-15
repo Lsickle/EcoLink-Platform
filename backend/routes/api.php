@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\Admin\PreapprovedWasteController;
 use App\Http\Controllers\Api\Admin\RespelStatusController;
 use App\Http\Controllers\Api\Admin\RoleController;
 use App\Http\Controllers\Api\Admin\ServiceRequestController;
+use App\Http\Controllers\Api\Admin\SubgestorGestorRelationshipController;
 use App\Http\Controllers\Api\Admin\TransportPersonnelController;
 use App\Http\Controllers\Api\Admin\TransportRouteController;
 use App\Http\Controllers\Api\Admin\TransportScheduleController;
@@ -286,6 +287,8 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::get('organizations/{organization}/activity', [OrganizationController::class, 'activity'])->name('organizations.activity');
         Route::post('organizations/{organization}/business-roles/{businessRole}/assign', [OrganizationController::class, 'assignBusinessRole'])->name('organizations.business-roles.assign');
         Route::post('organizations/{organization}/business-roles/{businessRole}/revoke', [OrganizationController::class, 'revokeBusinessRole'])->name('organizations.business-roles.revoke');
+        // Fase 2: Gestor operativo (evalua dentro de EcoLink) vs de referencia.
+        Route::post('organizations/{organization}/business-roles/{businessRole}/operating-mode', [OrganizationController::class, 'setBusinessRoleOperatingMode'])->name('organizations.business-roles.operating-mode');
 
         // Catálogos de solo lectura consumidos por el formulario de
         // Organizaciones (ids reales, no asumidos) -- ver docblock de
@@ -423,6 +426,9 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         // WasteTreatmentApprovalPolicy.
         Route::get('wastes/{waste}/treatment-approvals', [WasteTreatmentApprovalController::class, 'indexForWaste'])->name('wastes.treatment-approvals.index');
         Route::post('wastes/{waste}/treatment-approvals', [WasteTreatmentApprovalController::class, 'storeForWaste'])->name('wastes.treatment-approvals.store')->middleware('throttle:treatment-approval-request');
+        // Fase 2: registrar la evaluacion de un Gestor DE REFERENCIA, que la
+        // resolvio fuera de la plataforma. Mismo rate limit que la solicitud normal.
+        Route::post('wastes/{waste}/delegated-treatment-approvals', [WasteTreatmentApprovalController::class, 'storeDelegatedForWaste'])->name('wastes.delegated-treatment-approvals.store')->middleware('throttle:treatment-approval-request');
 
         // Preaprobación automática ("Tratamiento Preaprobado Detectado").
         Route::get('wastes/{waste}/preapproved-matches', [WasteTreatmentApprovalController::class, 'preapprovedMatches'])->name('wastes.preapproved-matches.index');
@@ -537,6 +543,13 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('generator-gestor-relationships', [GeneratorGestorRelationshipController::class, 'store'])->name('generator-gestor-relationships.store');
         Route::get('generator-gestor-relationships/{relationship}', [GeneratorGestorRelationshipController::class, 'show'])->name('generator-gestor-relationships.show');
         Route::post('generator-gestor-relationships/{relationship}/revoke', [GeneratorGestorRelationshipController::class, 'revoke'])->name('generator-gestor-relationships.revoke');
+
+        // Fase 2: vinculo Subgestor -> Gestor. Acota a que Gestores puede
+        // delegarle una asignacion de tratamiento cada Subgestor.
+        Route::get('subgestor-gestor-relationships', [SubgestorGestorRelationshipController::class, 'index'])->name('subgestor-gestor-relationships.index');
+        Route::post('subgestor-gestor-relationships', [SubgestorGestorRelationshipController::class, 'store'])->name('subgestor-gestor-relationships.store');
+        Route::get('subgestor-gestor-relationships/{relationship}', [SubgestorGestorRelationshipController::class, 'show'])->name('subgestor-gestor-relationships.show');
+        Route::post('subgestor-gestor-relationships/{relationship}/revoke', [SubgestorGestorRelationshipController::class, 'revoke'])->name('subgestor-gestor-relationships.revoke');
 
         // Carga Masiva de Generadores (CSV) -- autoservicio de
         // Subgestor/Gestor, confirmado por el usuario 2026-08-11. Ver

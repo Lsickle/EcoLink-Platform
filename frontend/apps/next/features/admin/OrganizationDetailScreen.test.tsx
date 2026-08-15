@@ -12,6 +12,7 @@ const fetchOrganizationMock = vi.fn()
 const fetchCountriesMock = vi.fn()
 const fetchOrganizationStatusesMock = vi.fn()
 const fetchBusinessRolesMock = vi.fn()
+const setOrganizationGestorOperatingModeMock = vi.fn()
 const updateOrganizationMock = vi.fn()
 const activateOrganizationMock = vi.fn()
 const deactivateOrganizationMock = vi.fn()
@@ -33,6 +34,7 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     fetchCountries: (...args: unknown[]) => fetchCountriesMock(...args),
     fetchOrganizationStatuses: (...args: unknown[]) => fetchOrganizationStatusesMock(...args),
     fetchBusinessRoles: (...args: unknown[]) => fetchBusinessRolesMock(...args),
+    setOrganizationGestorOperatingMode: (...args: unknown[]) => setOrganizationGestorOperatingModeMock(...args),
     updateOrganization: (...args: unknown[]) => updateOrganizationMock(...args),
     activateOrganization: (...args: unknown[]) => activateOrganizationMock(...args),
     deactivateOrganization: (...args: unknown[]) => deactivateOrganizationMock(...args),
@@ -119,6 +121,7 @@ function organizationDetail(overrides: Partial<Record<string, unknown>> = {}) {
     branches_count: 2,
     contacts_count: 3,
     users_count: 1,
+    gestor_operates_in_platform: null,
     ...overrides,
   }
 }
@@ -143,8 +146,8 @@ describe('OrganizationDetailScreen', () => {
     })
     fetchBusinessRolesMock.mockResolvedValue({
       data: [
-        { id: 1, code: 'GENERATOR', name: 'Generador', description: null, sort_order: 1, is_active: true },
-        { id: 2, code: 'GESTOR', name: 'Gestor', description: null, sort_order: 2, is_active: true },
+        { id: 1, code: 'GENERATOR', name: 'Generador', description: null, sort_order: 1, is_active: true, can_treat_waste: false },
+        { id: 2, code: 'GESTOR', name: 'Gestor', description: null, sort_order: 2, is_active: true, can_treat_waste: true },
       ],
     })
     fetchOrganizationBranchesMock.mockResolvedValue(emptyPage)
@@ -406,5 +409,53 @@ describe('OrganizationDetailScreen', () => {
 
     await act(async () => {})
     expect(revokeOrganizationContactMock).toHaveBeenCalledWith(7, 55)
+  })
+
+  // Interruptor Gestor operativo vs. de referencia (Fase 2, 2026-08-15).
+  // Gobierna las dos barreras del cruce: a un Gestor de referencia no se le
+  // solicita evaluación, y sobre uno operativo no se delega.
+  describe('modalidad del Gestor', () => {
+    test('no aparece si la organización no trata residuos', async () => {
+      // `gestor_operates_in_platform: null` = la marca no le aplica.
+      fetchOrganizationMock.mockResolvedValue({
+        organization: organizationDetail({ type: ['Generador'], gestor_operates_in_platform: null }),
+      })
+
+      render(<OrganizationDetailScreen organizationId={5} />)
+      await screen.findByText('Tipos de Organización')
+
+      expect(screen.queryByRole('checkbox', { name: 'Este Gestor opera dentro de EcoLink' })).not.toBeInTheDocument()
+    })
+
+    test('un Gestor operativo aparece marcado, con su explicación', async () => {
+      fetchOrganizationMock.mockResolvedValue({
+        organization: organizationDetail({ type: ['Gestor'], gestor_operates_in_platform: true }),
+      })
+
+      render(<OrganizationDetailScreen organizationId={5} />)
+      await screen.findByText('Tipos de Organización')
+
+      expect(screen.getByRole('checkbox', { name: 'Este Gestor opera dentro de EcoLink' })).toBeChecked()
+      expect(screen.getByText(/resuelven aquí las evaluaciones/i)).toBeInTheDocument()
+    })
+
+    test('desmarcarlo lo convierte en Gestor de referencia', async () => {
+      fetchOrganizationMock.mockResolvedValue({
+        organization: organizationDetail({ type: ['Gestor'], gestor_operates_in_platform: true }),
+      })
+      setOrganizationGestorOperatingModeMock.mockResolvedValue({ operates_in_platform: false })
+
+      render(<OrganizationDetailScreen organizationId={5} />)
+      await screen.findByText('Tipos de Organización')
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Este Gestor opera dentro de EcoLink' }))
+
+      // Se aplica sobre el rol que TRATA residuos (id 2), no sobre el primero
+      // asignado ni sobre un código asumido.
+      await vi.waitFor(() => expect(setOrganizationGestorOperatingModeMock).toHaveBeenCalledWith(7, 2, false))
+
+      expect(await screen.findByText(/Gestor de referencia/i)).toBeInTheDocument()
+      expect(screen.getByText(/no se le pueden solicitar evaluaciones/i)).toBeInTheDocument()
+    })
   })
 })

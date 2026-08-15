@@ -13,6 +13,7 @@ const rejectWasteMock = vi.fn()
 const fetchWasteTreatmentApprovalsMock = vi.fn()
 const fetchWastePreapprovedMatchesMock = vi.fn()
 const fetchAvailableBranchTreatmentsMock = vi.fn()
+const createDelegatedTreatmentApprovalMock = vi.fn()
 const fetchBranchTreatmentsMock = vi.fn()
 const createWasteTreatmentApprovalRequestMock = vi.fn()
 const usePreapprovedTreatmentMatchMock = vi.fn()
@@ -33,6 +34,7 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     fetchWasteTreatmentApprovals: (...args: unknown[]) => fetchWasteTreatmentApprovalsMock(...args),
     fetchWastePreapprovedMatches: (...args: unknown[]) => fetchWastePreapprovedMatchesMock(...args),
     fetchAvailableBranchTreatments: (...args: unknown[]) => fetchAvailableBranchTreatmentsMock(...args),
+    createDelegatedTreatmentApproval: (...args: unknown[]) => createDelegatedTreatmentApprovalMock(...args),
     fetchBranchTreatments: (...args: unknown[]) => fetchBranchTreatmentsMock(...args),
     createWasteTreatmentApprovalRequest: (...args: unknown[]) => createWasteTreatmentApprovalRequestMock(...args),
     usePreapprovedTreatmentMatch: (...args: unknown[]) => usePreapprovedTreatmentMatchMock(...args),
@@ -755,6 +757,100 @@ describe('WasteDetailScreen', () => {
       await screen.findByText('Aceite Lubricante Usado')
 
       expect(screen.queryByRole('button', { name: 'Suspender' })).not.toBeInTheDocument()
+    })
+  })
+
+  // Asignación delegada (Fase 2, 2026-08-15): registrar la evaluación de un
+  // Gestor DE REFERENCIA, resuelta en su propia plataforma.
+  describe('registrar evaluación externa', () => {
+    beforeEach(() => {
+      fetchAvailableBranchTreatmentsMock.mockResolvedValue({
+        branch_treatments: [
+          {
+            id: 44,
+            treatment_name: 'Incineración',
+            organization_name: 'Gestor Externo S.A.S.',
+            branch_name: 'Planta Sur',
+            max_capacity: null,
+            capacity_unit: 'KG',
+          },
+        ],
+      })
+    })
+
+    test('con el permiso se ofrece la acción y se registra con el resultado', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: true,
+        permissions: ['wastes.read', 'treatment_approvals.read', 'treatment_approvals.assign_delegated'],
+        tenant_organization_id: 99,
+      }
+      createDelegatedTreatmentApprovalMock.mockResolvedValue({ treatment_approval: { id: 500 } })
+
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Registrar Evaluación Externa' }))
+
+      // El selector pide SOLO Gestores de referencia utilizables: sin esto
+      // ofrecería opciones que el backend rechaza con 422.
+      await vi.waitFor(() =>
+        expect(fetchAvailableBranchTreatmentsMock).toHaveBeenCalledWith(
+          expect.objectContaining({ delegatedOnly: true })
+        )
+      )
+
+      fireEvent.click(await screen.findByText('Incineración'))
+
+      // El resultado es obligatorio: es la constancia de qué se evaluó.
+      expect(screen.getByRole('button', { name: 'Registrar' })).toBeDisabled()
+
+      fireEvent.change(screen.getByLabelText('Resultado de la evaluación'), {
+        target: { value: 'Aprobado en la plataforma del Gestor.' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Registrar' }))
+
+      await vi.waitFor(() =>
+        expect(createDelegatedTreatmentApprovalMock).toHaveBeenCalledWith(20, {
+          branch_treatment_id: 44,
+          technical_notes: 'Aprobado en la plataforma del Gestor.',
+        })
+      )
+    })
+
+    test('sin el permiso la acción no aparece', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: true,
+        permissions: ['wastes.read', 'treatment_approvals.read', 'treatment_approvals.evaluate'],
+        tenant_organization_id: 99,
+      }
+
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
+
+      expect(screen.queryByRole('button', { name: 'Registrar Evaluación Externa' })).not.toBeInTheDocument()
+    })
+
+    test('si no hay Gestores de referencia vinculados lo dice, en vez de dejar el selector vacío', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: false,
+        permissions: ['wastes.read', 'treatment_approvals.read', 'treatment_approvals.assign_delegated'],
+        tenant_organization_id: 2,
+      }
+      fetchAvailableBranchTreatmentsMock.mockResolvedValue({ branch_treatments: [] })
+
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Registrar Evaluación Externa' }))
+
+      expect(await screen.findByText(/No hay Gestores de referencia vinculados/i)).toBeInTheDocument()
     })
   })
 })

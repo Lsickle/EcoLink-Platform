@@ -807,3 +807,108 @@ test('search sigue rechazando a un actor NO platform staff SIN filtrar por capab
 
     $this->actingAs($actor)->getJson('/api/admin/organizations/search?q=algo')->assertForbidden();
 });
+
+// ---- Fase 2: Gestor operativo vs. de referencia (2026-08-15) ----
+//
+// Gobierna las dos barreras del cruce: a un Gestor de referencia no se le
+// SOLICITA evaluación, y sobre uno operativo no se DELEGA.
+
+function orgWithTreatingRole(): array
+{
+    $organization = Organization::factory()->create();
+    $businessRole = BusinessRole::factory()->create(['can_treat_waste' => true]);
+
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id,
+        'business_role_id' => $businessRole->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    return [$organization->fresh(), $businessRole];
+}
+
+test('el staff de EcoLink marca un Gestor como DE REFERENCIA', function () {
+    [$organization, $businessRole] = orgWithTreatingRole();
+    $actor = organizationTestActor(['organizations.update'], platformTenantId());
+
+    // Nace operativo: es la vía normal, "de referencia" es la excepción.
+    expect($organization->isOperationalGestor())->toBeTrue();
+
+    $this->actingAs($actor)
+        ->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$businessRole->id}/operating-mode", [
+            'operates_in_platform' => false,
+        ])->assertOk()->assertJsonPath('operates_in_platform', false);
+
+    $organization = $organization->fresh();
+    expect($organization->isReferenceGestor())->toBeTrue()
+        ->and($organization->isOperationalGestor())->toBeFalse();
+
+    expect(SecurityLog::query()->where('event_type', 'BUSINESS_ROLE_OPERATING_MODE_CHANGED')->exists())->toBeTrue();
+});
+
+test('show expone la marca para que la UI ofrezca el interruptor', function () {
+    [$organization, $businessRole] = orgWithTreatingRole();
+    $actor = organizationTestActor(['organizations.read'], platformTenantId());
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$organization->id}")
+        ->assertOk()->assertJsonPath('organization.gestor_operates_in_platform', true);
+
+    OrganizationBusinessRole::query()
+        ->where('organization_id', $organization->id)
+        ->where('business_role_id', $businessRole->id)
+        ->update(['operates_in_platform' => false]);
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$organization->id}")
+        ->assertOk()->assertJsonPath('organization.gestor_operates_in_platform', false);
+});
+
+// `null` = no es Gestor: la UI no debe ofrecer el interruptor.
+test('show devuelve null cuando la organización no trata residuos', function () {
+    $organization = Organization::factory()->create();
+    $actor = organizationTestActor(['organizations.read'], platformTenantId());
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$organization->id}")
+        ->assertOk()->assertJsonPath('organization.gestor_operates_in_platform', null);
+});
+
+test('NO aplica a un tipo de organización que no trata residuos', function () {
+    $organization = Organization::factory()->create();
+    $businessRole = BusinessRole::factory()->create(['can_treat_waste' => false]);
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id,
+        'business_role_id' => $businessRole->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    $actor = organizationTestActor(['organizations.update'], platformTenantId());
+
+    $this->actingAs($actor)
+        ->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$businessRole->id}/operating-mode", [
+            'operates_in_platform' => false,
+        ])->assertUnprocessable()->assertJsonValidationErrors('business_role_id');
+});
+
+test('falla si la organización no tiene ese tipo asignado', function () {
+    $organization = Organization::factory()->create();
+    $businessRole = BusinessRole::factory()->create(['can_treat_waste' => true]);
+    $actor = organizationTestActor(['organizations.update'], platformTenantId());
+
+    $this->actingAs($actor)
+        ->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$businessRole->id}/operating-mode", [
+            'operates_in_platform' => false,
+        ])->assertUnprocessable()->assertJsonValidationErrors('business_role_id');
+});
+
+test('una organización cliente NO puede cambiar la marca', function () {
+    [$organization, $businessRole] = orgWithTreatingRole();
+    $actor = organizationTestActor(['organizations.update'], $organization->id);
+
+    $this->actingAs($actor)
+        ->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$businessRole->id}/operating-mode", [
+            'operates_in_platform' => false,
+        ])->assertForbidden();
+
+    expect($organization->fresh()->isOperationalGestor())->toBeTrue();
+});

@@ -157,7 +157,7 @@ class Organization extends Model
     {
         return $this->belongsToMany(BusinessRole::class, 'organization_business_roles')
             ->using(OrganizationBusinessRole::class)
-            ->withPivot(['assigned_by', 'assigned_at', 'is_active'])
+            ->withPivot(['assigned_by', 'assigned_at', 'is_active', 'operates_in_platform'])
             ->withTimestamps();
     }
 
@@ -213,6 +213,44 @@ class Organization extends Model
             ->wherePivot('is_active', true)
             ->where('business_roles.is_active', true)
             ->where($flag, true)
+            ->exists();
+    }
+
+    /**
+     * Gestor OPERATIVO: trata residuos Y lo hace DENTRO de EcoLink (Fase 2,
+     * 2026-08-15). Es a quien se le puede SOLICITAR una evaluacion, porque
+     * tiene usuarios que van a entrar a resolverla.
+     *
+     * La marca vive en el pivote (`organization_business_roles`), no en la
+     * organizacion: una organizacion Generador+Gestor puede operar aqui como
+     * Generador y ser de referencia en su faceta de Gestor.
+     */
+    public function isOperationalGestor(): bool
+    {
+        return $this->businessRoles()
+            ->wherePivot('is_active', true)
+            ->wherePivot('operates_in_platform', true)
+            ->where('business_roles.is_active', true)
+            ->where('can_treat_waste', true)
+            ->exists();
+    }
+
+    /**
+     * Gestor DE REFERENCIA: trata residuos pero maneja todo en su propia
+     * plataforma -- no tiene usuarios aqui. Su evaluacion solo puede entrar al
+     * sistema como asignacion DELEGADA, registrada por EcoLink o por un
+     * Subgestor vinculado.
+     *
+     * NO es la negacion de `isOperationalGestor()`: una organizacion que no
+     * trata residuos no es ninguna de las dos cosas.
+     */
+    public function isReferenceGestor(): bool
+    {
+        return $this->businessRoles()
+            ->wherePivot('is_active', true)
+            ->wherePivot('operates_in_platform', false)
+            ->where('business_roles.is_active', true)
+            ->where('can_treat_waste', true)
             ->exists();
     }
 

@@ -3,12 +3,14 @@
 use App\Models\Branch;
 use App\Models\BranchTreatment;
 use App\Models\BusinessRole;
+use App\Models\GeneratorSubgestorRelationship;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\SecurityLog;
+use App\Models\SubgestorGestorRelationship;
 use App\Models\Treatment;
 use App\Models\User;
 use App\Models\UserRole;
@@ -1381,4 +1383,347 @@ test('el rechazo comercial NO altera el estado del residuo', function () {
     ])->assertOk();
 
     expect($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
+});
+
+/** La organización marcada `is_platform_tenant` (EcoLink), sembrada en beforeEach. */
+function platformOrganizationId(): int
+{
+    return Organization::query()->where('is_platform_tenant', true)->value('id');
+}
+
+// ---- Fase 2: los dos caminos de evaluación y la asignación delegada ----
+//
+// Gestor OPERATIVO: evalúa dentro de EcoLink, se le SOLICITA la evaluación.
+// Gestor DE REFERENCIA: maneja todo en su plataforma, no tiene usuarios aquí;
+// su resultado entra como asignación DELEGADA registrada por EcoLink o por un
+// Subgestor vinculado.
+
+/**
+ * Organización GESTOR con la marca `operates_in_platform` que se indique.
+ */
+function gestorOrganizationWithMode(bool $operatesInPlatform): Organization
+{
+    $organization = Organization::factory()->create();
+    $gestor = BusinessRole::factory()->create(['can_treat_waste' => true]);
+
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id,
+        'business_role_id' => $gestor->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+        'operates_in_platform' => $operatesInPlatform,
+    ]);
+
+    return $organization->fresh();
+}
+
+function branchTreatmentFor(Organization $gestor): BranchTreatment
+{
+    return BranchTreatment::factory()->create([
+        'organization_id' => $gestor->id,
+        'branch_id' => Branch::factory()->create(['organization_id' => $gestor->id])->id,
+        'treatment_id' => Treatment::factory()->create()->id,
+    ]);
+}
+
+test('un Gestor recién creado opera dentro de la plataforma por defecto', function () {
+    $gestor = gestorOrganization();
+
+    expect($gestor->isOperationalGestor())->toBeTrue()
+        ->and($gestor->isReferenceGestor())->toBeFalse();
+});
+
+// Una organización que no trata residuos no es ninguna de las dos cosas: los
+// helpers no son negación uno del otro.
+test('una organización que no trata residuos no es Gestor de ningún tipo', function () {
+    $organization = Organization::factory()->create();
+
+    expect($organization->isOperationalGestor())->toBeFalse()
+        ->and($organization->isReferenceGestor())->toBeFalse();
+});
+
+test('NO se puede solicitar evaluación a un Gestor DE REFERENCIA', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => Waste::STATUS_DECLARED,
+    ]);
+    $branchTreatment = branchTreatmentFor(gestorOrganizationWithMode(false));
+
+    $actor = treatmentApprovalActor(['wastes.update', 'treatment_approvals.create'], $generatorOrganization->id);
+
+    // Se quedaría colgada para siempre: ese Gestor no tiene usuarios que
+    // puedan entrar a resolverla, y el residuo quedaría atrapado en REV.
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertUnprocessable()->assertJsonValidationErrors('branch_treatment_id');
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_DECLARED);
+});
+
+test('NO se puede asignar por delegación sobre un Gestor OPERATIVO', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => Waste::STATUS_DECLARED,
+    ]);
+    $branchTreatment = branchTreatmentFor(gestorOrganizationWithMode(true));
+
+    // La barrera que impide desmentir a un Gestor que sí puede entrar.
+    $actor = treatmentApprovalActor(['treatment_approvals.assign_delegated']);
+    $actor->forceFill(['tenant_organization_id' => platformOrganizationId()])->save();
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/delegated-treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+        'technical_notes' => 'Evaluado en su plataforma.',
+    ])->assertUnprocessable()->assertJsonValidationErrors('branch_treatment_id');
+});
+
+test('el staff de EcoLink registra la evaluación de un Gestor de referencia y el residuo queda Clasificado', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => Waste::STATUS_DECLARED,
+    ]);
+    $gestor = gestorOrganizationWithMode(false);
+    $branchTreatment = branchTreatmentFor($gestor);
+
+    $actor = treatmentApprovalActor(['treatment_approvals.assign_delegated']);
+    $actor->forceFill(['tenant_organization_id' => platformOrganizationId()])->save();
+
+    $response = $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/delegated-treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+        'technical_notes' => 'Coprocesamiento aprobado en la plataforma del Gestor.',
+    ])->assertCreated();
+
+    // La fila pertenece al GESTOR, no a quien la registró.
+    $response->assertJsonPath('treatment_approval.organization_id', $gestor->id)
+        ->assertJsonPath('treatment_approval.technical_status', 'APPROVED');
+
+    $approval = WasteTreatmentApproval::query()->where('waste_id', $waste->id)->firstOrFail();
+    expect($approval->delegated_by_organization_id)->toBe(platformOrganizationId())
+        // No se confunde con el reenvío del Subgestor, que es del lado del residuo.
+        ->and($approval->forwarded_by_organization_id)->toBeNull()
+        ->and($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
+
+    $log = SecurityLog::query()->where('event_type', 'WASTE_TREATMENT_APPROVAL_DELEGATED')->first();
+    expect($log)->not->toBeNull()
+        ->and($log->metadata['waste_id'] ?? null)->toBe($waste->id)
+        ->and($log->metadata['delegated_by_organization_id'] ?? null)->toBe(platformOrganizationId());
+});
+
+test('la asignación delegada exige el motivo técnico', function () {
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_DECLARED]);
+    $branchTreatment = branchTreatmentFor(gestorOrganizationWithMode(false));
+
+    $actor = treatmentApprovalActor(['treatment_approvals.assign_delegated']);
+    $actor->forceFill(['tenant_organization_id' => platformOrganizationId()])->save();
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/delegated-treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+    ])->assertUnprocessable()->assertJsonValidationErrors('technical_notes');
+});
+
+test('sin el permiso assign_delegated no se puede registrar la asignación', function () {
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_DECLARED]);
+    $branchTreatment = branchTreatmentFor(gestorOrganizationWithMode(false));
+
+    // Poder evaluar no alcanza: son permisos distintos.
+    $actor = treatmentApprovalActor(['treatment_approvals.evaluate']);
+    $actor->forceFill(['tenant_organization_id' => platformOrganizationId()])->save();
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/delegated-treatment-approvals", [
+        'branch_treatment_id' => $branchTreatment->id,
+        'technical_notes' => 'Evaluado fuera.',
+    ])->assertForbidden();
+});
+
+test('un Subgestor con vínculo activo al Gestor puede registrar la asignación', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => Waste::STATUS_DECLARED,
+    ]);
+
+    GeneratorSubgestorRelationship::factory()->create([
+        'generator_organization_id' => $generatorOrganization->id,
+        'subgestor_organization_id' => $subgestorOrganization->id,
+        'is_active' => true,
+    ]);
+
+    $gestor = gestorOrganizationWithMode(false);
+    SubgestorGestorRelationship::factory()->create([
+        'subgestor_organization_id' => $subgestorOrganization->id,
+        'gestor_organization_id' => $gestor->id,
+        'is_active' => true,
+    ]);
+
+    $actor = treatmentApprovalActor(['treatment_approvals.assign_delegated'], $subgestorOrganization->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/delegated-treatment-approvals", [
+        'branch_treatment_id' => branchTreatmentFor($gestor)->id,
+        'technical_notes' => 'Evaluado por el Gestor en su plataforma.',
+    ])->assertCreated();
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
+});
+
+// Sin esto, un Subgestor con el permiso podría registrar evaluaciones en
+// nombre de CUALQUIER Gestor del sistema.
+test('un Subgestor SIN vínculo con ese Gestor no puede registrarla', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => Waste::STATUS_DECLARED,
+    ]);
+
+    GeneratorSubgestorRelationship::factory()->create([
+        'generator_organization_id' => $generatorOrganization->id,
+        'subgestor_organization_id' => $subgestorOrganization->id,
+        'is_active' => true,
+    ]);
+
+    $actor = treatmentApprovalActor(['treatment_approvals.assign_delegated'], $subgestorOrganization->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/delegated-treatment-approvals", [
+        'branch_treatment_id' => branchTreatmentFor(gestorOrganizationWithMode(false))->id,
+        'technical_notes' => 'Evaluado fuera.',
+    ])->assertForbidden();
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_DECLARED);
+});
+
+// La otra mitad del vínculo: tener al Gestor no basta si el residuo no es de
+// un Generador cliente suyo.
+test('un Subgestor con vínculo al Gestor pero sin acceso al residuo tampoco puede', function () {
+    $subgestorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_DECLARED]);
+
+    $gestor = gestorOrganizationWithMode(false);
+    SubgestorGestorRelationship::factory()->create([
+        'subgestor_organization_id' => $subgestorOrganization->id,
+        'gestor_organization_id' => $gestor->id,
+        'is_active' => true,
+    ]);
+
+    $actor = treatmentApprovalActor(['treatment_approvals.assign_delegated'], $subgestorOrganization->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/delegated-treatment-approvals", [
+        'branch_treatment_id' => branchTreatmentFor($gestor)->id,
+        'technical_notes' => 'Evaluado fuera.',
+    ])->assertForbidden();
+});
+
+test('un vínculo REVOCADO con el Gestor ya no habilita la asignación', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => Waste::STATUS_DECLARED,
+    ]);
+
+    GeneratorSubgestorRelationship::factory()->create([
+        'generator_organization_id' => $generatorOrganization->id,
+        'subgestor_organization_id' => $subgestorOrganization->id,
+        'is_active' => true,
+    ]);
+
+    $gestor = gestorOrganizationWithMode(false);
+    SubgestorGestorRelationship::factory()->revoked()->create([
+        'subgestor_organization_id' => $subgestorOrganization->id,
+        'gestor_organization_id' => $gestor->id,
+    ]);
+
+    $actor = treatmentApprovalActor(['treatment_approvals.assign_delegated'], $subgestorOrganization->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/delegated-treatment-approvals", [
+        'branch_treatment_id' => branchTreatmentFor($gestor)->id,
+        'technical_notes' => 'Evaluado fuera.',
+    ])->assertForbidden();
+});
+
+// Hueco encontrado en pruebas de navegador (2026-08-15): el Subgestor
+// registraba la evaluación delegada y NO la veía en la lista -- esa fila
+// pertenece al Gestor de referencia y su `forwarded_by_organization_id` es
+// NULL, así que el filtro del Subgestor la dejaba fuera.
+test('el Subgestor VE la evaluación que registró por delegación', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $subgestorOrganization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => Waste::STATUS_DECLARED,
+    ]);
+
+    GeneratorSubgestorRelationship::factory()->create([
+        'generator_organization_id' => $generatorOrganization->id,
+        'subgestor_organization_id' => $subgestorOrganization->id,
+        'is_active' => true,
+    ]);
+
+    $gestor = gestorOrganizationWithMode(false);
+    SubgestorGestorRelationship::factory()->create([
+        'subgestor_organization_id' => $subgestorOrganization->id,
+        'gestor_organization_id' => $gestor->id,
+        'is_active' => true,
+    ]);
+
+    $actor = treatmentApprovalActor(
+        ['treatment_approvals.read', 'treatment_approvals.assign_delegated'],
+        $subgestorOrganization->id,
+    );
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/delegated-treatment-approvals", [
+        'branch_treatment_id' => branchTreatmentFor($gestor)->id,
+        'technical_notes' => 'Evaluado en la plataforma del Gestor.',
+    ])->assertCreated();
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}/treatment-approvals")->assertOk();
+
+    expect($response->json('data'))->toHaveCount(1)
+        ->and($response->json('data.0.organization_id'))->toBe($gestor->id)
+        ->and($response->json('data.0.delegated_by_organization_id'))->toBe($subgestorOrganization->id);
+});
+
+// La otra mitad: un Subgestor distinto NO debe ver la delegación ajena.
+test('otro Subgestor NO ve la evaluación delegada por un tercero', function () {
+    $generatorOrganization = Organization::factory()->create();
+    $delegatingSubgestor = Organization::factory()->create();
+    $otherSubgestor = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $generatorOrganization->id,
+        'status' => Waste::STATUS_DECLARED,
+    ]);
+
+    foreach ([$delegatingSubgestor, $otherSubgestor] as $subgestor) {
+        GeneratorSubgestorRelationship::factory()->create([
+            'generator_organization_id' => $generatorOrganization->id,
+            'subgestor_organization_id' => $subgestor->id,
+            'is_active' => true,
+        ]);
+    }
+
+    $gestor = gestorOrganizationWithMode(false);
+    SubgestorGestorRelationship::factory()->create([
+        'subgestor_organization_id' => $delegatingSubgestor->id,
+        'gestor_organization_id' => $gestor->id,
+        'is_active' => true,
+    ]);
+
+    $delegator = treatmentApprovalActor(
+        ['treatment_approvals.read', 'treatment_approvals.assign_delegated'],
+        $delegatingSubgestor->id,
+    );
+
+    $this->actingAs($delegator)->postJson("/api/admin/wastes/{$waste->id}/delegated-treatment-approvals", [
+        'branch_treatment_id' => branchTreatmentFor($gestor)->id,
+        'technical_notes' => 'Evaluado fuera.',
+    ])->assertCreated();
+
+    $outsider = treatmentApprovalActor(['treatment_approvals.read'], $otherSubgestor->id);
+
+    $response = $this->actingAs($outsider)->getJson("/api/admin/wastes/{$waste->id}/treatment-approvals")->assertOk();
+
+    expect($response->json('data'))->toHaveCount(0);
 });

@@ -26,7 +26,10 @@ class BusinessRoleController extends Controller
         $businessRoles = BusinessRole::query()
             ->when($request->boolean('active_only'), fn ($query) => $query->where('is_active', true))
             ->orderBy('sort_order')
-            ->get(['id', 'code', 'name', 'description', 'sort_order', 'is_active']);
+            // `can_treat_waste` (Fase 2, 2026-08-15): la UI necesita saber cual
+            // de los tipos asignados es el que trata residuos, para aplicarle la
+            // marca operativo/referencia sin asumir un codigo concreto.
+            ->get(['id', 'code', 'name', 'description', 'sort_order', 'is_active', 'can_treat_waste']);
 
         return response()->json(['data' => $businessRoles]);
     }

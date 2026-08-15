@@ -30,6 +30,9 @@ class OrganizationBusinessRole extends Pivot
         return [
             'assigned_at' => 'datetime',
             'is_active' => 'boolean',
+            // Fase 2 (2026-08-15): solo significa algo cuando el rol de
+            // negocio tiene `can_treat_waste` -- ver la migracion.
+            'operates_in_platform' => 'boolean',
         ];
     }
 }
