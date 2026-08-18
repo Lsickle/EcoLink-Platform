@@ -620,8 +620,12 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
     setIsUsingMatch(true)
     try {
       await usePreapprovedTreatmentMatch(wasteId, matchId)
+      // Desde 2026-08-15 la copia HEREDA la aprobación técnica del Gestor y el
+      // residuo queda Clasificado -- antes nacía pendiente y el mensaje decía
+      // que el Gestor debía confirmarla. Lo que falta ahora es el visto bueno
+      // final, que es otro acto y otro permiso.
       setUseMatchMessage(
-        'Se creó una solicitud pre-completada con los términos del match preaprobado -- el Gestor debe confirmarla, todavía no queda aprobada.'
+        'El residuo hereda el tratamiento preaprobado y queda Clasificado. Falta el visto bueno final para que pueda usarse en Solicitudes de Servicio.'
       )
       await refreshTreatmentApprovals()
     } catch (error) {
@@ -829,6 +833,16 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
             <p className="rounded-lg bg-destructive/10 p-2.5 text-sm" role="status">
               Residuo <span className="font-semibold">Suspendido</span>: retirado de circulación, no puede usarse en
               Solicitudes de Servicio. Conserva toda su trazabilidad y solo EcoLink puede reactivarlo.
+            </p>
+          )}
+          {/* Blindaje posterior a la aprobación (2026-08-15): el botón de
+              edición ya está oculto para APR/SUS, pero sin esta nota el dueño
+              no sabría por qué ni qué hacer en su lugar. */}
+          {!isPlatformStaff && (waste.status === 'APR' || waste.status === 'SUS') && (
+            <p className="rounded-lg border border-border bg-muted/40 p-2.5 text-sm text-muted-foreground" role="status">
+              Este residuo ya no se puede editar: sus datos respaldan solicitudes, programaciones y certificados que
+              quedarían describiendo algo distinto. Si cambió la caracterización, declara un residuo nuevo; para
+              correcciones puntuales, escribe a soporte de EcoLink.
             </p>
           )}
           {isSuspending && (

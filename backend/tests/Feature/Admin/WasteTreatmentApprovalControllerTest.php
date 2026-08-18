@@ -818,7 +818,9 @@ test('Waste::hasViableTreatment() es falso si la aprobación viable está INACTI
 
 // ---- Preaprobación automática ----
 
-test('preapprovedMatches encuentra un match solo si comparte corriente Y tiene AMBOS ejes aprobados', function () {
+// El eje COMERCIAL dejo de exigirse (Fase 3, 2026-08-15): se resuelve fuera
+// de la plataforma. Antes este test fijaba que hacian falta AMBOS ejes.
+test('preapprovedMatches encuentra un match si comparte corriente y tiene el eje TECNICO aprobado', function () {
     $generatorOrganization = Organization::factory()->create();
     $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
     $stream = WasteStream::factory()->create();
@@ -839,12 +841,22 @@ test('preapprovedMatches encuentra un match solo si comparte corriente Y tiene A
     $unrelatedWaste = Waste::factory()->create(['waste_type_id' => $preapprovedType->id]);
     WasteTreatmentApproval::factory()->viable()->create(['waste_id' => $unrelatedWaste->id]);
 
-    // Comparte corriente pero SIN ambos ejes aprobados -- NO debe aparecer.
-    $incompleteWaste = Waste::factory()->create(['waste_type_id' => $preapprovedType->id]);
-    WasteStreamAssignment::factory()->create(['waste_id' => $incompleteWaste->id, 'waste_stream_id' => $stream->id]);
-    WasteTreatmentApproval::factory()->create([
-        'waste_id' => $incompleteWaste->id,
+    // Comparte corriente y tiene el eje tecnico aprobado, aunque el comercial
+    // siga en borrador -- SI debe aparecer.
+    $commercialDraftWaste = Waste::factory()->create(['waste_type_id' => $preapprovedType->id]);
+    WasteStreamAssignment::factory()->create(['waste_id' => $commercialDraftWaste->id, 'waste_stream_id' => $stream->id]);
+    $commercialDraftMatch = WasteTreatmentApproval::factory()->create([
+        'waste_id' => $commercialDraftWaste->id,
         'technical_status' => 'APPROVED',
+        'commercial_status' => 'DRAFT',
+    ]);
+
+    // Comparte corriente pero SIN aprobacion tecnica -- NO debe aparecer.
+    $pendingWaste = Waste::factory()->create(['waste_type_id' => $preapprovedType->id]);
+    WasteStreamAssignment::factory()->create(['waste_id' => $pendingWaste->id, 'waste_stream_id' => $stream->id]);
+    WasteTreatmentApproval::factory()->create([
+        'waste_id' => $pendingWaste->id,
+        'technical_status' => 'PENDING',
         'commercial_status' => 'DRAFT',
     ]);
 
@@ -853,10 +865,13 @@ test('preapprovedMatches encuentra un match solo si comparte corriente Y tiene A
     $response = $this->actingAs($actor)->getJson("/api/admin/wastes/{$waste->id}/preapproved-matches")->assertOk();
 
     $matchIds = collect($response->json('matches'))->pluck('id');
-    expect($matchIds->all())->toBe([$viableMatch->id]);
+    expect($matchIds->all())->toEqualCanonicalizing([$viableMatch->id, $commercialDraftMatch->id]);
 });
 
-test('usePreapprovedMatch crea una fila NUEVA que nace PENDING/DRAFT (no auto-aprobada)', function () {
+// Antes la copia nacia PENDING y no heredaba nada, lo que vaciaba el sentido
+// del preaprobado: el Generador copiaba la caracterizacion pero volvia a
+// esperar la evaluacion que el Gestor YA habia resuelto (Fase 3, 2026-08-15).
+test('usePreapprovedMatch HEREDA la aprobación técnica y deja el residuo Clasificado', function () {
     $generatorOrganization = Organization::factory()->create();
     $waste = Waste::factory()->create(['organization_id' => $generatorOrganization->id]);
     $stream = WasteStream::factory()->create();
@@ -880,7 +895,8 @@ test('usePreapprovedMatch crea una fila NUEVA que nace PENDING/DRAFT (no auto-ap
         ->postJson("/api/admin/wastes/{$waste->id}/preapproved-matches/{$sourceApproval->id}/use")
         ->assertCreated();
 
-    $response->assertJsonPath('treatment_approval.technical_status', 'PENDING')
+    $response->assertJsonPath('treatment_approval.technical_status', 'APPROVED')
+        // El eje comercial NO se hereda: se resuelve fuera de la plataforma.
         ->assertJsonPath('treatment_approval.commercial_status', 'DRAFT')
         ->assertJsonPath('treatment_approval.organization_id', $gestor->id)
         ->assertJsonPath('treatment_approval.waste_id', $waste->id)
@@ -889,6 +905,14 @@ test('usePreapprovedMatch crea una fila NUEVA que nace PENDING/DRAFT (no auto-ap
     expect((float) $response->json('treatment_approval.unit_price'))->toBe(999.99);
     expect($waste->fresh()->is_preapproved)->toBeTrue();
     expect($waste->fresh()->preapproved_by_organization_id)->toBe($gestor->id);
+
+    // NO llega a APROBADO: la aprobación final sigue siendo un acto humano
+    // con permiso propio, antes de que el residuo entre a Solicitudes.
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
+
+    // La decisión técnica es del GESTOR, no del Generador que usa la plantilla.
+    $newApproval = WasteTreatmentApproval::query()->where('waste_id', $waste->id)->firstOrFail();
+    expect($newApproval->technical_approved_by)->toBe($sourceApproval->technical_approved_by);
 
     // La fila FUENTE (ya aprobada) NO se modifica.
     expect($sourceApproval->fresh()->technical_status)->toBe('APPROVED');

@@ -293,13 +293,16 @@ class PreapprovedWasteController extends Controller
             // APPROVED en el mismo acto de creación -- sin pasar por
             // storeForWaste()/approve-technical/approve-commercial (ver
             // docblock de la clase para el razonamiento completo).
+            //
+            // El eje COMERCIAL ya NO se auto-aprueba (Fase 3, 2026-08-15): se
+            // resuelve fuera de la plataforma y no gobierna nada del ciclo.
+            // Auto-aprobarlo simulaba un acuerdo comercial que nadie tomó
+            // aquí. El eje TÉCNICO sí, que es lo que el Gestor está
+            // declarando.
             $approval->forceFill([
                 'technical_status' => 'APPROVED',
-                'commercial_status' => 'APPROVED',
                 'technical_approved_at' => now(),
                 'technical_approved_by' => $actor->id,
-                'commercial_approved_at' => now(),
-                'commercial_approved_by' => $actor->id,
             ])->save();
 
             return $waste;

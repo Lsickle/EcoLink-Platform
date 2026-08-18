@@ -756,7 +756,9 @@ class WasteTreatmentApprovalController extends Controller
         $matches = WasteTreatmentApproval::query()
             ->whereIn('waste_id', $candidateWasteIds)
             ->technicalStatusCode('APPROVED')
-            ->commercialStatusCode('APPROVED')
+            // El eje COMERCIAL dejo de exigirse (Fase 3, 2026-08-15): se
+            // resuelve fuera de la plataforma y no debe bloquear, misma regla
+            // que ya aplica el resto del ciclo.
             ->where('is_active', true)
             ->with(['organization:id,legal_name', 'branchTreatment.treatment', 'branchTreatment.branch:id,name'])
             ->get();
@@ -781,7 +783,7 @@ class WasteTreatmentApprovalController extends Controller
         Gate::authorize('update', $waste);
         abort_unless($request->user()->hasPermission('treatment_approvals.create'), 403, 'No tiene permiso para solicitar evaluaciones de tratamiento.');
 
-        if (! $treatmentApproval->is_active || $treatmentApproval->technical_status !== 'APPROVED' || $treatmentApproval->commercial_status !== 'APPROVED') {
+        if (! $treatmentApproval->is_active || $treatmentApproval->technical_status !== 'APPROVED') {
             throw ValidationException::withMessages([
                 'treatment_approval_id' => ['La evaluación indicada no es una aprobación preaprobada válida.'],
             ]);
@@ -818,17 +820,41 @@ class WasteTreatmentApprovalController extends Controller
             'requires_special_transport' => $treatmentApproval->requires_special_transport,
             'requires_special_ppe' => $treatmentApproval->requires_special_ppe,
             'restrictions' => $treatmentApproval->restrictions,
+            'technical_notes' => $treatmentApproval->technical_notes,
             'is_active' => true,
             'metadata' => ['preapproved_match_source_id' => $treatmentApproval->id],
         ]);
 
-        // "Identificado como candidato preaprobado", NO "ya aprobado sin
-        // revisión" -- ver docblock del método. El estado real de la nueva
-        // fila sigue siendo PENDING/DRAFT.
+        // HEREDA la aprobacion tecnica del Gestor (Fase 3, 2026-08-15). Antes
+        // la copia nacia PENDING y no heredaba nada, lo que vaciaba el sentido
+        // del preaprobado: el Generador copiaba la caracterizacion pero volvia
+        // a esperar la misma evaluacion que el Gestor YA habia resuelto sobre
+        // este mismo tratamiento.
+        //
+        // `technical_approved_by/at` se copian del ORIGEN, no del actor: la
+        // decision tecnica es del Gestor, no del Generador que usa la
+        // plantilla. `technical_status` es un atributo virtual y NO esta en
+        // $fillable -- por eso va aparte, en un forceFill().
+        $newApproval->forceFill([
+            'technical_status' => 'APPROVED',
+            'technical_approved_at' => $treatmentApproval->technical_approved_at,
+            'technical_approved_by' => $treatmentApproval->technical_approved_by,
+        ])->save();
+
         $waste->forceFill([
             'is_preapproved' => true,
             'preapproved_by_organization_id' => $treatmentApproval->organization_id,
         ])->save();
+
+        // ...y con eso el residuo queda CLASIFICADO. NO llega a APROBADO: la
+        // aprobacion final sigue siendo un acto humano con permiso propio,
+        // que es el control que pediste conservar antes de que un residuo
+        // entre a Solicitudes de Servicio.
+        $newApproval->setRelation('waste', $waste);
+        $this->syncWasteStatus(
+            $request, $newApproval, Waste::STATUS_CLASSIFIED,
+            'WASTE_CLASSIFIED', 'Residuo clasificado: hereda el tratamiento de un residuo preaprobado.',
+        );
 
         $this->logSecurityEvent(
             $request, 'WASTE_TREATMENT_APPROVAL_PREAPPROVED_MATCH_USED', 'SUCCESS',

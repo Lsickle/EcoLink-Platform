@@ -1219,3 +1219,109 @@ test('solo se suspende desde Aprobado: un residuo Clasificado no es suspendible'
 
     expect($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
 });
+
+// ---- Fase 3: blindaje posterior a la aprobación (2026-08-15) ----
+//
+// Un residuo APROBADO o SUSPENDIDO ya arrastra solicitudes, programaciones y
+// certificados: editarlo dejaría esos documentos describiendo algo distinto.
+// El camino previsto es crear un residuo NUEVO; las correcciones puntuales las
+// ejecuta EcoLink por soporte.
+
+test('el dueño NO puede editar un residuo Aprobado', function () {
+    $organization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $organization->id,
+        'status' => Waste::STATUS_APPROVED,
+        'name' => 'Nombre original',
+    ]);
+
+    $actor = wasteActor(['wastes.read', 'wastes.update'], $organization->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/wastes/{$waste->id}", [
+        'name' => 'Nombre cambiado',
+    ])->assertForbidden();
+
+    expect($waste->fresh()->name)->toBe('Nombre original');
+});
+
+test('tampoco un residuo Suspendido', function () {
+    $organization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $organization->id,
+        'status' => Waste::STATUS_SUSPENDED,
+        'name' => 'Nombre original',
+    ]);
+
+    $actor = wasteActor(['wastes.read', 'wastes.update'], $organization->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/wastes/{$waste->id}", [
+        'name' => 'Nombre cambiado',
+    ])->assertForbidden();
+
+    expect($waste->fresh()->name)->toBe('Nombre original');
+});
+
+// El camino de soporte: las correcciones puntuales las ejecuta EcoLink.
+test('el staff de EcoLink SÍ puede corregir un residuo Aprobado', function () {
+    $waste = Waste::factory()->create([
+        'status' => Waste::STATUS_APPROVED,
+        'name' => 'Nombre original',
+    ]);
+
+    $actor = wastePlatformStaffActor(['wastes.read', 'wastes.update']);
+
+    $this->actingAs($actor)->putJson("/api/admin/wastes/{$waste->id}", [
+        'name' => 'Nombre corregido por soporte',
+    ])->assertOk();
+
+    expect($waste->fresh()->name)->toBe('Nombre corregido por soporte');
+});
+
+test('un residuo en Clasificado sigue siendo editable por su dueño', function () {
+    $organization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $organization->id,
+        'status' => Waste::STATUS_CLASSIFIED,
+        'name' => 'Nombre original',
+    ]);
+
+    $actor = wasteActor(['wastes.read', 'wastes.update'], $organization->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/wastes/{$waste->id}", [
+        'name' => 'Nombre cambiado',
+    ])->assertOk();
+
+    expect($waste->fresh()->name)->toBe('Nombre cambiado');
+});
+
+// Desactivar un residuo aprobado es "retirarlo de circulación" por otro
+// nombre, y eso quedó reservado a EcoLink vía suspensión. El mismo gate
+// `update` cubre `deactivate()`, así que la puerta es una sola.
+test('el dueño NO puede desactivar un residuo Aprobado: eso es suspender, y es de EcoLink', function () {
+    $organization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $organization->id,
+        'status' => Waste::STATUS_APPROVED,
+        'is_active' => true,
+    ]);
+
+    $actor = wasteActor(['wastes.read', 'wastes.deactivate', 'wastes.update'], $organization->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/wastes/{$waste->id}/deactivate")->assertForbidden();
+
+    expect($waste->fresh()->is_active)->toBeTrue();
+});
+
+test('tampoco puede cambiarle las corrientes asignadas', function () {
+    $organization = Organization::factory()->create();
+    $waste = Waste::factory()->create([
+        'organization_id' => $organization->id,
+        'status' => Waste::STATUS_APPROVED,
+    ]);
+
+    $actor = wasteActor(['wastes.read', 'wastes.update'], $organization->id);
+
+    $this->actingAs($actor)->putJson("/api/admin/wastes/{$waste->id}/waste-streams", [
+        'waste_stream_ids' => [],
+    ])->assertForbidden();
+});

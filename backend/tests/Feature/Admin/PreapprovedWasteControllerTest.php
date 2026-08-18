@@ -259,12 +259,15 @@ test('store crea el residuo preaprobado Y su WasteTreatmentApproval auto-aprobad
     expect($waste->waste_type_id)->toBe(preapprovedWasteType()->id);
 
     $approval = WasteTreatmentApproval::query()->where('waste_id', $waste->id)->firstOrFail();
+    // El eje COMERCIAL ya NO se auto-aprueba (Fase 3, 2026-08-15): se resuelve
+    // fuera de la plataforma. Auto-aprobarlo simulaba un acuerdo que nadie
+    // tomó aquí. El TÉCNICO sí, que es lo que el Gestor está declarando.
     expect($approval->technical_status)->toBe('APPROVED')
-        ->and($approval->commercial_status)->toBe('APPROVED')
+        ->and($approval->commercial_status)->toBe('DRAFT')
         ->and($approval->organization_id)->toBe($organization->id)
         ->and($approval->branch_treatment_id)->toBe($branchTreatment->id)
         ->and($approval->technical_approved_at)->not->toBeNull()
-        ->and($approval->commercial_approved_at)->not->toBeNull()
+        ->and($approval->commercial_approved_at)->toBeNull()
         ->and((float) $approval->unit_price)->toBe(850.0);
 
     expect(SecurityLog::query()->where('event_type', 'PREAPPROVED_WASTE_CREATED')->exists())->toBeTrue();

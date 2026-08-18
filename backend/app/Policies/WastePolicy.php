@@ -57,9 +57,32 @@ class WastePolicy
         return $actor->hasPermission('wastes.create');
     }
 
+    /**
+     * Blindaje posterior a la aprobacion (Fase 3, 2026-08-15). Un residuo
+     * APROBADO o SUSPENDIDO ya arrastra solicitudes, programaciones y
+     * certificados: editarlo dejaria esos documentos describiendo algo
+     * distinto de lo que se movio. El camino previsto es crear un residuo
+     * NUEVO; las correcciones puntuales pasan por soporte y las ejecuta
+     * EcoLink.
+     *
+     * ALCANCE: esta puerta la comparten `update()`, `activate()`,
+     * `deactivate()`, los tres `sync*()` de clasificacion y
+     * `usePreapprovedMatch()` -- todos usan `Gate::authorize('update')`. Es
+     * deliberado: desactivar un residuo aprobado es "retirarlo de
+     * circulacion" por otro nombre, y eso quedo reservado a EcoLink via
+     * suspension (decision del usuario, 2026-08-14).
+     */
     public function update(User $actor, Waste $waste): bool
     {
-        return $actor->hasPermission('wastes.update') && $waste->isAccessibleBy($actor);
+        if (! $actor->hasPermission('wastes.update') || ! $waste->isAccessibleBy($actor)) {
+            return false;
+        }
+
+        if (in_array($waste->status, [Waste::STATUS_APPROVED, Waste::STATUS_SUSPENDED], true)) {
+            return $actor->isPlatformStaff();
+        }
+
+        return true;
     }
 
     public function submit(User $actor, Waste $waste): bool

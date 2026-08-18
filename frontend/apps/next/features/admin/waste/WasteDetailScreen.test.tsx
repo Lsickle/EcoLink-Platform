@@ -454,7 +454,11 @@ describe('WasteDetailScreen', () => {
     await vi.waitFor(() => {
       expect(usePreapprovedTreatmentMatchMock).toHaveBeenCalledWith(20, 42)
     })
-    expect(await screen.findByText(/debe confirmarla/i)).toBeInTheDocument()
+    // Desde 2026-08-15 la copia HEREDA la aprobación técnica del Gestor: el
+    // residuo queda Clasificado y lo que falta es el visto bueno final, no
+    // la confirmación del Gestor.
+    expect(await screen.findByText(/queda Clasificado/i)).toBeInTheDocument()
+    expect(screen.getByText(/visto bueno final/i)).toBeInTheDocument()
   })
 
   test('hides "Solicitar Evaluación" without treatment_approvals.create', async () => {
@@ -851,6 +855,60 @@ describe('WasteDetailScreen', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Registrar Evaluación Externa' }))
 
       expect(await screen.findByText(/No hay Gestores de referencia vinculados/i)).toBeInTheDocument()
+    })
+  })
+
+  // Blindaje posterior a la aprobación (Fase 3, 2026-08-15): un residuo
+  // APR/SUS ya respalda solicitudes y certificados.
+  describe('residuo aprobado: edición bloqueada', () => {
+    test('explica por qué no se puede editar y cuál es el camino', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: false,
+        permissions: ['wastes.read', 'wastes.update'],
+        tenant_organization_id: 1,
+      }
+      fetchWasteMock.mockResolvedValue({ waste: { ...baseWaste(), status: 'APR' } })
+
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      expect(screen.getByText(/ya no se puede editar/i)).toBeInTheDocument()
+      expect(screen.getByText(/declara un residuo nuevo/i)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Editar en el Asistente' })).not.toBeInTheDocument()
+    })
+
+    // El camino de soporte: EcoLink sí corrige, así que no le mostramos el
+    // aviso dirigido al cliente.
+    test('al staff de EcoLink no se le muestra ese aviso', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: true,
+        permissions: ['wastes.read', 'wastes.update'],
+        tenant_organization_id: 99,
+      }
+      fetchWasteMock.mockResolvedValue({ waste: { ...baseWaste(), status: 'APR' } })
+
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      expect(screen.queryByText(/ya no se puede editar/i)).not.toBeInTheDocument()
+    })
+
+    test('un residuo en Borrador sí ofrece editar', async () => {
+      currentUser = {
+        id: 1,
+        is_platform_staff: false,
+        permissions: ['wastes.read', 'wastes.update'],
+        tenant_organization_id: 1,
+      }
+      fetchWasteMock.mockResolvedValue({ waste: { ...baseWaste(), status: 'BR' } })
+
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+
+      expect(screen.getByRole('button', { name: 'Editar en el Asistente' })).toBeInTheDocument()
+      expect(screen.queryByText(/ya no se puede editar/i)).not.toBeInTheDocument()
     })
   })
 })
