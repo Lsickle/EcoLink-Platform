@@ -41,6 +41,7 @@ import {
   type AdminTreatmentApprovalForWaste,
   type AdminWasteDetail,
   type AvailableBranchTreatment,
+  type TreatmentCompatibility,
   type PreapprovedTreatmentMatch,
   type RoleActivityEvent,
   type TreatmentApprovalCommercialStatus,
@@ -118,10 +119,49 @@ function InfoField({ label, children }: { label: string; children: React.ReactNo
   )
 }
 
+// Compatibilidad del tratamiento con las corrientes/códigos UN del residuo.
+//
+// SUGIERE, no restringe (decisión del usuario, 2026-08-18). Hasta hoy el
+// backend EXCLUÍA de `available()` lo que no coincidía, y como este selector es
+// la única vía para elegir, esa ayuda terminaba comportándose como una regla --
+// una que el backend nunca tuvo: ninguna validación de
+// `WasteTreatmentApprovalController` mira corrientes ni códigos UN, así que la
+// misma asignación pasaba por API y era imposible por pantalla.
+//
+// `unrestricted` no lleva distintivo a propósito: el tratamiento simplemente no
+// declaró catálogo, y anunciarlo en cada fila sería ruido.
+function CompatibilityBadge({ compatibility }: { compatibility?: TreatmentCompatibility }) {
+  if (compatibility === 'match') {
+    return (
+      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+        Compatible
+      </span>
+    )
+  }
+
+  if (compatibility === 'mismatch') {
+    return (
+      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+        No coincide con la corriente declarada
+      </span>
+    )
+  }
+
+  return null
+}
+
+// El modo `offer` trae los tratamientos del catálogo PROPIO del Gestor
+// (`fetchBranchTreatments()`), que no calcula compatibilidad -- de ahí que el
+// campo sea opcional aquí y no en `AvailableBranchTreatment`.
+type SelectableTreatment = Omit<AvailableBranchTreatment, 'compatibility'> & {
+  compatibility?: TreatmentCompatibility
+}
+
 // "Solicitar Evaluación" -- explora tratamientos de sede de Gestores
-// compatibles (GET /admin/branch-treatments/available, filtrado por las
-// corrientes Y/A y códigos UN ya asignados al residuo) y confirma la
-// elección, que ES la invitación (POST .../treatment-approvals).
+// (GET /admin/branch-treatments/available) y confirma la elección, que ES la
+// invitación (POST .../treatment-approvals). La lista viene ordenada por
+// compatibilidad: los que coinciden con las corrientes Y/A y códigos UN del
+// residuo primero, los que no, al final -- pero todos se muestran.
 function TreatmentApprovalRequestDialog({
   open,
   onOpenChange,
@@ -147,7 +187,7 @@ function TreatmentApprovalRequestDialog({
   // `fetchAvailableBranchTreatments()`).
   mode: 'owner' | 'forward' | 'offer'
 }) {
-  const [options, setOptions] = useState<AvailableBranchTreatment[]>([])
+  const [options, setOptions] = useState<SelectableTreatment[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -208,10 +248,10 @@ function TreatmentApprovalRequestDialog({
         : 'Solicitar Evaluación de Tratamiento'
   const dialogDescription =
     mode === 'forward'
-      ? 'Elige un tratamiento de sede de un Gestor compatible con las corrientes/códigos UN de este residuo. Estás reenviando en nombre de tu Generador cliente -- el Gestor evaluará la solicitud sin conocer su identidad.'
+      ? 'Los que coinciden con las corrientes/códigos UN del residuo van primero, pero puedes elegir cualquiera. Estás reenviando en nombre de tu Generador cliente -- el Gestor evaluará la solicitud sin conocer su identidad.'
       : mode === 'offer'
         ? 'Estás ofreciendo uno de tus propios tratamientos habilitados para este residuo del Generador vinculado.'
-        : 'Elige un tratamiento de sede de un Gestor compatible con las corrientes/códigos UN de este residuo. Esta elección es la invitación -- el Gestor evaluará la solicitud.'
+        : 'Los que coinciden con las corrientes/códigos UN del residuo van primero, pero puedes elegir cualquiera. Esta elección es la invitación -- el Gestor evaluará la solicitud.'
   const confirmLabel = isSubmitting ? 'Enviando…' : mode === 'forward' ? 'Confirmar Reenvío' : mode === 'offer' ? 'Confirmar Oferta' : 'Confirmar Solicitud'
 
   return (
@@ -226,9 +266,7 @@ function TreatmentApprovalRequestDialog({
             Cargando…
           </p>
         ) : options.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No hay tratamientos de sede compatibles con las corrientes/códigos UN de este residuo.
-          </p>
+          <p className="text-sm text-muted-foreground">No hay tratamientos de sede disponibles.</p>
         ) : (
           <ul role="listbox" className="flex max-h-72 flex-col gap-2 overflow-y-auto">
             {options.map((option) => {
@@ -244,7 +282,10 @@ function TreatmentApprovalRequestDialog({
                     }`}
                     onClick={() => setSelectedId(option.id)}
                   >
-                    <span className="font-medium">{option.treatment_name}</span>
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-medium">{option.treatment_name}</span>
+                      <CompatibilityBadge compatibility={option.compatibility} />
+                    </span>
                     <span className="text-xs text-muted-foreground">
                       {option.organization_name} · {option.branch_name}
                       {option.max_capacity != null ? ` · ${option.max_capacity} ${option.capacity_unit}` : ''}
@@ -351,7 +392,7 @@ function DelegatedTreatmentApprovalDialog({
           </p>
         ) : options.length === 0 ? (
           <p className="text-sm text-muted-foreground" role="status">
-            No hay Gestores de referencia vinculados con un tratamiento compatible para este residuo.
+            No hay Gestores de referencia vinculados con un tratamiento registrado.
           </p>
         ) : (
           <div className="flex max-h-60 flex-col gap-2 overflow-y-auto">
@@ -364,7 +405,10 @@ function DelegatedTreatmentApprovalDialog({
                   selectedId === option.id ? 'border-primary ring-1 ring-primary' : 'border-border'
                 }`}
               >
-                <span className="font-medium">{option.treatment_name}</span>
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-medium">{option.treatment_name}</span>
+                  <CompatibilityBadge compatibility={option.compatibility} />
+                </span>
                 <span className="block text-xs text-muted-foreground">
                   {option.organization_name} · {option.branch_name}
                 </span>

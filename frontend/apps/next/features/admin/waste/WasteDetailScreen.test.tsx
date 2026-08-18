@@ -911,4 +911,83 @@ describe('WasteDetailScreen', () => {
       expect(screen.queryByText(/ya no se puede editar/i)).not.toBeInTheDocument()
     })
   })
+
+  // -----------------------------------------------------------------------
+  // Compatibilidad por corriente/UN: SUGIERE, no restringe (2026-08-18).
+  //
+  // Hasta hoy el backend EXCLUÍA de `available()` lo que no coincidía, y como
+  // este selector es la única vía para elegir, esa ayuda se comportaba como una
+  // regla -- una que el backend nunca tuvo: ninguna validación de
+  // `WasteTreatmentApprovalController` mira corrientes ni códigos UN, así que
+  // la misma asignación pasaba por API y era imposible por pantalla.
+  // -----------------------------------------------------------------------
+  describe('compatibilidad como sugerencia', () => {
+    function conCompatibilidades() {
+      fetchAvailableBranchTreatmentsMock.mockResolvedValue({
+        branch_treatments: [
+          { id: 10, treatment_name: 'Incineración', organization_name: 'EcoGestor SAS', branch_name: 'Planta Norte', max_capacity: null, capacity_unit: 'KG', compatibility: 'match' },
+          { id: 11, treatment_name: 'Coprocesamiento', organization_name: 'EcoGestor SAS', branch_name: 'Planta Sur', max_capacity: null, capacity_unit: 'KG', compatibility: 'unrestricted' },
+          { id: 12, treatment_name: 'Compostaje', organization_name: 'EcoGestor SAS', branch_name: 'Planta Este', max_capacity: null, capacity_unit: 'KG', compatibility: 'mismatch' },
+        ],
+      })
+    }
+
+    async function abrirSelector() {
+      render(<WasteDetailScreen wasteId={20} />)
+      await screen.findByText('Aceite Lubricante Usado')
+      fireEvent.click(screen.getByRole('tab', { name: 'Tratamientos' }))
+      await screen.findByText(/Sin evaluaciones de tratamiento/i)
+      fireEvent.click(screen.getByRole('button', { name: 'Solicitar Evaluación' }))
+    }
+
+    // El punto de todo el cambio: lo que no coincide SIGUE ofreciéndose.
+    test('ofrece también los que no coinciden con la corriente declarada', async () => {
+      conCompatibilidades()
+      await abrirSelector()
+
+      expect(await screen.findByRole('option', { name: /Incineración/ })).toBeInTheDocument()
+      expect(screen.getByRole('option', { name: /Compostaje/ })).toBeInTheDocument()
+    })
+
+    test('marca cuál coincide y cuál no', async () => {
+      conCompatibilidades()
+      await abrirSelector()
+
+      await screen.findByRole('option', { name: /Incineración/ })
+      expect(screen.getByText('Compatible')).toBeInTheDocument()
+      expect(screen.getByText('No coincide con la corriente declarada')).toBeInTheDocument()
+    })
+
+    // `unrestricted` = el tratamiento no declaró catálogo. Anunciarlo en cada
+    // fila sería ruido, y desde luego no debe leerse como incompatible.
+    test('no marca nada cuando el tratamiento no declaró catálogo', async () => {
+      conCompatibilidades()
+      await abrirSelector()
+
+      await screen.findByRole('option', { name: /Coprocesamiento/ })
+      expect(screen.getAllByText('Compatible')).toHaveLength(1)
+      expect(screen.getAllByText('No coincide con la corriente declarada')).toHaveLength(1)
+    })
+
+    test('se puede seleccionar y enviar uno que NO coincide', async () => {
+      conCompatibilidades()
+      createWasteTreatmentApprovalRequestMock.mockResolvedValue({ treatment_approval: { id: 900 } })
+      await abrirSelector()
+
+      fireEvent.click(await screen.findByRole('option', { name: /Compostaje/ }))
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar Solicitud' }))
+
+      await vi.waitFor(() =>
+        expect(createWasteTreatmentApprovalRequestMock).toHaveBeenCalledWith(20, { branch_treatment_id: 12 })
+      )
+    })
+
+    // El texto ya no puede prometer que solo se ofrecen compatibles.
+    test('el aviso dice que se puede elegir cualquiera', async () => {
+      conCompatibilidades()
+      await abrirSelector()
+
+      expect(await screen.findByText(/puedes elegir cualquiera/i)).toBeInTheDocument()
+    })
+  })
 })

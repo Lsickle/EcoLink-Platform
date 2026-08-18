@@ -2215,6 +2215,16 @@ export type AdminTreatmentApprovalDetail = Omit<
 // ACTIVOS de organizaciones Gestor, campos LIMITADOS (sin licencia
 // ambiental/observaciones/internal_code) -- ver
 // `BranchTreatmentController::available()`.
+// Corriente/código UN del residuo frente al catálogo declarado por el
+// tratamiento. SUGIERE, no restringe (decisión del usuario, 2026-08-18):
+// `available()` clasifica y ordena, pero ya no esconde -- ver
+// `BranchTreatmentController::compatibilityWith()`.
+//
+// `unrestricted` = el tratamiento no declaró catálogo. No es lo mismo que
+// `mismatch`: no haber declarado nada significa "sin restricción declarada",
+// no "no sirve para nada".
+export type TreatmentCompatibility = 'match' | 'unrestricted' | 'mismatch'
+
 export type AvailableBranchTreatment = {
   id: number
   treatment_name: string
@@ -2222,6 +2232,7 @@ export type AvailableBranchTreatment = {
   branch_name: string
   max_capacity: string | null
   capacity_unit: string
+  compatibility: TreatmentCompatibility
 }
 
 // POST /api/admin/wastes/{waste}/treatment-approvals -- el Generador elige

@@ -92,9 +92,12 @@ class BranchTreatmentController extends Controller
      * crear su solicitud de evaluación (ver
      * `WasteTreatmentApprovalController::storeForWaste()`). Expone SOLO
      * campos no sensibles -- nunca licencia ambiental, observaciones u
-     * otros datos operativos internos del Gestor. Filtrable por
-     * `waste_stream_ids[]`/`un_code_ids[]` para acotar a los tratamientos
-     * compatibles con las corrientes ya declaradas del residuo.
+     * otros datos operativos internos del Gestor.
+     *
+     * `waste_stream_ids[]`/`un_code_ids[]` NO filtran (cambio del 2026-08-18):
+     * clasifican. Cada fila vuelve con `compatibility` (`match`/`unrestricted`/
+     * `mismatch`) y la lista viene ordenada por ese campo. Ver
+     * `compatibilityWith()` para por qué dejó de excluir.
      *
      * Nota de implementación: se define como método dedicado (no
      * `mode=available` sobre `index()`) porque su forma de respuesta
@@ -138,13 +141,13 @@ class BranchTreatmentController extends Controller
                         ->pluck('gestor_organization_id'));
                 }
             })
-            ->when($wasteStreamIds !== [], fn ($query) => $query->whereHas(
-                'allowedWasteStreams', fn ($query) => $query->whereIn('waste_streams.id', $wasteStreamIds),
-            ))
-            ->when($unCodeIds !== [], fn ($query) => $query->whereHas(
-                'allowedUnCodes', fn ($query) => $query->whereIn('un_codes.id', $unCodeIds),
-            ))
-            ->with(['organization:id,legal_name', 'branch:id,name', 'treatment:id,code,name'])
+            ->with([
+                'organization:id,legal_name',
+                'branch:id,name',
+                'treatment:id,code,name',
+                'allowedWasteStreams:id',
+                'allowedUnCodes:id',
+            ])
             ->get()
             ->map(fn (BranchTreatment $branchTreatment) => [
                 'id' => $branchTreatment->id,
@@ -153,10 +156,66 @@ class BranchTreatmentController extends Controller
                 'branch_name' => $branchTreatment->branch->name,
                 'max_capacity' => $branchTreatment->max_capacity,
                 'capacity_unit' => $branchTreatment->capacity_unit,
+                'compatibility' => $this->compatibilityWith($branchTreatment, $wasteStreamIds, $unCodeIds),
             ])
+            // Los compatibles primero, los que no coinciden al final: el orden
+            // ES la sugerencia, ahora que ya no se esconde nada.
+            ->sortBy(fn (array $row) => match ($row['compatibility']) {
+                'match' => 0,
+                'unrestricted' => 1,
+                default => 2,
+            })
             ->values();
 
         return response()->json(['branch_treatments' => $branchTreatments]);
+    }
+
+    /**
+     * Corriente/código UN del residuo frente al catálogo declarado por el
+     * tratamiento. Devuelve `match`, `unrestricted` o `mismatch`.
+     *
+     * DECISIÓN DEL USUARIO (2026-08-18): esto SUGIERE, no restringe. Hasta hoy
+     * `available()` EXCLUÍA de la respuesta lo que no coincidía, y como el
+     * selector de la UI es la única vía para elegir, un filtro pensado como
+     * ayuda terminaba comportándose como una regla -- una que el backend nunca
+     * tuvo: ninguna validación de `WasteTreatmentApprovalController` mira
+     * corrientes ni códigos UN, así que la misma asignación pasaba por API y
+     * era imposible por pantalla.
+     *
+     * `unrestricted` existe para no repetir el peor borde del filtro anterior:
+     * usaba `whereHas`, que exige AL MENOS UNA coincidencia, así que un
+     * tratamiento SIN catálogo configurado desaparecía para todo residuo que
+     * declarara corriente. No haber declarado nada significa "sin restricción
+     * declarada", no "no sirve para nada".
+     *
+     * Se juzga solo sobre los ejes donde AMBOS lados declararon algo: si el
+     * tratamiento solo declara corrientes y el residuo trae corrientes y
+     * códigos UN, se decide por corrientes y no se penaliza el eje que el
+     * tratamiento dejó abierto.
+     *
+     * @param  list<int|string>  $wasteStreamIds
+     * @param  list<int|string>  $unCodeIds
+     */
+    private function compatibilityWith(BranchTreatment $branchTreatment, array $wasteStreamIds, array $unCodeIds): string
+    {
+        $allowedStreamIds = $branchTreatment->allowedWasteStreams->pluck('id')->all();
+        $allowedUnCodeIds = $branchTreatment->allowedUnCodes->pluck('id')->all();
+
+        $axes = [];
+
+        if ($wasteStreamIds !== [] && $allowedStreamIds !== []) {
+            $axes[] = array_intersect(array_map('intval', $wasteStreamIds), $allowedStreamIds) !== [];
+        }
+
+        if ($unCodeIds !== [] && $allowedUnCodeIds !== []) {
+            $axes[] = array_intersect(array_map('intval', $unCodeIds), $allowedUnCodeIds) !== [];
+        }
+
+        if ($axes === []) {
+            return 'unrestricted';
+        }
+
+        return in_array(false, $axes, true) ? 'mismatch' : 'match';
     }
 
     public function show(Request $request, BranchTreatment $branchTreatment)

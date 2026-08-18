@@ -977,7 +977,10 @@ test('available() lista tratamientos ACTIVOS de organizaciones GESTOR SIN expone
     $item = $items->firstWhere('id', $branchTreatment->id);
 
     expect($item)->not->toBeNull();
-    expect(array_keys($item))->toEqualCanonicalizing(['id', 'treatment_name', 'organization_name', 'branch_name', 'max_capacity', 'capacity_unit']);
+    // `compatibility` (2026-08-18) es un dato DERIVADO de lo que el residuo ya
+    // declara, no información interna del Gestor: no rompe el criterio de este
+    // guardián (nunca licencia ambiental, observaciones ni datos operativos).
+    expect(array_keys($item))->toEqualCanonicalizing(['id', 'treatment_name', 'organization_name', 'branch_name', 'max_capacity', 'capacity_unit', 'compatibility']);
     expect($items->pluck('id'))->not->toContain($inactiveBranchTreatment->id);
 });
 
@@ -992,7 +995,16 @@ test('available() excluye tratamientos de organizaciones que NO son GESTOR', fun
     expect(collect($response->json('branch_treatments'))->pluck('id'))->not->toContain($branchTreatment->id);
 });
 
-test('available() filtra por waste_stream_ids[]', function () {
+// ---- Compatibilidad por corriente/UN: SUGIERE, no restringe (2026-08-18) ----
+//
+// Hasta hoy `available()` EXCLUÍA lo que no coincidía. Como el selector de la
+// UI es la única vía para elegir, ese filtro -- pensado como ayuda -- se
+// comportaba como una regla que el backend nunca tuvo: ninguna validación de
+// este controller mira corrientes ni códigos UN, así que la misma asignación
+// pasaba por API y era imposible por pantalla. Decisión del usuario: mostrar
+// todo, clasificado y ordenado.
+
+test('available() clasifica por corriente en vez de esconder lo que no coincide', function () {
     $gestor = gestorOrganization();
     $matchingStream = WasteStream::factory()->create();
     $otherStream = WasteStream::factory()->create();
@@ -1005,12 +1017,80 @@ test('available() filtra por waste_stream_ids[]', function () {
 
     $actor = treatmentApprovalActor();
 
-    $response = $this->actingAs($actor)
+    $rows = collect($this->actingAs($actor)
         ->getJson("/api/admin/branch-treatments/available?waste_stream_ids[]={$matchingStream->id}")
-        ->assertOk();
+        ->assertOk()
+        ->json('branch_treatments'))->keyBy('id');
 
-    $ids = collect($response->json('branch_treatments'))->pluck('id');
-    expect($ids)->toContain($matchingBranchTreatment->id)->not->toContain($nonMatchingBranchTreatment->id);
+    // Los DOS siguen presentes -- antes el segundo desaparecía.
+    expect($rows->keys())->toContain($matchingBranchTreatment->id)->toContain($nonMatchingBranchTreatment->id)
+        ->and($rows[$matchingBranchTreatment->id]['compatibility'])->toBe('match')
+        ->and($rows[$nonMatchingBranchTreatment->id]['compatibility'])->toBe('mismatch');
+});
+
+// El peor borde del filtro anterior: usaba `whereHas`, que exige AL MENOS UNA
+// coincidencia, así que un tratamiento sin catálogo configurado desaparecía
+// para todo residuo que declarara corriente. No declarar nada es "sin
+// restricción", no "no sirve para nada".
+test('available() trata un tratamiento SIN catálogo como sin restricción, no como incompatible', function () {
+    $gestor = gestorOrganization();
+    $stream = WasteStream::factory()->create();
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+
+    $actor = treatmentApprovalActor();
+
+    $rows = collect($this->actingAs($actor)
+        ->getJson("/api/admin/branch-treatments/available?waste_stream_ids[]={$stream->id}")
+        ->assertOk()
+        ->json('branch_treatments'))->keyBy('id');
+
+    expect($rows->keys())->toContain($branchTreatment->id)
+        ->and($rows[$branchTreatment->id]['compatibility'])->toBe('unrestricted');
+});
+
+// El orden ES la sugerencia, ahora que no se esconde nada.
+test('available() devuelve primero los compatibles y de últimos los que no coinciden', function () {
+    $gestor = gestorOrganization();
+    $matchingStream = WasteStream::factory()->create();
+    $otherStream = WasteStream::factory()->create();
+
+    $mismatch = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+    $mismatch->allowedWasteStreams()->sync([$otherStream->id]);
+
+    $unrestricted = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+
+    $match = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+    $match->allowedWasteStreams()->sync([$matchingStream->id]);
+
+    $actor = treatmentApprovalActor();
+
+    $orden = collect($this->actingAs($actor)
+        ->getJson("/api/admin/branch-treatments/available?waste_stream_ids[]={$matchingStream->id}")
+        ->assertOk()
+        ->json('branch_treatments'))->pluck('compatibility')->all();
+
+    expect($orden)->toBe(['match', 'unrestricted', 'mismatch']);
+});
+
+// Se juzga solo sobre los ejes donde AMBOS lados declararon algo: el
+// tratamiento declara corrientes pero no códigos UN, así que el eje UN queda
+// abierto y no debe penalizarlo.
+test('available() no penaliza el eje que el tratamiento dejó abierto', function () {
+    $gestor = gestorOrganization();
+    $stream = WasteStream::factory()->create();
+    $unCode = \App\Models\UnCode::factory()->create();
+
+    $branchTreatment = BranchTreatment::factory()->create(['organization_id' => $gestor->id]);
+    $branchTreatment->allowedWasteStreams()->sync([$stream->id]);
+
+    $actor = treatmentApprovalActor();
+
+    $rows = collect($this->actingAs($actor)
+        ->getJson("/api/admin/branch-treatments/available?waste_stream_ids[]={$stream->id}&un_code_ids[]={$unCode->id}")
+        ->assertOk()
+        ->json('branch_treatments'))->keyBy('id');
+
+    expect($rows[$branchTreatment->id]['compatibility'])->toBe('match');
 });
 
 // ---- Motor de Workflow: personalización por organización (item 17/D-WF-01/D-WF-02) ----
