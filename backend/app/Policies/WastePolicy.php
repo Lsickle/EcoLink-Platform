@@ -67,10 +67,23 @@ class WastePolicy
      *
      * ALCANCE: esta puerta la comparten `update()`, `activate()`,
      * `deactivate()`, los tres `sync*()` de clasificacion y
-     * `usePreapprovedMatch()` -- todos usan `Gate::authorize('update')`. Es
-     * deliberado: desactivar un residuo aprobado es "retirarlo de
-     * circulacion" por otro nombre, y eso quedo reservado a EcoLink via
-     * suspension (decision del usuario, 2026-08-14).
+     * `usePreapprovedMatch()` -- todos usan `Gate::authorize('update')`. El
+     * dueno de un residuo aprobado, por tanto, tampoco puede activarlo ni
+     * inactivarlo. Confirmado por el usuario como deliberado (2026-08-18):
+     * sobre un residuo aprobado, todo pasa por soporte.
+     *
+     * CORRECCION de la justificacion original (2026-08-18): al escribir esto
+     * se argumento que inactivar era "retirar de circulacion por otro nombre"
+     * y que por eso debia quedar reservado a EcoLink. Eso es FALSO y conviene
+     * no repetirlo: `waste.is_active` no gobierna nada del ciclo --
+     * `ServiceRequestController::resolveAndValidateItems()` valida propiedad,
+     * eje tecnico, vigencia de la evaluacion y `status === APR`, pero NO mira
+     * `is_active`; `WasteController::index()` tampoco filtra por el. Un
+     * residuo inactivo sigue siendo solicitable. Quien protege "solo EcoLink
+     * retira de circulacion" es `SUS`, no este booleano.
+     *
+     * (Que `is_active` no gobierne nada es un hueco preexistente, senalado al
+     * usuario y pendiente de decision aparte.)
      */
     public function update(User $actor, Waste $waste): bool
     {
