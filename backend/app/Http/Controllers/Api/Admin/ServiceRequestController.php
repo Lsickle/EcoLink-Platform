@@ -466,7 +466,9 @@ class ServiceRequestController extends Controller
                 // de la plataforma y no bloquea. Lo que habilita una solicitud es
                 // que el RESIDUO este APROBADO -- un unico dato visible, en vez de
                 // una regla invisible sobre dos ejes de la evaluacion.
-                if ($approval->technical_status !== 'APPROVED' && $approval->technical_status !== 'RESTRICTED') {
+                // `RESTRICTED` retirado (2026-08-18): ver docblock de
+                // `WasteTreatmentApprovalController::approveTechnical()`.
+                if ($approval->technical_status !== 'APPROVED') {
                     throw ValidationException::withMessages([
                         "items.{$index}.waste_treatment_approval_id" => ['La aprobación de tratamiento indicada no tiene el eje técnico aprobado.'],
                     ]);

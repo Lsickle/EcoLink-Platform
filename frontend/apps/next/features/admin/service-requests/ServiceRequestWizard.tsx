@@ -157,9 +157,10 @@ async function loadEligibleWastes(organizationId?: number | string): Promise<Eli
       // El eje comercial NO se exige: se resuelve fuera de la plataforma y no
       // debe bloquear. Este filtro solo sirve para ofrecer los tratamientos
       // realmente aplicables en el selector del ítem.
-      const viable = approvals.filter(
-        (a) => (a.technical_status === 'APPROVED' || a.technical_status === 'RESTRICTED') && a.is_active
-      )
+      // `RESTRICTED` retirado (2026-08-18, decisión del usuario pendiente de
+      // consultar con stakeholders) -- ver docblock de
+      // `WasteTreatmentApprovalController::approveTechnical()` en el backend.
+      const viable = approvals.filter((a) => a.technical_status === 'APPROVED' && a.is_active)
       if (viable.length > 0) {
         results.push({ waste, approvals: viable })
       }

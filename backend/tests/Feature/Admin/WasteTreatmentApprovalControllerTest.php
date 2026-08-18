@@ -673,7 +673,14 @@ test('approveTechnical aprueba desde PENDING sin restricciones', function () {
     expect(SecurityLog::query()->where('event_type', 'WASTE_TREATMENT_APPROVAL_TECHNICAL_APPROVED')->exists())->toBeTrue();
 });
 
-test('approveTechnical con restrictions no vacío resulta en RESTRICTED', function () {
+// `RESTRICTED` se RETIRÓ el 2026-08-18 (decisión del usuario, pendiente de
+// consultar con stakeholders). Antes este mismo cuerpo producía RESTRICTED, y
+// ese estado no contaba como tratamiento viable en media plataforma: escribir
+// una condición de servicio dejaba el residuo en un callejón sin salida.
+//
+// Aprobar es aprobar. Las restricciones siguen siendo un TÉRMINO editable de la
+// evaluación (`update()`), no un desenlace distinto de la aprobación.
+test('approveTechnical aprueba aunque el body traiga restrictions: ya no existe RESTRICTED', function () {
     $gestor = gestorOrganization();
     $approval = WasteTreatmentApproval::factory()->create(['organization_id' => $gestor->id]);
 
@@ -681,7 +688,22 @@ test('approveTechnical con restrictions no vacío resulta en RESTRICTED', functi
 
     $this->actingAs($actor)->postJson("/api/admin/treatment-approvals/{$approval->id}/approve-technical", [
         'restrictions' => 'Solo en horario diurno',
-    ])->assertOk()->assertJsonPath('treatment_approval.technical_status', 'RESTRICTED');
+    ])->assertOk()->assertJsonPath('treatment_approval.technical_status', 'APPROVED');
+});
+
+// La contrapartida de retirarlo: una evaluación que quedó en RESTRICTED (dato
+// heredado, ya no producible) NO habilita la aprobación final.
+test('una evaluación heredada en RESTRICTED ya no permite aprobar el residuo', function () {
+    [$approval, $waste, $gestor] = evaluableApproval(Waste::STATUS_CLASSIFIED);
+    $approval->forceFill(['technical_status' => 'RESTRICTED'])->save();
+
+    $actor = treatmentApprovalActor(['treatment_approvals.update', 'treatment_approvals.approve'], $gestor->id);
+
+    $this->actingAs($actor)
+        ->postJson("/api/admin/treatment-approvals/{$approval->id}/approve-final")
+        ->assertUnprocessable()->assertJsonValidationErrors('technical_status');
+
+    expect($waste->fresh()->status)->toBe(Waste::STATUS_CLASSIFIED);
 });
 
 test('approveTechnical rechaza si el estado técnico NO es PENDING', function () {

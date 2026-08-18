@@ -88,6 +88,17 @@ export function WasteStatusFlowLegend() {
         <span className="font-medium text-foreground">Suspendido:</span> solo EcoLink puede retirar de circulación un
         residuo ya Aprobado, y puede reactivarlo. Se conserva toda su trazabilidad.
       </p>
+
+      {/* Anotación pedida por el usuario (2026-08-18): dejar constancia visible
+          de que "Aprobar con Restricciones" se retiró a la espera de validarlo
+          con los stakeholders, para que nadie lo busque creyendo que falta. */}
+      <p className="mt-2 rounded-md border border-dashed border-border p-2 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Aprobar con Restricciones — retirado temporalmente.</span> Una
+        evaluación podía quedar en ese estado con solo escribir una condición (por ejemplo «máximo 500 kg/mes»), y ese
+        estado no contaba como tratamiento viable: la condición de servicio terminaba comportándose como un rechazo.
+        Se retiró el 18/08/2026 mientras se valida con los stakeholders. Hoy aprobar es aprobar, y las restricciones se
+        registran como término de la evaluación.
+      </p>
     </>
   )
 }

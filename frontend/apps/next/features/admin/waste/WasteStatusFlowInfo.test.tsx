@@ -62,6 +62,16 @@ describe('WasteStatusFlowLegend', () => {
     expect(screen.getByText(/solo EcoLink puede retirar de circulación/i)).toBeInTheDocument()
   })
 
+  // Anotación pedida por el usuario (2026-08-18): que quede constancia visible
+  // de por qué "Aprobar con Restricciones" ya no está, para que nadie lo busque
+  // creyendo que falta.
+  test('deja constancia de que Aprobar con Restricciones se retiró temporalmente', () => {
+    render(<WasteStatusFlowLegend />)
+
+    expect(screen.getByText(/Aprobar con Restricciones — retirado temporalmente/i)).toBeInTheDocument()
+    expect(screen.getByText(/se valida con los stakeholders/i)).toBeInTheDocument()
+  })
+
   test('los 5 estados del camino feliz van en el orden real del flujo', () => {
     const { container } = render(<WasteStatusFlowLegend />)
     const diagram = container.querySelector('div.flex.flex-wrap') as HTMLElement

@@ -204,16 +204,24 @@ class WasteTreatmentApprovalController extends Controller
     }
 
     /**
-     * POST .../approve-technical -- PENDING -> APPROVED (o RESTRICTED si el
-     * body trae `restrictions` no vacío).
+     * POST .../approve-technical -- PENDING -> APPROVED.
+     *
+     * `RESTRICTED` ("Aprobado con Restricciones") se RETIRÓ el 2026-08-18 por
+     * decisión del usuario, para consultarlo con los stakeholders antes de
+     * reintroducirlo. Antes este método lo producía AUTOMÁTICAMENTE en cuanto
+     * el body traía `restrictions` no vacío, y ese estado no contaba como
+     * tratamiento viable en la mitad del sistema (`hasViableTreatment()`, los
+     * dos scopes, y la ruta de preaprobados). O sea: escribir "máximo
+     * 500 kg/mes" dejaba el residuo en un callejón sin salida, sin que nadie
+     * lo advirtiera -- una condición de servicio se comportaba como un rechazo.
+     *
+     * El parámetro `restrictions` se retira de aquí a propósito: aprobar es
+     * aprobar. Las restricciones siguen existiendo como TÉRMINO editable de la
+     * evaluación (`update()`), que es además donde vive el campo en la UI.
      */
     public function approveTechnical(Request $request, WasteTreatmentApproval $treatmentApproval)
     {
         Gate::authorize('evaluate', $treatmentApproval);
-
-        $data = $request->validate([
-            'restrictions' => ['sometimes', 'nullable', 'string'],
-        ]);
 
         if ($treatmentApproval->technical_status !== 'PENDING') {
             throw ValidationException::withMessages([
@@ -221,15 +229,13 @@ class WasteTreatmentApprovalController extends Controller
             ]);
         }
 
-        $hasRestrictions = filled($data['restrictions'] ?? null);
-        $toStatus = $hasRestrictions ? 'RESTRICTED' : 'APPROVED';
+        $toStatus = 'APPROVED';
 
         $transition = $this->resolveWorkflowTransition($treatmentApproval, 'TECH_PENDING', "TECH_{$toStatus}");
         $this->assertActorAuthorizedForTransition($request->user(), $transition);
 
         $treatmentApproval->forceFill([
             'technical_status' => $toStatus,
-            'restrictions' => $data['restrictions'] ?? $treatmentApproval->restrictions,
             'technical_approved_at' => now(),
             'technical_approved_by' => $request->user()->id,
         ])->save();
@@ -274,7 +280,8 @@ class WasteTreatmentApprovalController extends Controller
     {
         Gate::authorize('approveFinal', $treatmentApproval);
 
-        if ($treatmentApproval->technical_status !== 'APPROVED' && $treatmentApproval->technical_status !== 'RESTRICTED') {
+        // `RESTRICTED` retirado (2026-08-18) -- ver docblock de approveTechnical().
+        if ($treatmentApproval->technical_status !== 'APPROVED') {
             throw ValidationException::withMessages([
                 'technical_status' => ['Solo se puede aprobar un residuo cuyo tratamiento ya fue aprobado tecnicamente.'],
             ]);
