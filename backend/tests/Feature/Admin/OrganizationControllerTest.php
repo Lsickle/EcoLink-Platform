@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Branch;
+use App\Models\BranchTreatment;
 use App\Models\BusinessRole;
 use App\Models\Country;
 use App\Models\Department;
@@ -16,6 +17,7 @@ use App\Models\Person;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\SecurityLog;
+use App\Models\SubgestorGestorRelationship;
 use App\Models\User;
 use App\Models\UserRole;
 use Database\Seeders\OrganizationStatusSeeder;
@@ -911,4 +913,168 @@ test('una organización cliente NO puede cambiar la marca', function () {
         ])->assertForbidden();
 
     expect($organization->fresh()->isOperationalGestor())->toBeTrue();
+});
+
+// ---------------------------------------------------------------------------
+// La marca operativo/referencia DESDE EL ALTA (2026-08-18).
+//
+// Hasta ahora solo se podía fijar en un SEGUNDO paso, desde el detalle, porque
+// `syncBusinessRoles()` no la tocaba y la columna tiene DEFAULT `true`. Olvidar
+// ese paso fallaba en silencio por partida doble: el Gestor de referencia no
+// aparecía en el selector de asignación delegada (que filtra por
+// `operates_in_platform = false`), y al quedar como operativo se le podían
+// solicitar evaluaciones que nadie iba a atender -- no tiene usuarios aquí.
+// ---------------------------------------------------------------------------
+
+test('store marca al Gestor como DE REFERENCIA en el mismo alta', function () {
+    $actor = organizationTestActor();
+    $businessRole = BusinessRole::factory()->create(['can_treat_waste' => true]);
+
+    $this->actingAs($actor)->postJson('/api/admin/organizations', validOrganizationPayload([
+        'business_role_ids' => [$businessRole->id],
+        'gestor_operates_in_platform' => false,
+    ]))->assertCreated()->assertJsonPath('organization.gestor_operates_in_platform', false);
+
+    $organization = Organization::query()->where('legal_name', 'Acme Ambiental S.A.S.')->firstOrFail();
+    expect($organization->isReferenceGestor())->toBeTrue()
+        ->and($organization->isOperationalGestor())->toBeFalse();
+
+    // La decisión queda auditada, igual que cuando se cambia después.
+    $log = SecurityLog::query()->where('event_type', 'ORGANIZATION_CREATED')->firstOrFail();
+    expect($log->metadata['operates_in_platform'])->toBeFalse();
+});
+
+// Omitirlo NO es "de referencia": es la vía normal, y debe seguir cayendo en el
+// DEFAULT de la columna.
+test('store sin la marca deja al Gestor OPERATIVO, por el DEFAULT de la columna', function () {
+    $actor = organizationTestActor();
+    $businessRole = BusinessRole::factory()->create(['can_treat_waste' => true]);
+
+    $this->actingAs($actor)->postJson('/api/admin/organizations', validOrganizationPayload([
+        'business_role_ids' => [$businessRole->id],
+    ]))->assertCreated()->assertJsonPath('organization.gestor_operates_in_platform', true);
+
+    $organization = Organization::query()->where('legal_name', 'Acme Ambiental S.A.S.')->firstOrFail();
+    expect($organization->isOperationalGestor())->toBeTrue();
+
+    // Sin decisión explícita no hay nada que auditar.
+    $log = SecurityLog::query()->where('event_type', 'ORGANIZATION_CREATED')->firstOrFail();
+    expect($log->metadata)->not->toHaveKey('operates_in_platform');
+});
+
+// La marca se resuelve por CAPACIDAD, no por código de rol: a un rol que no
+// trata residuos no le significa nada y no debe escribirse en su pivote.
+test('store ignora la marca en los roles que no tratan residuos', function () {
+    $actor = organizationTestActor();
+    $treatingRole = BusinessRole::factory()->create(['can_treat_waste' => true]);
+    $otherRole = BusinessRole::factory()->create(['can_treat_waste' => false]);
+
+    $this->actingAs($actor)->postJson('/api/admin/organizations', validOrganizationPayload([
+        'business_role_ids' => [$treatingRole->id, $otherRole->id],
+        'gestor_operates_in_platform' => false,
+    ]))->assertCreated();
+
+    $organization = Organization::query()->where('legal_name', 'Acme Ambiental S.A.S.')->firstOrFail();
+
+    expect(OrganizationBusinessRole::query()
+        ->where('organization_id', $organization->id)
+        ->where('business_role_id', $treatingRole->id)
+        ->value('operates_in_platform'))->toBeFalse();
+
+    // El otro rol conserva el DEFAULT, sin que nadie lo haya decidido.
+    expect(OrganizationBusinessRole::query()
+        ->where('organization_id', $organization->id)
+        ->where('business_role_id', $otherRole->id)
+        ->value('operates_in_platform'))->toBeTrue();
+});
+
+// Cambiarla sobre una organización YA EXISTENTE sigue siendo exclusivo del
+// endpoint dedicado, que tiene su propio evento de auditoría. Si `update()` la
+// aceptara, el cambio pasaría sin dejar rastro.
+test('update NO puede cambiar la marca (sigue siendo del endpoint dedicado)', function () {
+    [$organization, $businessRole] = orgWithTreatingRole();
+    $actor = organizationTestActor(['organizations.update'], platformTenantId());
+
+    $this->actingAs($actor)->putJson("/api/admin/organizations/{$organization->id}", validOrganizationPayload([
+        'gestor_operates_in_platform' => false,
+    ]))->assertOk();
+
+    expect($organization->fresh()->isOperationalGestor())->toBeTrue()
+        ->and(SecurityLog::query()->where('event_type', 'BUSINESS_ROLE_OPERATING_MODE_CHANGED')->exists())->toBeFalse();
+});
+
+// El listado la necesita para distinguir un Gestor de referencia sin entrar al
+// detalle. Se resuelve sobre la relación ya cargada, no con dos ->exists() por
+// fila (eso habría sido un N+1 en una lista paginada).
+test('index expone gestor_operates_in_platform', function () {
+    [$organization] = orgWithTreatingRole();
+    $actor = organizationTestActor(['organizations.read'], platformTenantId());
+
+    $this->actingAs($actor)->getJson('/api/admin/organizations?search='.urlencode($organization->legal_name))
+        ->assertOk()->assertJsonPath('data.0.gestor_operates_in_platform', true);
+
+    OrganizationBusinessRole::query()
+        ->where('organization_id', $organization->id)
+        ->update(['operates_in_platform' => false]);
+
+    $this->actingAs($actor)->getJson('/api/admin/organizations?search='.urlencode($organization->legal_name))
+        ->assertOk()->assertJsonPath('data.0.gestor_operates_in_platform', false);
+});
+
+// Los dos conteos que le faltaban al detalle para saber si el alta de un Gestor
+// de referencia quedó completa. Antes, un alta a medias solo se descubría
+// cuando el Subgestor abría un selector vacío del otro lado.
+test('show devuelve los conteos de tratamientos y de Subgestores vinculados', function () {
+    [$organization] = orgWithTreatingRole();
+    $actor = organizationTestActor(['organizations.read'], platformTenantId());
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$organization->id}")
+        ->assertOk()
+        ->assertJsonPath('organization.branch_treatments_count', 0)
+        ->assertJsonPath('organization.linked_subgestores_count', 0);
+
+    $branch = Branch::factory()->create(['organization_id' => $organization->id]);
+    BranchTreatment::factory()->create([
+        'organization_id' => $organization->id,
+        'branch_id' => $branch->id,
+        'is_active' => true,
+    ]);
+
+    // Nace activa por el DEFAULT de la columna -- `is_active` no es fillable.
+    $subgestor = Organization::factory()->create();
+    SubgestorGestorRelationship::query()->create([
+        'subgestor_organization_id' => $subgestor->id,
+        'gestor_organization_id' => $organization->id,
+    ]);
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$organization->id}")
+        ->assertOk()
+        ->assertJsonPath('organization.branch_treatments_count', 1)
+        ->assertJsonPath('organization.linked_subgestores_count', 1);
+});
+
+// Un vínculo revocado no cuenta: el alta vuelve a estar incompleta.
+test('show no cuenta tratamientos ni vínculos inactivos', function () {
+    [$organization] = orgWithTreatingRole();
+    $actor = organizationTestActor(['organizations.read'], platformTenantId());
+
+    $branch = Branch::factory()->create(['organization_id' => $organization->id]);
+    BranchTreatment::factory()->create([
+        'organization_id' => $organization->id,
+        'branch_id' => $branch->id,
+        'is_active' => false,
+    ]);
+
+    // `is_active` NO es fillable a propósito (solo cambia por la lógica de
+    // revocación del controller), así que revocar aquí exige `forceFill()`.
+    $subgestor = Organization::factory()->create();
+    SubgestorGestorRelationship::query()->create([
+        'subgestor_organization_id' => $subgestor->id,
+        'gestor_organization_id' => $organization->id,
+    ])->forceFill(['is_active' => false])->save();
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$organization->id}")
+        ->assertOk()
+        ->assertJsonPath('organization.branch_treatments_count', 0)
+        ->assertJsonPath('organization.linked_subgestores_count', 0);
 });

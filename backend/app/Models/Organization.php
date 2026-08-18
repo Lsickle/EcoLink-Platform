@@ -115,6 +115,33 @@ class Organization extends Model
     }
 
     /**
+     * Los tratamientos que esta organización ofrece, en cualquiera de sus
+     * sedes. `branch_treatments.organization_id` está desnormalizado (existe
+     * además de `branch_id`), así que se cuelga directo de la organización sin
+     * pasar por `branches`.
+     *
+     * Existe para el checklist de alta de `OrganizationController::show()`: un
+     * Gestor de referencia sin ningún tratamiento registrado no le sirve a
+     * nadie -- no hay qué asignarle a un residuo por delegación.
+     */
+    public function branchTreatments(): HasMany
+    {
+        return $this->hasMany(BranchTreatment::class);
+    }
+
+    /**
+     * Los Subgestores vinculados a esta organización EN SU PAPEL DE GESTOR
+     * (`subgestor_gestor_relationships.gestor_organization_id`), no al revés.
+     * Es el tercer requisito del checklist de alta: sin al menos un Subgestor
+     * vinculado, un Gestor de referencia no tiene quién registre sus
+     * evaluaciones por delegación.
+     */
+    public function linkedSubgestorRelationships(): HasMany
+    {
+        return $this->hasMany(SubgestorGestorRelationship::class, 'gestor_organization_id');
+    }
+
+    /**
      * esquema-bd: organizations.created_by/updated_by (auditoría estándar)
      * -- mismo patrón que Role::createdBy()/updatedBy(), usadas por
      * OrganizationController::show() para resolver quién creó/modificó la
@@ -252,6 +279,33 @@ class Organization extends Model
             ->where('business_roles.is_active', true)
             ->where('can_treat_waste', true)
             ->exists();
+    }
+
+    /**
+     * Las dos de arriba condensadas en un solo valor para la API: `null` si no
+     * trata residuos (la marca no le aplica), si no el booleano
+     * operativo/referencia.
+     *
+     * Se resuelve SOBRE LA RELACIÓN YA CARGADA en vez de con dos `->exists()`,
+     * y esa es toda su razón de existir: `transformOrganization()` la llama una
+     * vez por fila del listado, donde aquellas dos consultas habrían sido un
+     * N+1 de hasta 2×per_page queries. `index()` y `show()` ya traen
+     * `businessRoles` eager-cargada con su pivote (`withPivot([...,
+     * 'operates_in_platform'])`), así que aquí no se toca la base.
+     */
+    public function gestorOperatingMode(): ?bool
+    {
+        $treatingRoles = $this->businessRoles->filter(
+            fn (BusinessRole $role) => $role->is_active
+                && $role->can_treat_waste
+                && (bool) $role->pivot->is_active,
+        );
+
+        if ($treatingRoles->isEmpty()) {
+            return null;
+        }
+
+        return $treatingRoles->contains(fn (BusinessRole $role) => (bool) $role->pivot->operates_in_platform);
     }
 
     /**

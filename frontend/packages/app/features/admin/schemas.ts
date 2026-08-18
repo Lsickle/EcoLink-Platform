@@ -275,6 +275,11 @@ export const createOrganizationSchema = z
     customFieldsEnabled: z.boolean(),
     observations: z.string().trim().optional().or(z.literal('')),
     businessRoleIds: z.array(z.number()).default([]),
+    // Marca operativo/referencia del Gestor, decidida YA EN EL ALTA
+    // (2026-08-18). Default `true` = la vía normal; "de referencia" es la
+    // excepción. El backend solo la aplica a los roles con `can_treat_waste`,
+    // así que enviarla con una organización que no trata residuos es inocuo.
+    gestorOperatesInPlatform: z.boolean().default(true),
   })
   .superRefine((data, ctx) => {
     if (data.taxIdType === 'NIT' && !nitFormatPattern.test(data.taxId.trim())) {

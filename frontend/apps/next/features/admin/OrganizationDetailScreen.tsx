@@ -39,6 +39,7 @@ import {
   type RiskLevel,
   type RoleActivityEvent,
 } from 'app/features/admin/api'
+import { GESTOR_OPERATING_MODE_LABEL, gestorOperatingModeHint } from 'app/features/admin/gestorOperatingMode'
 import { COMPANY_SIZES, CURRENCIES, RISK_LEVELS, TIMEZONES } from 'app/features/admin/organizationCatalogs'
 import {
   RISK_LEVEL_BAR_CLASSES,
@@ -80,6 +81,90 @@ function MetricTile({ label, value, className }: { label: string; value: string;
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="text-lg font-semibold">{value}</span>
     </div>
+  )
+}
+
+// Checklist de alta de un Gestor DE REFERENCIA (2026-08-18).
+//
+// Un Gestor de referencia no tiene usuarios aquí: todo su registro lo hace
+// EcoLink, y son cuatro pasos repartidos en pantallas distintas. Cuando alguno
+// faltaba, nada lo decía -- el alta a medias solo se descubría del OTRO lado,
+// cuando un Subgestor abría el selector de asignación delegada y salía vacío.
+//
+// Solo aparece mientras falte algo, y solo para Gestores de referencia: a un
+// Gestor operativo estos tres requisitos no le aplican (sus propios usuarios
+// registran sus sedes y tratamientos).
+function ReferenceGestorSetupChecklist({
+  organization,
+  onNavigate,
+}: {
+  organization: AdminOrganizationDetail
+  onNavigate: (href: string) => void
+}) {
+  if (organization.gestor_operates_in_platform !== false) return null
+
+  const steps = [
+    {
+      done: organization.branches_count > 0,
+      label: 'Sede registrada',
+      hint: 'Un tratamiento siempre cuelga de una sede.',
+      action: `/admin/branches/new?organizationId=${organization.id}`,
+      cta: 'Registrar sede',
+    },
+    {
+      done: organization.branch_treatments_count > 0,
+      label: 'Tratamiento registrado',
+      hint: 'Sin tratamiento no hay qué asignarle a un residuo.',
+      action: `/admin/branch-treatments/new?organizationId=${organization.id}`,
+      cta: 'Registrar tratamiento',
+    },
+    {
+      done: organization.linked_subgestores_count > 0,
+      label: 'Subgestor vinculado',
+      hint: 'Es quien registra aquí las evaluaciones que este Gestor resuelve en su plataforma.',
+      action: '/admin/subgestor-gestor-relationships',
+      cta: 'Vincular Subgestor',
+    },
+  ]
+
+  const pending = steps.filter((step) => !step.done)
+  if (pending.length === 0) return null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Faltan pasos para poder usar este Gestor</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <p className="text-xs text-muted-foreground">
+          No tiene usuarios en EcoLink, así que su registro lo completa el staff de la plataforma. Hasta que estos pasos
+          estén, ningún Subgestor podrá registrarle una asignación delegada.
+        </p>
+        <ul className="flex flex-col gap-2">
+          {steps.map((step) => (
+            <li key={step.label} className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3">
+              <span aria-hidden="true" className={step.done ? 'text-emerald-600' : 'text-muted-foreground'}>
+                {step.done ? '✓' : '○'}
+              </span>
+              <span className="flex flex-col">
+                <span className="text-sm font-medium">
+                  {step.label}
+                  {/* El estado va en el texto, no solo en el ícono: un lector de
+                      pantalla no anuncia el `aria-hidden` de arriba. */}
+                  <span className="sr-only">{step.done ? ' (completado)' : ' (pendiente)'}</span>
+                </span>
+                <span className="text-xs text-muted-foreground">{step.hint}</span>
+              </span>
+              {!step.done && (
+                <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={() => onNavigate(step.action)}>
+                  {step.cta}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -895,18 +980,18 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                       onCheckedChange={(checked) => handleToggleOperatingMode(checked === true)}
                     />
                     <Label htmlFor="org-gestor-operates-in-platform" className="font-normal">
-                      Este Gestor opera dentro de EcoLink
+                      {GESTOR_OPERATING_MODE_LABEL}
                     </Label>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {organization.gestor_operates_in_platform
-                      ? 'Sus usuarios entran a la plataforma y resuelven aquí las evaluaciones que se les soliciten.'
-                      : 'Gestor de referencia: maneja todo en su propia plataforma y no tiene usuarios aquí. No se le pueden solicitar evaluaciones — su resultado se registra como asignación delegada por EcoLink o por un Subgestor vinculado.'}
+                    {gestorOperatingModeHint(organization.gestor_operates_in_platform)}
                   </p>
                 </div>
               )}
             </CardContent>
           </Card>
+
+          <ReferenceGestorSetupChecklist organization={organization} onNavigate={(href) => router.push(href)} />
 
           <Card>
             <CardContent>

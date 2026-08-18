@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Building2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,6 +19,7 @@ import {
   fetchBranch,
   fetchBranchActivity,
   fetchBranchContacts,
+  fetchBranchTreatments,
   fetchBranchTypes,
   fetchBranchUsers,
   fetchCountries,
@@ -26,6 +28,7 @@ import {
   fetchMunicipalities,
   updateBranch,
   type AdminBranchDetail,
+  type AdminBranchTreatment,
   type AdminBranchType,
   type AdminCountry,
   type AdminDepartment,
@@ -90,6 +93,7 @@ function MetricTile({ label, value }: { label: string; value: string }) {
 // -- `xLoaded` se lee pero deliberadamente se omite de las dependencias del
 // efecto).
 export function BranchDetailScreen({ branchId }: { branchId: number | string }) {
+  const router = useRouter()
   const { isAuthorized, user } = useRequireAuth('branches.read')
   // Tab "Muelles" (`branch_locations`, Fase 4 "Cita de Recepción en Planta")
   // -- gateado por su propio permiso, mismo criterio que el resto de
@@ -97,6 +101,8 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
   // AppSidebar) en vez de asumir que quien administra Sedes también
   // administra Muelles.
   const canManageBranchLocations = Boolean(user?.permissions?.includes('branch_locations.read'))
+  const canReadBranchTreatments = Boolean(user?.permissions?.includes('branch_treatments.read'))
+  const canCreateBranchTreatments = Boolean(user?.permissions?.includes('branch_treatments.create'))
   const [branch, setBranch] = useState<AdminBranchDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -139,7 +145,19 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
   const [isTogglingActive, setIsTogglingActive] = useState(false)
   const [toggleError, setToggleError] = useState<string | null>(null)
 
-  const [activeTab, setActiveTab] = useState<'usuarios' | 'contactos' | 'muelles' | 'auditoria'>('usuarios')
+  const [activeTab, setActiveTab] = useState<'usuarios' | 'contactos' | 'muelles' | 'tratamientos' | 'auditoria'>(
+    'usuarios'
+  )
+
+  // Tratamientos de ESTA sede (2026-08-18). Antes solo existía el listado
+  // global del sidebar: para registrar un tratamiento había que salir de la
+  // sede y volver a buscar organización y sede a mano. Es el paso que más
+  // fácil se olvidaba al dar de alta un Gestor de referencia, y sin él no hay
+  // nada que asignarle a un residuo.
+  const [branchTreatments, setBranchTreatments] = useState<AdminBranchTreatment[]>([])
+  const [branchTreatmentsLoading, setBranchTreatmentsLoading] = useState(false)
+  const [branchTreatmentsLoaded, setBranchTreatmentsLoaded] = useState(false)
+  const [branchTreatmentsError, setBranchTreatmentsError] = useState<string | null>(null)
 
   const [users, setUsers] = useState<AdminUser[]>([])
   const [usersLoaded, setUsersLoaded] = useState(false)
@@ -284,6 +302,30 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
   useEffect(() => {
     if (activeTab !== 'contactos' || contactsLoaded || !isAuthorized) return
     return loadContacts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, isAuthorized, branchId])
+
+  useEffect(() => {
+    if (activeTab !== 'tratamientos' || branchTreatmentsLoaded || !isAuthorized) return
+    let cancelled = false
+    setBranchTreatmentsLoading(true)
+    fetchBranchTreatments({ branchId, perPage: 15 })
+      .then((result) => {
+        if (cancelled) return
+        setBranchTreatments(result.data)
+        setBranchTreatmentsLoaded(true)
+        setBranchTreatmentsError(null)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setBranchTreatmentsError(error instanceof Error ? error.message : 'Error inesperado.')
+      })
+      .finally(() => {
+        if (!cancelled) setBranchTreatmentsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, isAuthorized, branchId])
 
@@ -739,6 +781,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
                   <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
                   <TabsTrigger value="contactos">Contactos</TabsTrigger>
                   {canManageBranchLocations && <TabsTrigger value="muelles">Muelles</TabsTrigger>}
+                  {canReadBranchTreatments && <TabsTrigger value="tratamientos">Tratamientos</TabsTrigger>}
                   <TabsTrigger value="auditoria">Actividad</TabsTrigger>
                 </TabsList>
 
@@ -802,6 +845,73 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
                 {canManageBranchLocations && (
                   <TabsContent value="muelles" className="pt-4">
                     <BranchLocationsPanel branchId={branch.id} />
+                  </TabsContent>
+                )}
+
+                {canReadBranchTreatments && (
+                  <TabsContent value="tratamientos" className="flex flex-col gap-3 pt-4">
+                    {branchTreatmentsError && (
+                      <p className="text-sm text-destructive" role="alert">
+                        {branchTreatmentsError}
+                      </p>
+                    )}
+                    {canCreateBranchTreatments && (
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          // Lleva organización Y sede preseleccionadas: sin
+                          // ellas el formulario obliga a volver a buscarlas a
+                          // mano, que es justo lo que hacía que este paso se
+                          // olvidara.
+                          onClick={() =>
+                            router.push(
+                              `/admin/branch-treatments/new?organizationId=${branch.organization.id}&branchId=${branch.id}`
+                            )
+                          }
+                        >
+                          + Nuevo Tratamiento
+                        </Button>
+                      </div>
+                    )}
+                    {branchTreatmentsLoading && !branchTreatmentsLoaded ? (
+                      <p className="text-sm text-muted-foreground" role="status">
+                        Cargando…
+                      </p>
+                    ) : (
+                      <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Código</TableHead>
+                              <TableHead>Nombre operativo</TableHead>
+                              <TableHead>Tratamiento</TableHead>
+                              <TableHead>Estado</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {branchTreatments.length === 0 && (
+                              <TableRow>
+                                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                                  Esta sucursal no tiene tratamientos registrados.
+                                </TableCell>
+                              </TableRow>
+                            )}
+                            {branchTreatments.map((branchTreatment) => (
+                              <TableRow key={branchTreatment.id}>
+                                <TableCell>{branchTreatment.internal_code ?? '—'}</TableCell>
+                                <TableCell>{branchTreatment.operational_name ?? '—'}</TableCell>
+                                <TableCell>{branchTreatment.treatment?.name ?? '—'}</TableCell>
+                                <TableCell className="text-muted-foreground">
+                                  {branchTreatment.is_active ? 'Activo' : 'Inactivo'}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
                   </TabsContent>
                 )}
 

@@ -121,6 +121,8 @@ function organizationDetail(overrides: Partial<Record<string, unknown>> = {}) {
     branches_count: 2,
     contacts_count: 3,
     users_count: 1,
+    branch_treatments_count: 1,
+    linked_subgestores_count: 1,
     gestor_operates_in_platform: null,
     ...overrides,
   }
@@ -456,6 +458,98 @@ describe('OrganizationDetailScreen', () => {
 
       expect(await screen.findByText(/Gestor de referencia/i)).toBeInTheDocument()
       expect(screen.getByText(/no se le pueden solicitar evaluaciones/i)).toBeInTheDocument()
+    })
+  })
+
+  // ---------------------------------------------------------------------
+  // Checklist de alta de un Gestor DE REFERENCIA (2026-08-18).
+  //
+  // Su registro son cuatro pasos repartidos en pantallas distintas, y los hace
+  // EcoLink porque el Gestor no tiene usuarios aquí. Cuando alguno faltaba,
+  // nada lo decía: el alta a medias solo se descubría del OTRO lado, cuando un
+  // Subgestor abría el selector de asignación delegada y salía vacío.
+  // ---------------------------------------------------------------------
+  describe('checklist de alta del Gestor de referencia', () => {
+    const referenceGestor = (overrides: Record<string, unknown> = {}) =>
+      organizationDetail({
+        type: ['Gestor'],
+        gestor_operates_in_platform: false,
+        branches_count: 0,
+        branch_treatments_count: 0,
+        linked_subgestores_count: 0,
+        ...overrides,
+      })
+
+    test('enumera los tres requisitos que faltan', async () => {
+      fetchOrganizationMock.mockResolvedValue({ organization: referenceGestor() })
+
+      render(<OrganizationDetailScreen organizationId={7} />)
+
+      expect(await screen.findByText('Faltan pasos para poder usar este Gestor')).toBeInTheDocument()
+      expect(screen.getByText('Sede registrada')).toBeInTheDocument()
+      expect(screen.getByText('Tratamiento registrado')).toBeInTheDocument()
+      expect(screen.getByText('Subgestor vinculado')).toBeInTheDocument()
+    })
+
+    // El punto del checklist: decir por qué importa, no solo que falta.
+    test('explica la consecuencia de dejarlo a medias', async () => {
+      fetchOrganizationMock.mockResolvedValue({ organization: referenceGestor() })
+
+      render(<OrganizationDetailScreen organizationId={7} />)
+      await screen.findByText('Faltan pasos para poder usar este Gestor')
+
+      expect(screen.getByText(/ningún Subgestor podrá registrarle una asignación delegada/i)).toBeInTheDocument()
+    })
+
+    test('cada paso pendiente lleva a la pantalla que lo resuelve, con la organización ya elegida', async () => {
+      fetchOrganizationMock.mockResolvedValue({ organization: referenceGestor() })
+
+      render(<OrganizationDetailScreen organizationId={7} />)
+      await screen.findByText('Faltan pasos para poder usar este Gestor')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Registrar sede' }))
+      expect(pushMock).toHaveBeenCalledWith('/admin/branches/new?organizationId=7')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Registrar tratamiento' }))
+      expect(pushMock).toHaveBeenCalledWith('/admin/branch-treatments/new?organizationId=7')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Vincular Subgestor' }))
+      expect(pushMock).toHaveBeenCalledWith('/admin/subgestor-gestor-relationships')
+    })
+
+    // Lo ya hecho se marca, pero sin botón: no hay nada que resolver ahí.
+    test('marca lo ya cumplido y solo ofrece acción sobre lo pendiente', async () => {
+      fetchOrganizationMock.mockResolvedValue({ organization: referenceGestor({ branches_count: 1 }) })
+
+      render(<OrganizationDetailScreen organizationId={7} />)
+      await screen.findByText('Faltan pasos para poder usar este Gestor')
+
+      expect(screen.queryByRole('button', { name: 'Registrar sede' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Registrar tratamiento' })).toBeInTheDocument()
+    })
+
+    test('desaparece cuando el alta queda completa', async () => {
+      fetchOrganizationMock.mockResolvedValue({
+        organization: referenceGestor({ branches_count: 1, branch_treatments_count: 1, linked_subgestores_count: 1 }),
+      })
+
+      render(<OrganizationDetailScreen organizationId={7} />)
+      await screen.findByText('Tipos de Organización')
+
+      expect(screen.queryByText('Faltan pasos para poder usar este Gestor')).not.toBeInTheDocument()
+    })
+
+    // A un Gestor OPERATIVO no le aplica: sus propios usuarios registran sus
+    // sedes y tratamientos, EcoLink no tiene por qué completárselo.
+    test('no aparece para un Gestor operativo, aunque le falte todo', async () => {
+      fetchOrganizationMock.mockResolvedValue({
+        organization: referenceGestor({ gestor_operates_in_platform: true }),
+      })
+
+      render(<OrganizationDetailScreen organizationId={7} />)
+      await screen.findByText('Tipos de Organización')
+
+      expect(screen.queryByText('Faltan pasos para poder usar este Gestor')).not.toBeInTheDocument()
     })
   })
 })

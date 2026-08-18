@@ -972,6 +972,14 @@ export type AdminOrganization = {
   // organizationCatalogs.ts sobre por qué el frontend no puede resolver
   // estos nombres de vuelta a un id sin un endpoint de catálogo nuevo.
   type: string[]
+  // `true` = Gestor OPERATIVO (evalúa dentro de EcoLink), `false` = DE
+  // REFERENCIA (maneja todo en su propia plataforma, sin usuarios aquí),
+  // `null` = no trata residuos, así que la marca no aplica y la UI no ofrece
+  // el interruptor.
+  //
+  // Desde 2026-08-18 viaja también en `index()` (antes solo en el detalle),
+  // para poder distinguir un Gestor de referencia desde el listado sin entrar.
+  gestor_operates_in_platform: boolean | null
   primary_branch: OrganizationPrimaryBranch
 }
 
@@ -987,11 +995,13 @@ export type AdminOrganizationDetail = Omit<AdminOrganization, 'created_by'> & {
   branches_count: number
   contacts_count: number
   users_count: number
-  // Fase 2 (2026-08-15): `true` = Gestor OPERATIVO (evalúa dentro de EcoLink),
-  // `false` = DE REFERENCIA (maneja todo en su plataforma, sin usuarios aquí),
-  // `null` = no trata residuos, así que la marca no aplica y la UI no ofrece
-  // el interruptor.
-  gestor_operates_in_platform: boolean | null
+  // Los dos requisitos que le faltan al checklist de alta de un Gestor DE
+  // REFERENCIA (2026-08-18), además de la sede que ya cubre `branches_count`:
+  // sin tratamiento no hay qué asignarle a un residuo, y sin Subgestor
+  // vinculado no hay quién registre la evaluación por delegación. Cuentan solo
+  // lo ACTIVO -- un vínculo revocado deja el alta incompleta otra vez.
+  branch_treatments_count: number
+  linked_subgestores_count: number
 }
 
 // GET /api/admin/organizations/{id}/branches (tab "Sedes") -- modelo Branch
@@ -1195,9 +1205,15 @@ export type OrganizationFormFields = {
   business_role_ids?: number[]
 }
 
+// `gestor_operates_in_platform` vive AQUÍ y no en `OrganizationFormFields`
+// justamente porque `update()` no lo acepta: cambiar la marca sobre una
+// organización ya existente es exclusivo del endpoint dedicado
+// (`setOrganizationGestorOperatingMode`), que deja su propio evento de
+// auditoría. Omitirlo deja el DEFAULT del backend (operativo).
 export type CreateOrganizationPayload = OrganizationFormFields & {
   tax_id: string
   tax_id_type: string
+  gestor_operates_in_platform?: boolean
 }
 
 export type UpdateOrganizationPayload = OrganizationFormFields

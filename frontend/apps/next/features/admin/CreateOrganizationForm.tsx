@@ -18,6 +18,7 @@ import {
   type AdminCountry,
   type AdminOrganizationStatusOption,
 } from 'app/features/admin/api'
+import { GESTOR_OPERATING_MODE_LABEL, gestorOperatingModeHint } from 'app/features/admin/gestorOperatingMode'
 import { COMPANY_SIZES, CURRENCIES, RISK_LEVELS, TAX_ID_TYPES, TIMEZONES } from 'app/features/admin/organizationCatalogs'
 import { RISK_LEVEL_LABELS } from 'app/features/admin/riskLevel'
 import { createOrganizationSchema } from 'app/features/admin/schemas'
@@ -102,6 +103,9 @@ export function CreateOrganizationForm() {
 
   // Sección 6 -- Tipo de organización / configuración adicional
   const [businessRoleIds, setBusinessRoleIds] = useState<number[]>([])
+  // Arranca en `true` -- el Gestor que opera aquí es la vía normal, "de
+  // referencia" es la excepción. Ver `gestorOperatingMode.ts`.
+  const [gestorOperatesInPlatform, setGestorOperatesInPlatform] = useState(true)
   const [isActive, setIsActive] = useState(true)
   const [customFieldsEnabled, setCustomFieldsEnabled] = useState(true)
   const [observations, setObservations] = useState('')
@@ -165,6 +169,12 @@ export function CreateOrganizationForm() {
     setBusinessRoleIds((current) => (current.includes(roleId) ? current.filter((id) => id !== roleId) : [...current, roleId]))
   }
 
+  // La marca operativo/referencia solo significa algo para quien trata
+  // residuos, así que el interruptor solo aparece si hay un tipo marcado con
+  // esa capacidad -- se resuelve por el flag, no por el código del rol, igual
+  // que en el backend.
+  const treatsWaste = businessRoles.some((role) => role.can_treat_waste && businessRoleIds.includes(role.id))
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     setFormError(null)
@@ -203,6 +213,7 @@ export function CreateOrganizationForm() {
       customFieldsEnabled,
       observations,
       businessRoleIds,
+      gestorOperatesInPlatform,
     })
 
     if (!parsed.success) {
@@ -247,6 +258,10 @@ export function CreateOrganizationForm() {
         custom_fields_enabled: parsed.data.customFieldsEnabled,
         observations: parsed.data.observations || undefined,
         business_role_ids: parsed.data.businessRoleIds,
+        // Solo se manda si algún tipo marcado trata residuos: para el resto la
+        // marca no significa nada y el backend la ignoraría igual, pero así el
+        // payload tampoco insinúa una decisión que nadie tomó.
+        gestor_operates_in_platform: treatsWaste ? parsed.data.gestorOperatesInPlatform : undefined,
       })
       router.push(`/admin/organizations/${created.id}`)
     } catch (error) {
@@ -659,6 +674,28 @@ export function CreateOrganizationForm() {
                 ))}
               </div>
             </div>
+
+            {/* Decidir la marca AQUÍ y no solo en el detalle (2026-08-18):
+                antes todo Gestor nacía operativo por el DEFAULT de la columna,
+                y marcarlo "de referencia" exigía un segundo paso que, al
+                olvidarse, fallaba en silencio -- no aparecía en el selector de
+                asignación delegada, y encima se le podían pedir evaluaciones
+                que nadie iba a atender. */}
+            {treatsWaste && (
+              <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="gestorOperatesInPlatform"
+                    checked={gestorOperatesInPlatform}
+                    onCheckedChange={(checked) => setGestorOperatesInPlatform(checked === true)}
+                  />
+                  <Label htmlFor="gestorOperatesInPlatform" className="font-normal">
+                    {GESTOR_OPERATING_MODE_LABEL}
+                  </Label>
+                </div>
+                <p className="text-xs text-muted-foreground">{gestorOperatingModeHint(gestorOperatesInPlatform)}</p>
+              </div>
+            )}
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <Checkbox id="isActive" checked={isActive} onCheckedChange={(checked) => setIsActive(checked === true)} />

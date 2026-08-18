@@ -198,6 +198,14 @@ class OrganizationController extends Controller
             // (código ACTIVE), no por el booleano, a pedido explícito del
             // plan de este lote.
             'users' => fn ($query) => $query->whereHas('status', fn ($query) => $query->where('code', 'ACTIVE')),
+            // Los dos conteos que faltaban para saber si el alta de un Gestor
+            // DE REFERENCIA quedó completa: sin tratamiento no hay qué
+            // asignarle a un residuo, y sin Subgestor vinculado no hay quién
+            // registre la evaluación por delegación. La UI los usa para el
+            // checklist del detalle; antes esa alta a medias solo se descubría
+            // por un selector vacío del otro lado.
+            'branchTreatments' => fn ($query) => $query->where('is_active', true),
+            'linkedSubgestorRelationships' => fn ($query) => $query->where('is_active', true),
         ]);
 
         // `createdBy` eager-cargada arriba -- $organization->toArray()
@@ -209,12 +217,8 @@ class OrganizationController extends Controller
         $data['branches_count'] = $organization->branches_count;
         $data['contacts_count'] = $organization->contacts_count;
         $data['users_count'] = $organization->users_count;
-        // Fase 2 (2026-08-15): la marca operativo/referencia solo tiene sentido
-        // para roles que tratan residuos. `null` = esta organizacion no es
-        // Gestor, asi que la UI no ofrece el interruptor.
-        $data['gestor_operates_in_platform'] = $organization->hasCapability('can_treat_waste')
-            ? $organization->isOperationalGestor()
-            : null;
+        $data['branch_treatments_count'] = $organization->branch_treatments_count;
+        $data['linked_subgestores_count'] = $organization->linked_subgestor_relationships_count;
 
         return response()->json(['organization' => $data]);
     }
@@ -238,6 +242,14 @@ class OrganizationController extends Controller
         $businessRoleIds = $data['business_role_ids'] ?? [];
         unset($data['business_role_ids']);
 
+        // `null` (o ausente) = dejar el DEFAULT de la columna (`true`). Solo
+        // tiene efecto sobre los roles que tratan residuos; ver
+        // `syncBusinessRoles()`.
+        $gestorOperatesInPlatform = array_key_exists('gestor_operates_in_platform', $data)
+            ? $data['gestor_operates_in_platform']
+            : null;
+        unset($data['gestor_operates_in_platform']);
+
         // Hallazgo Bajo (especialista-seguridad, 2026-07-15): `Rule::unique()`
         // arriba cierra el caso normal con un 422 legible, pero deja la
         // ventana real de carrera (dos requests concurrentes pasan la
@@ -246,14 +258,14 @@ class OrganizationController extends Controller
         // violación del índice único parcial en vez de un 422 consistente
         // con el resto de la validación de este mismo campo.
         try {
-            $organization = DB::transaction(function () use ($data, $businessRoleIds, $request) {
+            $organization = DB::transaction(function () use ($data, $businessRoleIds, $gestorOperatesInPlatform, $request) {
                 $organization = Organization::query()->create([
                     ...$data,
                     'created_by' => $request->user()->id,
                     'updated_by' => $request->user()->id,
                 ]);
 
-                $this->syncBusinessRoles($organization, $businessRoleIds, $request->user());
+                $this->syncBusinessRoles($organization, $businessRoleIds, $request->user(), $gestorOperatesInPlatform);
 
                 return $organization;
             });
@@ -263,10 +275,16 @@ class OrganizationController extends Controller
             ]);
         }
 
+        // La marca operativo/referencia se registra en la metadata SOLO si vino
+        // explícita: si no, no hubo decisión que auditar, apenas el DEFAULT.
+        // Mismo dato que deja `setBusinessRoleOperatingMode()` cuando se cambia
+        // después, para que las dos vías se lean igual en la Actividad.
         $this->logSecurityEvent(
             $request, 'ORGANIZATION_CREATED', 'SUCCESS',
             "Organización '{$organization->legal_name}' creada.", $request->user(),
-            ['organization_id' => $organization->id],
+            $gestorOperatesInPlatform === null
+                ? ['organization_id' => $organization->id]
+                : ['organization_id' => $organization->id, 'operates_in_platform' => (bool) $gestorOperatesInPlatform],
         );
 
         $organization->load(['status', 'businessRoles' => fn ($query) => $query->wherePivot('is_active', true)]);
@@ -285,7 +303,13 @@ class OrganizationController extends Controller
         abort_unless($request->user()->isPlatformStaff(), 403, 'Solo el staff de la plataforma puede gestionar organizaciones.');
 
         $rules = $this->validationRules($request);
-        unset($rules['tax_id'], $rules['tax_id_type']);
+        // `gestor_operates_in_platform` sale junto a `tax_id`/`tax_id_type`, y
+        // por la misma mecánica: al no estar en `$rules`, `validate()` lo
+        // ignora en silencio si viene en el payload. Cambiar la marca sobre una
+        // organización ya existente es exclusivo de
+        // `setBusinessRoleOperatingMode()` -- si se aceptara aquí, el cambio
+        // pasaría sin su evento de auditoría dedicado.
+        unset($rules['tax_id'], $rules['tax_id_type'], $rules['gestor_operates_in_platform']);
         // `email` vuelve a `nullable` aquí -- la obligatoriedad es solo para
         // el ALTA (ver docblock de `validationRules()`), no se le exige
         // retroactivamente a una organización ya existente que no lo tenga.
@@ -1146,18 +1170,58 @@ class OrganizationController extends Controller
             'observations' => ['nullable', 'string'],
             'business_role_ids' => ['nullable', 'array'],
             'business_role_ids.*' => ['integer', 'exists:business_roles,id'],
+            // Espeja el nombre que `show()`/`transformOrganization()` ya emiten
+            // en LECTURA -- misma palabra en los dos sentidos. Solo lo acepta
+            // `store()`: `update()` lo retira de estas reglas, porque cambiarlo
+            // después es competencia exclusiva de
+            // `setBusinessRoleOperatingMode()`, que tiene su propia auditoría.
+            'gestor_operates_in_platform' => ['sometimes', 'nullable', 'boolean'],
         ];
     }
 
     /**
+     * `$operatesInPlatform` distingue al Gestor OPERATIVO (sus usuarios entran
+     * aquí y resuelven las evaluaciones) del Gestor DE REFERENCIA (trata el
+     * residuo en su propia plataforma y no tiene usuarios en EcoLink). Solo
+     * aplica a los roles que tratan residuos: al resto la marca no les
+     * significa nada.
+     *
+     * `null` deja el DEFAULT de la columna (`true`, ver migración
+     * `2026_08_15_000001_add_operates_in_platform_to_organization_business_roles_table`).
+     * Sin esta ruta, un Gestor de referencia solo se podía marcar como tal en
+     * un SEGUNDO paso desde el detalle, y olvidarlo fallaba en silencio: no
+     * aparecía en el selector de asignación delegada (que filtra por
+     * `operates_in_platform = false`) y, peor, se le podían pedir evaluaciones
+     * que nadie iba a atender.
+     *
      * @param  list<int>  $businessRoleIds
      */
-    private function syncBusinessRoles(Organization $organization, array $businessRoleIds, User $actor): void
-    {
+    private function syncBusinessRoles(
+        Organization $organization,
+        array $businessRoleIds,
+        User $actor,
+        ?bool $operatesInPlatform = null,
+    ): void {
+        // Se resuelve por la CAPACIDAD, no por el código del rol -- mismo
+        // criterio que `BranchTreatmentController::available()`.
+        $treatsWasteRoleIds = $operatesInPlatform === null || $businessRoleIds === []
+            ? []
+            : BusinessRole::query()
+                ->whereIn('id', $businessRoleIds)
+                ->where('can_treat_waste', true)
+                ->pluck('id')
+                ->all();
+
         foreach ($businessRoleIds as $businessRoleId) {
+            $values = ['assigned_by' => $actor->id, 'assigned_at' => now(), 'is_active' => true];
+
+            if (in_array((int) $businessRoleId, array_map('intval', $treatsWasteRoleIds), true)) {
+                $values['operates_in_platform'] = $operatesInPlatform;
+            }
+
             OrganizationBusinessRole::query()->updateOrCreate(
                 ['organization_id' => $organization->id, 'business_role_id' => $businessRoleId],
-                ['assigned_by' => $actor->id, 'assigned_at' => now(), 'is_active' => true],
+                $values,
             );
         }
     }
@@ -1175,6 +1239,15 @@ class OrganizationController extends Controller
         unset($data['business_roles'], $data['primary_branch']);
 
         $data['type'] = $organization->businessRoles->pluck('name')->values()->all();
+        // La marca operativo/referencia solo tiene sentido para roles que
+        // tratan residuos: `null` = esta organización no es Gestor, así que la
+        // UI no ofrece el interruptor.
+        //
+        // Vive aquí (y no solo en `show()`, donde estaba hasta 2026-08-18) para
+        // que el LISTADO también pueda distinguir un Gestor de referencia sin
+        // entrar al detalle. No agrega queries: tanto `index()` como `show()`
+        // ya traen `businessRoles` eager-cargada con su pivote.
+        $data['gestor_operates_in_platform'] = $organization->gestorOperatingMode();
         $data['primary_branch'] = $organization->primaryBranch
             ? [
                 'municipality' => $organization->primaryBranch->municipality,

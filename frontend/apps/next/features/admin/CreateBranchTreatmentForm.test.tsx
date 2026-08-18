@@ -7,6 +7,7 @@ const createBranchTreatmentMock = vi.fn()
 const fetchBranchesMock = vi.fn()
 const fetchTreatmentsMock = vi.fn()
 const searchOrganizationsMock = vi.fn()
+const fetchOrganizationMock = vi.fn()
 const pushMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
@@ -17,11 +18,15 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     fetchBranches: (...args: unknown[]) => fetchBranchesMock(...args),
     fetchTreatments: (...args: unknown[]) => fetchTreatmentsMock(...args),
     searchOrganizations: (...args: unknown[]) => searchOrganizationsMock(...args),
+    fetchOrganization: (...args: unknown[]) => fetchOrganizationMock(...args),
   }
 })
 
+let searchParams = new URLSearchParams()
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
+  useSearchParams: () => searchParams,
 }))
 
 let currentUser: { id: number; is_platform_staff: boolean } | null = { id: 1, is_platform_staff: false }
@@ -35,6 +40,7 @@ const emptyPage = { data: [], current_page: 1, last_page: 1, total: 0, per_page:
 
 describe('CreateBranchTreatmentForm', () => {
   beforeEach(() => {
+    searchParams = new URLSearchParams()
     currentUser = { id: 1, is_platform_staff: false }
     fetchBranchesMock.mockResolvedValue({
       ...emptyPage,
@@ -124,5 +130,52 @@ describe('CreateBranchTreatmentForm', () => {
     expect(
       await screen.findByText('La organización no tiene el tipo de negocio Gestor, no puede habilitar tratamientos.')
     ).toBeInTheDocument()
+  })
+
+  // Preselección desde la pestaña "Tratamientos" del detalle de una sede
+  // (2026-08-18): sin ella había que volver a buscar organización y sede a
+  // mano, que es lo que hacía que este paso se olvidara al dar de alta un
+  // Gestor de referencia.
+  describe('preselección por query params', () => {
+    test('preselecciona la organización y resuelve su nombre real', async () => {
+      currentUser = { id: 1, is_platform_staff: true }
+      searchParams = new URLSearchParams('organizationId=9&branchId=7')
+      fetchOrganizationMock.mockResolvedValue({
+        organization: { id: 9, legal_name: 'Gestor Externo S.A.S.', tax_id: '900555444-1' },
+      })
+
+      render(<CreateBranchTreatmentForm />)
+
+      expect(await screen.findByText('Gestor Externo S.A.S. (900555444-1)')).toBeInTheDocument()
+      expect(fetchOrganizationMock).toHaveBeenCalledWith(9)
+      // Las sedes se cargan acotadas a esa organización, no todas.
+      await vi.waitFor(() => expect(fetchBranchesMock).toHaveBeenCalledWith(expect.objectContaining({ organizationId: 9 })))
+    })
+
+    test('preselecciona la sede, de modo que solo falta elegir el tratamiento', async () => {
+      currentUser = { id: 1, is_platform_staff: true }
+      searchParams = new URLSearchParams('organizationId=9&branchId=7')
+      fetchOrganizationMock.mockResolvedValue({
+        organization: { id: 9, legal_name: 'Gestor Externo S.A.S.', tax_id: '900555444-1' },
+      })
+
+      render(<CreateBranchTreatmentForm />)
+
+      expect(await screen.findByRole('combobox', { name: 'Sede' })).toHaveTextContent('Planta Norte')
+    })
+
+    // Si la organización no existe o el actor no tiene acceso, se cae a "sin
+    // preseleccionar" en vez de romper el formulario -- el id nunca elude el
+    // gate server-side, es solo una preselección visual.
+    test('si la organización no se puede resolver, no rompe el formulario', async () => {
+      currentUser = { id: 1, is_platform_staff: true }
+      searchParams = new URLSearchParams('organizationId=999')
+      fetchOrganizationMock.mockRejectedValue(new Error('No encontrada'))
+
+      render(<CreateBranchTreatmentForm />)
+
+      expect(await screen.findByLabelText('Organización')).toBeInTheDocument()
+      expect(screen.queryByText(/Organización #999/)).not.toBeInTheDocument()
+    })
   })
 })

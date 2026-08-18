@@ -15,6 +15,12 @@ const fetchBranchUsersMock = vi.fn()
 const fetchBranchContactsMock = vi.fn()
 const fetchBranchActivityMock = vi.fn()
 const fetchBranchLocationsMock = vi.fn()
+const fetchBranchTreatmentsMock = vi.fn()
+const pushMock = vi.fn()
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: pushMock }),
+}))
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('app/features/admin/api')>()
@@ -33,6 +39,7 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     fetchBranchContacts: (...args: unknown[]) => fetchBranchContactsMock(...args),
     fetchBranchActivity: (...args: unknown[]) => fetchBranchActivityMock(...args),
     fetchBranchLocations: (...args: unknown[]) => fetchBranchLocationsMock(...args),
+    fetchBranchTreatments: (...args: unknown[]) => fetchBranchTreatmentsMock(...args),
   }
 })
 
@@ -101,6 +108,7 @@ describe('BranchDetailScreen', () => {
     fetchBranchUsersMock.mockResolvedValue(emptyPage)
     fetchBranchContactsMock.mockResolvedValue(emptyPage)
     fetchBranchActivityMock.mockResolvedValue(emptyPage)
+    fetchBranchTreatmentsMock.mockResolvedValue({ ...emptyPage, kpis: { total: 0, active: 0, inactive: 0 } })
     fetchBranchLocationsMock.mockResolvedValue(emptyPage)
   })
 
@@ -222,5 +230,91 @@ describe('BranchDetailScreen', () => {
 
     expect(await screen.findByText('M1')).toBeInTheDocument()
     expect(fetchBranchLocationsMock).toHaveBeenCalledWith(expect.objectContaining({ branchId: 10 }))
+  })
+
+  // Pestaña "Tratamientos" (2026-08-18). Antes solo existía el listado global
+  // del sidebar: registrar un tratamiento obligaba a salir de la sede y volver
+  // a buscar organización y sede a mano. Era el paso que más fácil se olvidaba
+  // al dar de alta un Gestor de referencia, y sin él no hay nada que asignarle
+  // a un residuo.
+  describe('pestaña Tratamientos', () => {
+    const withTreatmentPermissions = (permissions: string[]) =>
+      useRequireAuthMock.mockImplementation(() => ({
+        user: { id: 1, permissions: ['branches.read', ...permissions] },
+        isLoading: false,
+        isAuthorized: true,
+      }))
+
+    test('no aparece sin branch_treatments.read', async () => {
+      render(<BranchDetailScreen branchId={10} />)
+      await screen.findByText('Planta Norte')
+
+      expect(screen.queryByRole('tab', { name: 'Tratamientos' })).not.toBeInTheDocument()
+    })
+
+    test('lista los tratamientos de ESTA sede, no los de toda la organización', async () => {
+      withTreatmentPermissions(['branch_treatments.read'])
+      fetchBranchTreatmentsMock.mockResolvedValue({
+        ...emptyPage,
+        kpis: { total: 1, active: 1, inactive: 0 },
+        data: [
+          {
+            id: 3,
+            uuid: 'bt-3',
+            organization_id: 1,
+            branch_id: 10,
+            treatment_id: 4,
+            internal_code: 'TR-01',
+            operational_name: 'Celda de seguridad',
+            is_active: true,
+            treatment: { id: 4, code: 'D5', name: 'Relleno de seguridad' },
+          },
+        ],
+      })
+
+      render(<BranchDetailScreen branchId={10} />)
+      await screen.findByText('Planta Norte')
+      fireEvent.click(within(screen.getByRole('tablist')).getByRole('tab', { name: 'Tratamientos' }))
+
+      expect(await screen.findByText('TR-01')).toBeInTheDocument()
+      expect(screen.getByText('Relleno de seguridad')).toBeInTheDocument()
+      expect(fetchBranchTreatmentsMock).toHaveBeenCalledWith(expect.objectContaining({ branchId: 10 }))
+    })
+
+    test('dice que no hay tratamientos en vez de dejar la tabla vacía', async () => {
+      withTreatmentPermissions(['branch_treatments.read'])
+
+      render(<BranchDetailScreen branchId={10} />)
+      await screen.findByText('Planta Norte')
+      fireEvent.click(within(screen.getByRole('tablist')).getByRole('tab', { name: 'Tratamientos' }))
+
+      expect(await screen.findByText('Esta sucursal no tiene tratamientos registrados.')).toBeInTheDocument()
+    })
+
+    // Leer no habilita crear: es el mismo criterio del resto del proyecto.
+    test('el botón de crear exige branch_treatments.create', async () => {
+      withTreatmentPermissions(['branch_treatments.read'])
+
+      render(<BranchDetailScreen branchId={10} />)
+      await screen.findByText('Planta Norte')
+      fireEvent.click(within(screen.getByRole('tablist')).getByRole('tab', { name: 'Tratamientos' }))
+      await screen.findByText('Esta sucursal no tiene tratamientos registrados.')
+
+      expect(screen.queryByRole('button', { name: '+ Nuevo Tratamiento' })).not.toBeInTheDocument()
+    })
+
+    // Lleva organización Y sede: sin eso el formulario obliga a buscarlas otra
+    // vez, que es justo lo que hacía que este paso se olvidara.
+    test('crear lleva la organización y la sede ya elegidas', async () => {
+      withTreatmentPermissions(['branch_treatments.read', 'branch_treatments.create'])
+
+      render(<BranchDetailScreen branchId={10} />)
+      await screen.findByText('Planta Norte')
+      fireEvent.click(within(screen.getByRole('tablist')).getByRole('tab', { name: 'Tratamientos' }))
+
+      fireEvent.click(await screen.findByRole('button', { name: '+ Nuevo Tratamiento' }))
+
+      expect(pushMock).toHaveBeenCalledWith('/admin/branch-treatments/new?organizationId=1&branchId=10')
+    })
   })
 })

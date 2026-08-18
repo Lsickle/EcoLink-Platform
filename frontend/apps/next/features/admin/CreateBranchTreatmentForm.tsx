@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -12,6 +12,7 @@ import {
   ApiValidationError,
   createBranchTreatment,
   fetchBranches,
+  fetchOrganization,
   fetchTreatments,
   type AdminBranch,
   type AdminTreatment,
@@ -40,6 +41,7 @@ type FieldErrors = Partial<Record<'branchId' | 'treatmentId' | 'capacityUnit' | 
 // ACTIVOS del catálogo global.
 export function CreateBranchTreatmentForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { user } = useAuth()
   const { isAuthorized } = useRequireAuth('branch_treatments.create')
   const isPlatformStaff = Boolean(user?.is_platform_staff)
@@ -70,6 +72,40 @@ export function CreateBranchTreatmentForm() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Preselección desde la pestaña "Tratamientos" del detalle de una sede
+  // (2026-08-18) -- mismo mecanismo que `CreateBranchForm.tsx` usa para
+  // `organizationId`, extendido aquí con `branchId` porque el origen es una
+  // sede concreta. Sin esto había que volver a buscar organización y sede a
+  // mano, que es justo lo que hacía que este paso se olvidara al dar de alta
+  // un Gestor de referencia.
+  //
+  // El label se resuelve vía `fetchOrganization()`; si falla (organización
+  // inexistente o sin permiso), el campo queda sin preseleccionar en vez de
+  // romper el formulario. El id nunca elude el gate `isPlatformStaff`
+  // server-side: es solo una preselección visual, `store()` lo revalida.
+  useEffect(() => {
+    const queryOrganizationId = Number(searchParams.get('organizationId'))
+    const queryBranchId = Number(searchParams.get('branchId'))
+
+    if (Number.isFinite(queryBranchId) && queryBranchId > 0) {
+      setBranchId(queryBranchId)
+    }
+
+    if (!Number.isFinite(queryOrganizationId) || queryOrganizationId <= 0) return
+    setOrganizationId(queryOrganizationId)
+    setOrganizationLabel(`Organización #${queryOrganizationId}`)
+    fetchOrganization(queryOrganizationId)
+      .then((result) => {
+        setOrganizationLabel(`${result.organization.legal_name} (${result.organization.tax_id})`)
+      })
+      .catch(() => {
+        setOrganizationId(null)
+        setOrganizationLabel(null)
+      })
+    // Solo se lee una vez, al montar -- `searchParams` no cambia después.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!isAuthorized) return

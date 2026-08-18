@@ -310,6 +310,13 @@ export function OrganizationsListScreen() {
                             {typeName}
                           </Badge>
                         ))}
+                        {/* Distingue al Gestor DE REFERENCIA sin entrar al
+                            detalle: no tiene usuarios aquí y no se le pueden
+                            solicitar evaluaciones, así que confundirlo con uno
+                            operativo deja residuos esperando a nadie. */}
+                        {organization.gestor_operates_in_platform === false && (
+                          <Badge variant="secondary">De referencia</Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{cityLabel}</TableCell>

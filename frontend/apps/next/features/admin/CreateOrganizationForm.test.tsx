@@ -51,8 +51,8 @@ describe('CreateOrganizationForm', () => {
     searchOrganizationsMock.mockResolvedValue({ data: [], current_page: 1, last_page: 1, total: 0, per_page: 10 })
     fetchBusinessRolesMock.mockResolvedValue({
       data: [
-        { id: 1, code: 'GENERATOR', name: 'Generador', description: null, sort_order: 1, is_active: true },
-        { id: 2, code: 'GESTOR', name: 'Gestor', description: null, sort_order: 2, is_active: true },
+        { id: 1, code: 'GENERATOR', name: 'Generador', description: null, sort_order: 1, is_active: true, can_treat_waste: false },
+        { id: 2, code: 'GESTOR', name: 'Gestor', description: null, sort_order: 2, is_active: true, can_treat_waste: true },
       ],
     })
     fetchOrganizationStatusesMock.mockResolvedValue({
@@ -213,5 +213,92 @@ describe('CreateOrganizationForm', () => {
     await screen.findByRole('checkbox', { name: 'Generador' })
 
     expect(await screen.findByRole('combobox', { name: 'País' })).toHaveTextContent('Colombia')
+  })
+
+  // ---------------------------------------------------------------------
+  // Marca operativo/referencia DESDE EL ALTA (2026-08-18).
+  //
+  // Antes solo se podía fijar en un segundo paso, desde el detalle: la
+  // columna nace en `true` y `syncBusinessRoles()` no la tocaba. Olvidar ese
+  // paso fallaba en silencio -- el Gestor de referencia no aparecía en el
+  // selector de asignación delegada, y encima se le podían pedir evaluaciones
+  // que nadie iba a atender, porque no tiene usuarios aquí.
+  // ---------------------------------------------------------------------
+  describe('marca operativo / de referencia', () => {
+    // Se resuelve por la CAPACIDAD del rol (`can_treat_waste`), igual que en
+    // el backend -- a quien no trata residuos la marca no le significa nada.
+    test('el interruptor solo aparece al marcar un tipo que trata residuos', async () => {
+      render(<CreateOrganizationForm />)
+      await screen.findByRole('checkbox', { name: 'Generador' })
+
+      expect(screen.queryByRole('checkbox', { name: 'Este Gestor opera dentro de EcoLink' })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Generador' }))
+      expect(screen.queryByRole('checkbox', { name: 'Este Gestor opera dentro de EcoLink' })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Gestor' }))
+      expect(screen.getByRole('checkbox', { name: 'Este Gestor opera dentro de EcoLink' })).toBeInTheDocument()
+    })
+
+    test('arranca marcado: el Gestor que opera aquí es la vía normal', async () => {
+      render(<CreateOrganizationForm />)
+      await screen.findByRole('checkbox', { name: 'Gestor' })
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Gestor' }))
+
+      expect(screen.getByRole('checkbox', { name: 'Este Gestor opera dentro de EcoLink' })).toBeChecked()
+      expect(screen.getByText(/Sus usuarios entran a la plataforma/i)).toBeInTheDocument()
+    })
+
+    test('desmarcarlo explica qué es un Gestor de referencia', async () => {
+      render(<CreateOrganizationForm />)
+      await screen.findByRole('checkbox', { name: 'Gestor' })
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Gestor' }))
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Este Gestor opera dentro de EcoLink' }))
+
+      expect(screen.getByText(/maneja todo en su propia plataforma y no tiene usuarios aquí/i)).toBeInTheDocument()
+      expect(screen.getByText(/asignación delegada/i)).toBeInTheDocument()
+    })
+
+    test('envía gestor_operates_in_platform: false al crear un Gestor de referencia', async () => {
+      createOrganizationMock.mockResolvedValueOnce({ organization: { id: 51, legal_name: 'Gestor Externo S.A.S.' } })
+      render(<CreateOrganizationForm />)
+      await screen.findByRole('checkbox', { name: 'Gestor' })
+
+      fireEvent.change(screen.getByLabelText('Razón Social'), { target: { value: 'Gestor Externo S.A.S.' } })
+      fireEvent.change(screen.getByLabelText('NIT / Identificación Tributaria'), { target: { value: '900555444-1' } })
+      fireEvent.change(screen.getByLabelText('Correo Electrónico'), { target: { value: 'contacto@externo.com' } })
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Gestor' }))
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Este Gestor opera dentro de EcoLink' }))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Crear Organización' }))
+
+      await vi.waitFor(() =>
+        expect(createOrganizationMock).toHaveBeenCalledWith(
+          expect.objectContaining({ business_role_ids: [2], gestor_operates_in_platform: false })
+        )
+      )
+    })
+
+    // Sin un tipo que trate residuos, el payload no debe insinuar una decisión
+    // que nadie tomó: el backend la ignoraría igual, pero el registro queda
+    // más honesto.
+    test('NO envía la marca si ningún tipo marcado trata residuos', async () => {
+      createOrganizationMock.mockResolvedValueOnce({ organization: { id: 52, legal_name: 'Solo Generador S.A.S.' } })
+      render(<CreateOrganizationForm />)
+      await screen.findByRole('checkbox', { name: 'Generador' })
+
+      fireEvent.change(screen.getByLabelText('Razón Social'), { target: { value: 'Solo Generador S.A.S.' } })
+      fireEvent.change(screen.getByLabelText('NIT / Identificación Tributaria'), { target: { value: '900111222-1' } })
+      fireEvent.change(screen.getByLabelText('Correo Electrónico'), { target: { value: 'contacto@generador.com' } })
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Generador' }))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Crear Organización' }))
+
+      await vi.waitFor(() =>
+        expect(createOrganizationMock).toHaveBeenCalledWith(
+          expect.objectContaining({ gestor_operates_in_platform: undefined })
+        )
+      )
+    })
   })
 })

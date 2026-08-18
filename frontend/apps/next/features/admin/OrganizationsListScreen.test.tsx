@@ -67,6 +67,7 @@ function organization(overrides: Partial<Record<string, unknown>> = {}) {
     parent_organization_id: null,
     status: { id: 2, code: 'ACT', name: 'ACTIVA', color_hex: '#228b33', description: null, sort_order: 2, is_initial: false, is_final: false, allows_operation: true, requires_document_validation: false, requires_commercial_approval: false, is_suspended: false, icon: null, is_active: true },
     type: ['Generador'],
+    gestor_operates_in_platform: null,
     primary_branch: { municipality: { id: 1, name: 'Bogotá' }, department: { id: 1, name: 'Cundinamarca' } },
     ...overrides,
   }
@@ -189,5 +190,45 @@ describe('OrganizationsListScreen', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '+ Nueva Organización' }))
     expect(pushMock).toHaveBeenCalledWith('/admin/organizations/new')
+  })
+
+  // Distintivo "De referencia" (2026-08-18). Un Gestor de referencia no tiene
+  // usuarios aquí y no se le pueden solicitar evaluaciones: confundirlo con
+  // uno operativo deja residuos esperando a nadie. Antes la marca solo se veía
+  // entrando al detalle, uno por uno.
+  describe('Gestor de referencia en el listado', () => {
+    test('lo distingue de un Gestor operativo', async () => {
+      fetchOrganizationsMock.mockResolvedValue(
+        baseResponse({
+          data: [organization({ type: ['Gestor'], gestor_operates_in_platform: false })],
+        })
+      )
+
+      render(<OrganizationsListScreen />)
+      await screen.findByText('EcoRecicla S.A.S.')
+
+      expect(screen.getByText('De referencia')).toBeInTheDocument()
+    })
+
+    test('no lo muestra sobre un Gestor operativo', async () => {
+      fetchOrganizationsMock.mockResolvedValue(
+        baseResponse({
+          data: [organization({ type: ['Gestor'], gestor_operates_in_platform: true })],
+        })
+      )
+
+      render(<OrganizationsListScreen />)
+      await screen.findByText('EcoRecicla S.A.S.')
+
+      expect(screen.queryByText('De referencia')).not.toBeInTheDocument()
+    })
+
+    // `null` = no trata residuos, la marca no le aplica.
+    test('no lo muestra sobre una organización que no trata residuos', async () => {
+      render(<OrganizationsListScreen />)
+      await screen.findByText('EcoRecicla S.A.S.')
+
+      expect(screen.queryByText('De referencia')).not.toBeInTheDocument()
+    })
   })
 })
