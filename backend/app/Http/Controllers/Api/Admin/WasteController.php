@@ -111,7 +111,13 @@ class WasteController extends Controller
             // arriba, es la vista compartida que ve cualquier Gestor/
             // Subgestor con relación activa -- residuos de sus Generadores
             // clientes que todavía no tienen ninguna evaluación aprobada.
-            ->when($pendingEvaluation, fn ($query) => $query->withoutViableTreatment())
+            // Un residuo ya APROBADO (o SUSPENDIDO) NO es trabajo pendiente,
+            // aunque su evaluacion no cumpla `withoutViableTreatment()` --
+            // sin esto se quedaba para siempre en la bandeja del Gestor como
+            // si nadie lo hubiera evaluado. Se consulta aparte, con el filtro
+            // de estado `APR` (decision del usuario, 2026-08-18).
+            ->when($pendingEvaluation, fn ($query) => $query->withoutViableTreatment()
+                ->whereNotIn('status', [Waste::STATUS_APPROVED, Waste::STATUS_SUSPENDED]))
             ->with(['organization:id,legal_name', 'branch:id,name', 'wasteCategory:id,code,name', 'wasteDangerCharacteristic:code,name'])
             ->orderBy($sort, $direction)
             ->paginate($request->integer('per_page', 15));

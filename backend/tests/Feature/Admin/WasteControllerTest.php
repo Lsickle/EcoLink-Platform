@@ -1325,3 +1325,39 @@ test('tampoco puede cambiarle las corrientes asignadas', function () {
         'waste_stream_ids' => [],
     ])->assertForbidden();
 });
+
+// Un residuo ya APROBADO no es trabajo pendiente. Antes se quedaba para
+// siempre en la bandeja del Gestor como si nadie lo hubiera evaluado, porque
+// el filtro solo miraba `withoutViableTreatment()` (decisión del usuario,
+// 2026-08-18).
+test('pendientes de evaluación excluye los residuos ya Aprobados o Suspendidos', function () {
+    $organization = Organization::factory()->create();
+
+    $pending = Waste::factory()->create([
+        'organization_id' => $organization->id,
+        'status' => Waste::STATUS_DECLARED,
+    ]);
+    $approved = Waste::factory()->create([
+        'organization_id' => $organization->id,
+        'status' => Waste::STATUS_APPROVED,
+    ]);
+    $suspended = Waste::factory()->create([
+        'organization_id' => $organization->id,
+        'status' => Waste::STATUS_SUSPENDED,
+    ]);
+
+    $actor = wasteActor(['wastes.read'], $organization->id);
+
+    $ids = collect($this->actingAs($actor)->getJson('/api/admin/wastes?pending_evaluation=1')
+        ->assertOk()->json('data'))->pluck('id');
+
+    expect($ids)->toContain($pending->id)
+        ->and($ids)->not->toContain($approved->id)
+        ->and($ids)->not->toContain($suspended->id);
+
+    // Y siguen siendo consultables aparte, por estado -- no desaparecen.
+    $approvedIds = collect($this->actingAs($actor)->getJson('/api/admin/wastes?status=APR')
+        ->assertOk()->json('data'))->pluck('id');
+
+    expect($approvedIds)->toContain($approved->id);
+});
