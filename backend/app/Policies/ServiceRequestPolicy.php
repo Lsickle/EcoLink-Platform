@@ -118,6 +118,22 @@ class ServiceRequestPolicy
     }
 
     /**
+     * Reapertura de una solicitud RECHAZADA (D-S23, endpoint agregado
+     * 2026-08-19): solo el Generador dueño, o platform staff.
+     *
+     * NO reutiliza `update()` a propósito: aquel exige que la solicitud NO esté
+     * en un estado terminal, y `REJECTED` lo es (`is_terminal_status=true`,
+     * `blocks_editing=true` en `ServiceStatusSeeder`). Reabrir es justamente la
+     * excepción a esa regla -- la única salida que el workflow concede desde un
+     * estado terminal. El destinatario NO puede reabrir: rechazó, y la decisión
+     * de reintentar es de quien pide el servicio.
+     */
+    public function reopen(User $actor, WasteServiceRequest $serviceRequest): bool
+    {
+        return $actor->hasPermission('service_requests.update') && $serviceRequest->isAccessibleBy($actor);
+    }
+
+    /**
      * D-S25: SOLO el Gestor dueño de ESTE ítem específico (o platform staff)
      * -- ver `WasteServiceRequestItem::isEvaluableBy()`.
      */

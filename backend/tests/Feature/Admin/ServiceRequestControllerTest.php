@@ -7,6 +7,8 @@ use App\Models\CarteraStatus;
 use App\Models\GeneratorGestorRelationship;
 use App\Models\GeneratorSubgestorRelationship;
 use App\Models\MeasurementUnit;
+use App\Notifications\ServiceRequestDecidedNotification;
+use App\Notifications\ServiceRequestSubmittedNotification;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
 use App\Models\OrganizationCarteraStatus;
@@ -22,6 +24,7 @@ use App\Models\WasteServiceRequest;
 use App\Models\WasteServiceRequestItem;
 use App\Models\WasteTreatmentApproval;
 use App\Models\WorkflowLog;
+use Illuminate\Support\Facades\Notification;
 use Database\Seeders\BusinessRoleSeeder;
 use Database\Seeders\CancellationReasonSeeder;
 use Database\Seeders\CarteraStatusSeeder;
@@ -1379,4 +1382,356 @@ test('en una solicitud ANTERIOR al destinatario único, un Gestor sigue sin pode
     $this->actingAs($foreignActor)
         ->postJson("/api/admin/service-requests/items/{$itemA->id}/approve")
         ->assertForbidden();
+});
+
+// ---------------------------------------------------------------------------
+// Notificaciones (2026-08-19). Hasta ahora el módulo no tenía ninguna: una
+// solicitud enviada solo se descubría si alguien entraba a mirar. No se podía
+// arreglar antes porque no había a quién avisar -- el destino se deducía de los
+// tratamientos de cada ítem y podían ser varios Gestores.
+// ---------------------------------------------------------------------------
+
+test('al enviar, se avisa al DESTINATARIO y no al Generador', function () {
+    Notification::fake();
+
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+
+    // Quien recibe el aviso es quien puede evaluar, no cualquiera del Gestor.
+    $evaluador = srActor(['service_requests.evaluate'], $gestor->id);
+    $creador = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
+
+    $id = $this->actingAs($creador)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()->json('service_request.id');
+
+    Notification::assertNothingSent();
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$id}/submit")->assertOk();
+
+    Notification::assertSentTo($evaluador, ServiceRequestSubmittedNotification::class);
+    Notification::assertNotSentTo($creador, ServiceRequestSubmittedNotification::class);
+});
+
+// Se avisa a la CONTRAPARTE, no al Gestor detrás: es con quien el Generador
+// tiene la relación comercial y quien gestiona la solicitud.
+test('con Subgestor de por medio, el aviso va al Subgestor y no al Gestor externo', function () {
+    Notification::fake();
+
+    $generator = srGeneratorOrganization();
+    $subgestor = srSubgestorOrganization();
+    $gestorExterno = srGestorOrganization();
+
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
+    $approval = WasteTreatmentApproval::factory()->viable()->create([
+        'organization_id' => $gestorExterno->id,
+        'waste_id' => $waste->id,
+        'delegated_by_organization_id' => $subgestor->id,
+    ]);
+
+    GeneratorSubgestorRelationship::query()->create([
+        'generator_organization_id' => $generator->id,
+        'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $creador = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
+    $subgestorEvaluador = srActor(['service_requests.evaluate'], $subgestor->id);
+    $gestorEvaluador = srActor(['service_requests.evaluate'], $gestorExterno->id);
+
+    $id = $this->actingAs($creador)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $subgestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()->json('service_request.id');
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$id}/submit")->assertOk();
+
+    // El Gestor externo trata el residuo, pero la relación comercial es con el
+    // Subgestor: el aviso va a quien gestiona la solicitud.
+    Notification::assertSentTo($subgestorEvaluador, ServiceRequestSubmittedNotification::class);
+    Notification::assertNotSentTo($gestorEvaluador, ServiceRequestSubmittedNotification::class);
+});
+
+test('al resolverse, se avisa al GENERADOR', function () {
+    Notification::fake();
+
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+
+    $creador = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
+    $lector = srActor(['service_requests.read'], $generator->id);
+    $evaluador = srActor(['service_requests.evaluate'], $gestor->id);
+
+    $id = $this->actingAs($creador)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()->json('service_request.id');
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$id}/submit")->assertOk();
+
+    $item = WasteServiceRequest::query()->findOrFail($id)->items()->firstOrFail();
+
+    $this->actingAs($evaluador)->postJson("/api/admin/service-requests/items/{$item->id}/approve")->assertOk();
+
+    Notification::assertSentTo($lector, ServiceRequestDecidedNotification::class);
+});
+
+// Un rechazo también se avisa: sin esto, el Generador solo se enteraría
+// entrando a mirar, que es justo lo que este cambio viene a quitar.
+test('el rechazo también se avisa al Generador', function () {
+    Notification::fake();
+
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+
+    $creador = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
+    $lector = srActor(['service_requests.read'], $generator->id);
+    $evaluador = srActor(['service_requests.evaluate'], $gestor->id);
+
+    $id = $this->actingAs($creador)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()->json('service_request.id');
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$id}/submit")->assertOk();
+
+    $item = WasteServiceRequest::query()->findOrFail($id)->items()->firstOrFail();
+
+    $this->actingAs($evaluador)
+        ->postJson("/api/admin/service-requests/items/{$item->id}/reject", ['notes' => 'Sin capacidad.'])
+        ->assertOk();
+
+    Notification::assertSentTo($lector, ServiceRequestDecidedNotification::class);
+});
+
+// La cabecera solo se mueve cuando TODOS los ítems están decididos (D-S01), y
+// el aviso debe seguir esa misma regla: avisar a medias sería peor que no
+// avisar.
+test('con ítems todavía pendientes NO se avisa al Generador', function () {
+    Notification::fake();
+
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$wasteA, $approvalA] = srViableItemFixture($generator, $gestor);
+    [$wasteB, $approvalB] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+
+    $creador = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
+    $lector = srActor(['service_requests.read'], $generator->id);
+    $evaluador = srActor(['service_requests.evaluate'], $gestor->id);
+
+    $id = $this->actingAs($creador)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($wasteA, $approvalA), srItemPayload($wasteB, $approvalB)],
+    ])->assertCreated()->json('service_request.id');
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$id}/submit")->assertOk();
+
+    $primerItem = WasteServiceRequest::query()->findOrFail($id)->items()->orderBy('item_sequence')->first();
+
+    $this->actingAs($evaluador)->postJson("/api/admin/service-requests/items/{$primerItem->id}/approve")->assertOk();
+
+    Notification::assertNotSentTo($lector, ServiceRequestDecidedNotification::class);
+});
+
+// Respaldo al correo de la ORGANIZACIÓN: un Generador recién autoprovisionado
+// por Carga Masiva nace con un correo placeholder que siempre rebota.
+test('si el único destinatario tiene correo placeholder, se cae al correo de la organización', function () {
+    Notification::fake();
+
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    $gestor->forceFill(['email' => 'contacto@gestor.test'])->save();
+
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+
+    $evaluador = srActor(['service_requests.evaluate'], $gestor->id);
+    $evaluador->forceFill(['email' => 'placeholder@sin-correo.invalid'])->save();
+
+    $creador = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
+
+    $id = $this->actingAs($creador)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()->json('service_request.id');
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$id}/submit")->assertOk();
+
+    Notification::assertNotSentTo($evaluador, ServiceRequestSubmittedNotification::class);
+    Notification::assertSentOnDemand(
+        ServiceRequestSubmittedNotification::class,
+        fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === 'contacto@gestor.test',
+    );
+});
+
+// ---------------------------------------------------------------------------
+// Reapertura de una solicitud RECHAZADA (D-S23, endpoint agregado 2026-08-19).
+//
+// La transición `REJECTED -> DRAFT` llevaba sembrada en el workflow desde el
+// lote original, pero sin endpoint: una solicitud rechazada era un punto final,
+// y el correo de rechazo le promete al Generador que puede corregir y reenviar.
+// ---------------------------------------------------------------------------
+
+/**
+ * Solicitud llevada hasta RECHAZADA. Devuelve [$serviceRequest, $generator,
+ * $gestor, $creador].
+ */
+function srRejectedRequest(): array
+{
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+
+    $creador = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
+    $evaluador = srActor(['service_requests.evaluate'], $gestor->id);
+
+    $id = test()->actingAs($creador)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()->json('service_request.id');
+
+    test()->actingAs($creador)->postJson("/api/admin/service-requests/{$id}/submit")->assertOk();
+
+    $item = WasteServiceRequest::query()->findOrFail($id)->items()->firstOrFail();
+
+    test()->actingAs($evaluador)
+        ->postJson("/api/admin/service-requests/items/{$item->id}/reject", ['notes' => 'Sin capacidad esta semana.'])
+        ->assertOk();
+
+    return [WasteServiceRequest::query()->findOrFail($id), $generator, $gestor, $creador];
+}
+
+test('el Generador reabre su solicitud rechazada y vuelve a Borrador', function () {
+    [$serviceRequest, , , $creador] = srRejectedRequest();
+
+    expect($serviceRequest->serviceStatus->code)->toBe('REJECTED');
+
+    $this->actingAs($creador)
+        ->postJson("/api/admin/service-requests/{$serviceRequest->id}/reopen")
+        ->assertOk()
+        ->assertJsonPath('service_request.service_status.code', 'DRAFT');
+
+    expect(SecurityLog::query()->where('event_type', 'SERVICE_REQUEST_REOPENED')->exists())->toBeTrue();
+});
+
+// Sin esto la solicitud reabierta seria OTRO callejon sin salida: volveria a
+// Borrador con sus items ya rechazados, y al reenviarla el destinatario no
+// tendria nada que evaluar.
+test('los ítems rechazados vuelven a Pendiente al reabrir', function () {
+    [$serviceRequest, , , $creador] = srRejectedRequest();
+    $item = $serviceRequest->items()->firstOrFail();
+
+    expect($item->itemStatus->code)->toBe('REJECTED');
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$serviceRequest->id}/reopen")->assertOk();
+
+    expect($item->fresh()->itemStatus->code)->toBe('PENDING');
+});
+
+// La observación del rechazo NO se borra: es la trazabilidad de por qué se
+// reabrió.
+test('reabrir conserva el motivo del rechazo en el ítem', function () {
+    [$serviceRequest, , , $creador] = srRejectedRequest();
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$serviceRequest->id}/reopen")->assertOk();
+
+    expect($serviceRequest->items()->firstOrFail()->observations)->toBe('Sin capacidad esta semana.');
+});
+
+// SUPUESTO señalado al usuario: se corrige lo rechazado sin obligar al
+// destinatario a reevaluar lo que ya había dado por bueno.
+test('los ítems ya ACEPTADOS se conservan al reabrir', function () {
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$wasteA, $approvalA] = srViableItemFixture($generator, $gestor);
+    [$wasteB, $approvalB] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+
+    $creador = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
+    $evaluador = srActor(['service_requests.evaluate'], $gestor->id);
+
+    $id = $this->actingAs($creador)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($wasteA, $approvalA), srItemPayload($wasteB, $approvalB)],
+    ])->assertCreated()->json('service_request.id');
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$id}/submit")->assertOk();
+
+    $items = WasteServiceRequest::query()->findOrFail($id)->items()->orderBy('item_sequence')->get();
+
+    $this->actingAs($evaluador)->postJson("/api/admin/service-requests/items/{$items[0]->id}/approve")->assertOk();
+    $this->actingAs($evaluador)
+        ->postJson("/api/admin/service-requests/items/{$items[1]->id}/reject", ['notes' => 'No aplica.'])
+        ->assertOk();
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$id}/reopen")->assertOk();
+
+    expect($items[0]->fresh()->itemStatus->code)->toBe('ACCEPTED')
+        ->and($items[1]->fresh()->itemStatus->code)->toBe('PENDING');
+});
+
+// El destinatario rechazó: la decisión de reintentar es de quien pide el
+// servicio, no de quien lo negó.
+test('el DESTINATARIO no puede reabrir', function () {
+    [$serviceRequest, , $gestor] = srRejectedRequest();
+
+    $gestorActor = srActor(['service_requests.update'], $gestor->id);
+
+    $this->actingAs($gestorActor)
+        ->postJson("/api/admin/service-requests/{$serviceRequest->id}/reopen")
+        ->assertForbidden();
+
+    expect($serviceRequest->fresh()->serviceStatus->code)->toBe('REJECTED');
+});
+
+test('solo se puede reabrir una solicitud RECHAZADA', function () {
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $creador = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
+
+    $id = $this->actingAs($creador)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()->json('service_request.id');
+
+    // Sigue en DRAFT: no hay nada que reabrir.
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$id}/reopen")
+        ->assertUnprocessable()->assertJsonValidationErrors('service_status');
+});
+
+// Cierra el ciclo completo: lo que este endpoint venía a habilitar.
+test('una solicitud reabierta se puede volver a enviar y resolver', function () {
+    [$serviceRequest, , $gestor, $creador] = srRejectedRequest();
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$serviceRequest->id}/reopen")->assertOk();
+
+    $this->actingAs($creador)->postJson("/api/admin/service-requests/{$serviceRequest->id}/submit")
+        ->assertOk()->assertJsonPath('service_request.service_status.code', 'UNDER_REVIEW');
+
+    $item = $serviceRequest->items()->firstOrFail();
+    $evaluador = srActor(['service_requests.evaluate'], $gestor->id);
+
+    $this->actingAs($evaluador)->postJson("/api/admin/service-requests/items/{$item->id}/approve")->assertOk();
+
+    expect($serviceRequest->fresh()->serviceStatus->code)->toBe('APPROVED');
 });

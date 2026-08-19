@@ -2571,6 +2571,16 @@ export async function submitServiceRequest(id: number | string): Promise<{ servi
 // platform staff), alcanzable desde cualquier estado no-final (RN-SOL-009).
 // `cancellation_reason_id` se puebla desde `fetchCancellationReasons()`
 // (gap de contrato ya cerrado, 2026-07-19).
+// POST /api/admin/service-requests/{id}/reopen -- Rechazada -> Borrador
+// (D-S23). Solo el Generador dueño: el destinatario rechazó, y la decisión de
+// reintentar es de quien pide el servicio. Los ítems rechazados vuelven a
+// Pendiente para que la solicitud reenviada pueda volver a resolverse.
+export async function reopenServiceRequest(
+  id: number | string
+): Promise<{ service_request: AdminServiceRequestDetail }> {
+  return apiFetch(`/api/admin/service-requests/${id}/reopen`, { method: 'POST' })
+}
+
 export async function cancelServiceRequest(
   id: number | string,
   payload: CancelServiceRequestPayload

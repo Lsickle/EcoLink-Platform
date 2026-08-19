@@ -4,6 +4,7 @@ import { ServiceRequestDetailScreen } from './ServiceRequestDetailScreen'
 
 const fetchServiceRequestMock = vi.fn()
 const submitServiceRequestMock = vi.fn()
+const reopenServiceRequestMock = vi.fn()
 const cancelServiceRequestMock = vi.fn()
 const fetchCancellationReasonsMock = vi.fn()
 const approveServiceRequestItemMock = vi.fn()
@@ -15,6 +16,7 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     ...actual,
     fetchServiceRequest: (...args: unknown[]) => fetchServiceRequestMock(...args),
     submitServiceRequest: (...args: unknown[]) => submitServiceRequestMock(...args),
+    reopenServiceRequest: (...args: unknown[]) => reopenServiceRequestMock(...args),
     cancelServiceRequest: (...args: unknown[]) => cancelServiceRequestMock(...args),
     fetchCancellationReasons: (...args: unknown[]) => fetchCancellationReasonsMock(...args),
     approveServiceRequestItem: (...args: unknown[]) => approveServiceRequestItemMock(...args),
@@ -396,6 +398,58 @@ describe('ServiceRequestDetailScreen', () => {
 
       await screen.findByText('SR-1-ABCDEFGH')
       expect(screen.queryByText('Gestor que trata')).not.toBeInTheDocument()
+    })
+  })
+
+  // ---------------------------------------------------------------------
+  // Reapertura (D-S23, 2026-08-19). Antes una solicitud rechazada era un
+  // punto final: la transición estaba sembrada pero sin endpoint.
+  // ---------------------------------------------------------------------
+  describe('reabrir una solicitud rechazada', () => {
+    const rejected = () => ({
+      ...baseServiceRequest(),
+      service_status: { ...DRAFT_STATUS, code: 'REJECTED', name: 'Rechazada', is_terminal_status: true },
+    })
+
+    test('el Generador dueño ve la acción de reabrir', async () => {
+      currentUser = { id: 1, is_platform_staff: false, permissions: ['service_requests.update'], tenant_organization_id: 1 }
+      fetchServiceRequestMock.mockResolvedValue({ service_request: rejected() })
+
+      render(<ServiceRequestDetailScreen serviceRequestId={7} />)
+
+      expect(await screen.findByRole('button', { name: 'Reabrir Solicitud' })).toBeInTheDocument()
+    })
+
+    test('reabrir llama al endpoint y recarga', async () => {
+      currentUser = { id: 1, is_platform_staff: false, permissions: ['service_requests.update'], tenant_organization_id: 1 }
+      fetchServiceRequestMock.mockResolvedValue({ service_request: rejected() })
+      reopenServiceRequestMock.mockResolvedValue({ service_request: baseServiceRequest() })
+
+      render(<ServiceRequestDetailScreen serviceRequestId={7} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Reabrir Solicitud' }))
+
+      await vi.waitFor(() => expect(reopenServiceRequestMock).toHaveBeenCalledWith(7))
+    })
+
+    // El destinatario rechazó: reintentar es decisión de quien pide.
+    test('el destinatario NO ve la acción de reabrir', async () => {
+      currentUser = { id: 2, is_platform_staff: false, permissions: ['service_requests.update'], tenant_organization_id: 5 }
+      fetchServiceRequestMock.mockResolvedValue({ service_request: rejected() })
+
+      render(<ServiceRequestDetailScreen serviceRequestId={7} />)
+
+      await screen.findByText('SR-1-ABCDEFGH')
+      expect(screen.queryByRole('button', { name: 'Reabrir Solicitud' })).not.toBeInTheDocument()
+    })
+
+    test('no aparece si la solicitud no está rechazada', async () => {
+      currentUser = { id: 1, is_platform_staff: false, permissions: ['service_requests.update'], tenant_organization_id: 1 }
+      fetchServiceRequestMock.mockResolvedValue({ service_request: baseServiceRequest() })
+
+      render(<ServiceRequestDetailScreen serviceRequestId={7} />)
+
+      await screen.findByText('SR-1-ABCDEFGH')
+      expect(screen.queryByRole('button', { name: 'Reabrir Solicitud' })).not.toBeInTheDocument()
     })
   })
 })

@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Notifications\ServiceRequestDecidedNotification;
+
 use App\Models\ServiceItemStatus;
 use App\Models\ServiceStatus;
 use App\Models\User;
@@ -106,11 +108,24 @@ class ServiceRequestApprovalService
         $hasRejected = $items->contains(fn (WasteServiceRequestItem $item) => $item->itemStatus?->code === 'REJECTED');
         $allAccepted = $items->every(fn (WasteServiceRequestItem $item) => $item->itemStatus?->code === 'ACCEPTED');
 
-        if ($hasRejected) {
-            self::transitionHeader($serviceRequest, $actor, 'REJECTED');
-        } elseif ($allAccepted) {
-            self::transitionHeader($serviceRequest, $actor, 'APPROVED');
+        if (! $hasRejected && ! $allAccepted) {
+            return;
         }
+
+        self::transitionHeader($serviceRequest, $actor, $hasRejected ? 'REJECTED' : 'APPROVED');
+
+        // Aviso al GENERADOR de que su solicitud quedo resuelta (2026-08-19).
+        // Va DESPUES de la transicion: si el workflow la frena, no se avisa de
+        // algo que no ocurrio.
+        OrganizationNotifier::notify(
+            $serviceRequest->organization_id,
+            'service_requests.read',
+            new ServiceRequestDecidedNotification(
+                $serviceRequest,
+                $serviceRequest->counterpartyOrganization?->legal_name ?? 'El destinatario',
+                ! $hasRejected,
+            ),
+        );
     }
 
     /**

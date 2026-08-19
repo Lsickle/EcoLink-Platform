@@ -14,8 +14,10 @@ use App\Models\Waste;
 use App\Models\WasteServiceRequest;
 use App\Models\WasteServiceRequestItem;
 use App\Models\WasteTreatmentApproval;
+use App\Notifications\ServiceRequestSubmittedNotification;
 use App\Policies\ServiceRequestPolicy;
 use App\Services\CommercialCounterpartyService;
+use App\Services\OrganizationNotifier;
 use App\Services\ServiceRequestApprovalService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -509,6 +511,22 @@ class ServiceRequestController extends Controller
         ServiceRequestApprovalService::transitionHeader($serviceRequest, $actor, 'SUBMITTED');
         ServiceRequestApprovalService::transitionHeader($serviceRequest->fresh(), $actor, 'UNDER_REVIEW');
 
+        // Aviso al DESTINATARIO (2026-08-19). Va DESPUES de las transiciones a
+        // proposito: si alguna falla, no se avisa de algo que no ocurrio.
+        // Se notifica a la CONTRAPARTE, no al Gestor detras: es con quien el
+        // Generador tiene la relacion comercial y quien gestiona la solicitud.
+        if ($serviceRequest->counterparty_organization_id !== null) {
+            OrganizationNotifier::notify(
+                $serviceRequest->counterparty_organization_id,
+                'service_requests.evaluate',
+                new ServiceRequestSubmittedNotification(
+                    $serviceRequest,
+                    $serviceRequest->organization?->legal_name ?? 'Un Generador',
+                    $serviceRequest->items()->count(),
+                ),
+            );
+        }
+
         $this->logSecurityEvent(
             $request, 'SERVICE_REQUEST_SUBMITTED', 'SUCCESS',
             "Solicitud de servicio '{$serviceRequest->request_code}' enviada.", $actor,
@@ -524,6 +542,56 @@ class ServiceRequestController extends Controller
      * (RN-SOL-009); si el motivo es `is_other=true`, exige además
      * `cancellation_details`.
      */
+    /**
+     * POST .../reopen -- Rechazada -> Borrador (D-S23, 2026-08-19).
+     *
+     * La transicion estaba SEMBRADA en `ServiceRequestWorkflowSeeder` desde el
+     * lote original, pero sin ningun endpoint que la disparara: una solicitud
+     * rechazada era un punto final, y el correo de rechazo le promete al
+     * Generador que puede corregir y reenviar.
+     *
+     * Los items RECHAZADOS vuelven a `PENDING`. No es cosmetico: sin eso la
+     * solicitud reabierta seria OTRO callejon sin salida -- volveria a
+     * `DRAFT` con sus items ya decididos, y al reenviarla el destinatario no
+     * tendria nada que evaluar (la UI solo ofrece Aprobar/Rechazar sobre
+     * items `PENDING`), asi que la cabecera no podria volver a resolverse.
+     *
+     * Los items ya ACEPTADOS se conservan (SUPUESTO, senalado al usuario): se
+     * corrige lo que se rechazo, sin obligar al destinatario a reevaluar lo que
+     * ya habia dado por bueno. La observacion del rechazo NO se borra -- es la
+     * trazabilidad de por que se reabrio.
+     */
+    public function reopen(Request $request, WasteServiceRequest $serviceRequest)
+    {
+        $actor = $request->user();
+        abort_unless((new ServiceRequestPolicy)->reopen($actor, $serviceRequest), 403, 'No tiene acceso a esta solicitud de servicio.');
+
+        if ($serviceRequest->serviceStatus?->code !== 'REJECTED') {
+            throw ValidationException::withMessages([
+                'service_status' => ['Solo se puede reabrir una solicitud Rechazada.'],
+            ]);
+        }
+
+        $rejectedItemStatusId = ServiceItemStatus::query()->where('code', 'REJECTED')->value('id');
+        $pendingItemStatusId = $this->defaultCatalogId(ServiceItemStatus::class, 'PENDING');
+
+        DB::transaction(function () use ($serviceRequest, $actor, $rejectedItemStatusId, $pendingItemStatusId) {
+            ServiceRequestApprovalService::transitionHeader($serviceRequest, $actor, 'DRAFT');
+
+            $serviceRequest->items()
+                ->where('item_status_id', $rejectedItemStatusId)
+                ->update(['item_status_id' => $pendingItemStatusId]);
+        });
+
+        $this->logSecurityEvent(
+            $request, 'SERVICE_REQUEST_REOPENED', 'SUCCESS',
+            "Solicitud de servicio '{$serviceRequest->request_code}' reabierta para corrección.", $actor,
+            ['service_request_id' => $serviceRequest->id],
+        );
+
+        return response()->json(['service_request' => $serviceRequest->fresh(['items.itemStatus', 'serviceStatus'])]);
+    }
+
     public function cancel(Request $request, WasteServiceRequest $serviceRequest)
     {
         $actor = $request->user();

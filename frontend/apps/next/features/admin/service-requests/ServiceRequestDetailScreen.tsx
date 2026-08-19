@@ -16,6 +16,7 @@ import {
   fetchCancellationReasons,
   fetchServiceRequest,
   rejectServiceRequestItem,
+  reopenServiceRequest,
   submitServiceRequest,
   type AdminCancellationReason,
   type AdminServiceRequestDetail,
@@ -90,6 +91,7 @@ export function ServiceRequestDetailScreen({ serviceRequestId }: { serviceReques
 
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isReopening, setIsReopening] = useState(false)
 
   const [isCancelling, setIsCancelling] = useState(false)
   const [cancellationReasons, setCancellationReasons] = useState<AdminCancellationReason[]>([])
@@ -179,6 +181,21 @@ export function ServiceRequestDetailScreen({ serviceRequestId }: { serviceReques
     }
   }
 
+  // Reabrir devuelve la solicitud a Borrador y sus ítems rechazados a
+  // Pendiente, para que pueda corregirse y volver a enviarse (D-S23).
+  async function handleReopen() {
+    setSubmitError(null)
+    setIsReopening(true)
+    try {
+      await reopenServiceRequest(serviceRequestId)
+      await reload()
+    } catch (error) {
+      setSubmitError(errorMessage(error, 'service_status'))
+    } finally {
+      setIsReopening(false)
+    }
+  }
+
   async function handleConfirmCancel() {
     setCancelError(null)
     if (!cancellationReasonId) {
@@ -251,6 +268,10 @@ export function ServiceRequestDetailScreen({ serviceRequestId }: { serviceReques
   const canSubmit = isOwnerGenerator && permissions.includes('service_requests.update') && detail.service_status?.code === 'DRAFT'
   const canCancel =
     isOwnerGenerator && permissions.includes('service_requests.cancel') && !detail.service_status?.is_terminal_status
+  // Reapertura (D-S23, 2026-08-19). Solo el Generador dueño: el destinatario
+  // rechazó, y la decisión de reintentar es de quien pide el servicio.
+  const canReopen =
+    isOwnerGenerator && permissions.includes('service_requests.update') && detail.service_status?.code === 'REJECTED'
 
   const statusBadgeVariant = (detail.service_status?.code && STATUS_BADGE_VARIANT[detail.service_status.code]) || 'outline'
 
@@ -295,6 +316,11 @@ export function ServiceRequestDetailScreen({ serviceRequestId }: { serviceReques
             {canSubmit && (
               <Button size="sm" disabled={isSubmitting} onClick={handleSubmit}>
                 {isSubmitting ? 'Enviando…' : 'Enviar Solicitud'}
+              </Button>
+            )}
+            {canReopen && (
+              <Button size="sm" disabled={isReopening} onClick={handleReopen}>
+                {isReopening ? 'Reabriendo…' : 'Reabrir Solicitud'}
               </Button>
             )}
             {canCancel && !isCancelling && (

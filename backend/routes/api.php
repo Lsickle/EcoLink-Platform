@@ -499,6 +499,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::put('service-requests/{serviceRequest}', [ServiceRequestController::class, 'update'])->name('service-requests.update');
         Route::post('service-requests/{serviceRequest}/submit', [ServiceRequestController::class, 'submit'])->name('service-requests.submit');
         Route::post('service-requests/{serviceRequest}/cancel', [ServiceRequestController::class, 'cancel'])->name('service-requests.cancel');
+        Route::post('service-requests/{serviceRequest}/reopen', [ServiceRequestController::class, 'reopen'])->name('service-requests.reopen');
         Route::post('service-requests/items/{item}/approve', [ServiceRequestController::class, 'approveItem'])->name('service-requests.items.approve');
         Route::post('service-requests/items/{item}/reject', [ServiceRequestController::class, 'rejectItem'])->name('service-requests.items.reject');
 
