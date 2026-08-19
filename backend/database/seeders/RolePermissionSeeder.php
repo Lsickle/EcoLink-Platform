@@ -186,13 +186,30 @@ class RolePermissionSeeder extends Seeder
         // `assertOrganizationCanTransportWaste()`).
         'generator_subgestor_relationships.read', 'generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke',
         'generator_gestor_relationships.read', 'generator_gestor_relationships.create', 'generator_gestor_relationships.revoke',
+        // Solicitudes de Servicio (2026-08-19). Hasta hoy los cinco
+        // `service_requests.*` estaban SOLO en ADMINISTRADOR, asi que el rol
+        // operativo no podia ni crear una solicitud.
+        'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel',
+        // `evaluate` tambien aqui, y NO es una contradiccion con "OPERACIONES
+        // es el lado declarante": desde el destinatario unico (2026-08-18) una
+        // solicitud puede ir dirigida a un SUBGESTOR, y el rol operativo de un
+        // Subgestor es este. Concederlo a un GENERADOR no le habilita nada --
+        // el permiso por si solo no basta: `ServiceRequestPolicy::evaluateItem()`
+        // exige ademas ser el destinatario de esa solicitud
+        // (`WasteServiceRequestItem::isEvaluableBy()`), y un Generador nunca lo
+        // es. Por eso `service_requests.evaluate` tampoco esta en
+        // `Permission::GESTOR_ONLY_CODES`: si lo estuviera, una organizacion
+        // Subgestora no podria recibirlo.
+        'service_requests.evaluate',
     ];
 
     /**
      * `TECNICO_AMBIENTAL` (rol #5 del catálogo canónico): lado evaluador --
      * SOLO tiene sentido dentro de una organización Gestor
-     * (`can_treat_waste=true`). Los 4 códigos son exactamente
-     * `Permission::GESTOR_ONLY_CODES` -- la gobernanza de "quién puede
+     * (`can_treat_waste=true`). Sus códigos de `treatment_approvals`/
+     * `preapproved_wastes` son exactamente `Permission::GESTOR_ONLY_CODES`;
+     * los de `service_requests` (2026-08-19) NO lo son a propósito, para que
+     * una organización Subgestora pueda recibirlos -- la gobernanza de "quién puede
      * recibir este rol" (o cualquier rol custom con estos permisos) la
      * hacen `RoleController::assignToUser()`/`PermissionController::assignToRole()`,
      * no este seeder.
@@ -204,6 +221,11 @@ class RolePermissionSeeder extends Seeder
         // rol que corresponda -- control de cuatro ojos.
         'treatment_approvals.read', 'treatment_approvals.update', 'treatment_approvals.evaluate',
         'preapproved_wastes.read', 'preapproved_wastes.manage',
+        // Solicitudes de Servicio (2026-08-19): el lado evaluador tambien
+        // decide sobre las solicitudes que recibe su organizacion. `read` va
+        // junto a `evaluate` porque sin ver la solicitud no hay nada que
+        // evaluar.
+        'service_requests.read', 'service_requests.evaluate',
     ];
 
     public function run(): void

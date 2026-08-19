@@ -29,8 +29,10 @@ use Database\Seeders\BusinessRoleSeeder;
 use Database\Seeders\CancellationReasonSeeder;
 use Database\Seeders\CarteraStatusSeeder;
 use Database\Seeders\OrganizationStatusSeeder;
+use Database\Seeders\PermissionSeeder;
 use Database\Seeders\PlatformOrganizationSeeder;
 use Database\Seeders\RespelStatusSeeder;
+use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Database\Seeders\ServiceItemStatusSeeder;
 use Database\Seeders\ServiceRequestWorkflowSeeder;
@@ -1734,4 +1736,104 @@ test('una solicitud reabierta se puede volver a enviar y resolver', function () 
     $this->actingAs($evaluador)->postJson("/api/admin/service-requests/items/{$item->id}/approve")->assertOk();
 
     expect($serviceRequest->fresh()->serviceStatus->code)->toBe('APPROVED');
+});
+
+// ---------------------------------------------------------------------------
+// Permisos por lado del flujo (2026-08-19). Hasta hoy los cinco
+// `service_requests.*` estaban SOLO en ADMINISTRADOR: el rol operativo no podía
+// ni crear una solicitud, y el técnico ambiental no podía evaluarla.
+//
+// Estos tests usan los ROLES REALES sembrados por `RolePermissionSeeder`, no
+// permisos ad-hoc: comprueban el reparto, no la mecánica del endpoint (que ya
+// cubren los tests de arriba).
+// ---------------------------------------------------------------------------
+
+/** Usuario con un rol REAL del catálogo, sembrado con sus permisos reales. */
+function srUserWithSeededRole(string $roleCode, int $organizationId): User
+{
+    $user = User::factory()->create(['tenant_organization_id' => $organizationId]);
+    $role = Role::query()->where('code', $roleCode)->firstOrFail();
+    UserRole::query()->create(['user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
+
+    return $user;
+}
+
+test('OPERACIONES puede crear y enviar una solicitud con los permisos reales del seeder', function () {
+    $this->seed(PermissionSeeder::class);
+    $this->seed(RolePermissionSeeder::class);
+
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+
+    $operaciones = srUserWithSeededRole('OPERACIONES', $generator->id);
+
+    $id = $this->actingAs($operaciones)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()->json('service_request.id');
+
+    $this->actingAs($operaciones)->postJson("/api/admin/service-requests/{$id}/submit")
+        ->assertOk()->assertJsonPath('service_request.service_status.code', 'UNDER_REVIEW');
+});
+
+test('TECNICO_AMBIENTAL puede evaluar con los permisos reales del seeder', function () {
+    $this->seed(PermissionSeeder::class);
+    $this->seed(RolePermissionSeeder::class);
+
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+
+    $operaciones = srUserWithSeededRole('OPERACIONES', $generator->id);
+    $tecnico = srUserWithSeededRole('TECNICO_AMBIENTAL', $gestor->id);
+
+    $id = $this->actingAs($operaciones)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()->json('service_request.id');
+
+    $this->actingAs($operaciones)->postJson("/api/admin/service-requests/{$id}/submit")->assertOk();
+
+    $item = WasteServiceRequest::query()->findOrFail($id)->items()->firstOrFail();
+
+    $this->actingAs($tecnico)->postJson("/api/admin/service-requests/items/{$item->id}/approve")->assertOk();
+});
+
+// El caso que motivó dar `evaluate` también a OPERACIONES: el rol operativo de
+// un SUBGESTOR destinatario. Sin esto, un Subgestor necesitaria ADMINISTRADOR
+// para resolver las solicitudes que se le dirigen.
+test('OPERACIONES de un SUBGESTOR destinatario puede evaluar', function () {
+    $this->seed(PermissionSeeder::class);
+    $this->seed(RolePermissionSeeder::class);
+
+    [$serviceRequest, $subgestor] = srDelegatedSubmittedRequest();
+    $item = $serviceRequest->items()->firstOrFail();
+
+    $operacionesSubgestor = srUserWithSeededRole('OPERACIONES', $subgestor->id);
+
+    $this->actingAs($operacionesSubgestor)
+        ->postJson("/api/admin/service-requests/items/{$item->id}/approve")
+        ->assertOk();
+});
+
+// El permiso por si solo no basta: la Policy exige ademas SER el destinatario.
+// Por eso conceder `evaluate` a OPERACIONES no abre nada en un Generador.
+test('OPERACIONES de un tercero NO puede evaluar aunque tenga el permiso', function () {
+    $this->seed(PermissionSeeder::class);
+    $this->seed(RolePermissionSeeder::class);
+
+    [$serviceRequest] = srRejectedRequest();
+    $item = $serviceRequest->items()->firstOrFail();
+
+    $ajeno = srGestorOrganization();
+    $operacionesAjeno = srUserWithSeededRole('OPERACIONES', $ajeno->id);
+
+    $this->actingAs($operacionesAjeno)
+        ->postJson("/api/admin/service-requests/items/{$item->id}/approve")
+        ->assertForbidden();
 });

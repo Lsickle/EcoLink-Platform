@@ -186,7 +186,7 @@ test('siembra ADMINISTRADOR, LOGÍSTICA, TECNICO_AMBIENTAL y OPERACIONES (los ot
         ->and($operaciones->tenant_organization_id)->toBeNull();
 });
 
-test('OPERACIONES queda con wastes.*/treatment_approvals.read+create/generator_subgestor_relationships.*/generator_gestor_relationships.* (lado declarante, universal para cualquier business_role)', function () {
+test('OPERACIONES queda con wastes.*/treatment_approvals.read+create/relaciones comerciales/service_requests.* (lado declarante, universal para cualquier business_role)', function () {
     $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
 
     $codes = $operaciones->permissions()->pluck('code')->sort()->values()->all();
@@ -197,10 +197,22 @@ test('OPERACIONES queda con wastes.*/treatment_approvals.read+create/generator_s
         'treatment_approvals.read', 'treatment_approvals.create',
         'generator_subgestor_relationships.read', 'generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke',
         'generator_gestor_relationships.read', 'generator_gestor_relationships.create', 'generator_gestor_relationships.revoke',
+        // Solicitudes de Servicio (2026-08-19): hasta hoy los cinco estaban
+        // SOLO en ADMINISTRADOR y el rol operativo no podía ni crear una.
+        'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel',
+        // `evaluate` también aquí: un SUBGESTOR puede ser destinatario, y su
+        // rol operativo es este. A un GENERADOR no le habilita nada -- la
+        // Policy exige además SER el destinatario, y nunca lo es.
+        'service_requests.evaluate',
     ])->sort()->values()->all());
 });
 
-test('TECNICO_AMBIENTAL queda EXACTAMENTE con Permission::GESTOR_ONLY_CODES (lado evaluador, exclusivo de organizaciones Gestor)', function () {
+// Desde 2026-08-19 TECNICO_AMBIENTAL ya no coincide EXACTAMENTE con
+// `GESTOR_ONLY_CODES`: se le sumaron los dos de Solicitudes de Servicio, que
+// deliberadamente NO son exclusivos de Gestor -- si lo fueran, una organización
+// Subgestora no podría recibirlos, y desde el destinatario único un Subgestor sí
+// evalúa las solicitudes que se le dirigen.
+test('TECNICO_AMBIENTAL queda con GESTOR_ONLY_CODES de evaluación más las Solicitudes de Servicio', function () {
     $tecnicoAmbiental = Role::query()->where('code', 'TECNICO_AMBIENTAL')->firstOrFail();
 
     $codes = $tecnicoAmbiental->permissions()->pluck('code')->sort()->values()->all();
@@ -208,7 +220,12 @@ test('TECNICO_AMBIENTAL queda EXACTAMENTE con Permission::GESTOR_ONLY_CODES (lad
     expect($codes)->toBe(collect([
         'treatment_approvals.read', 'treatment_approvals.update', 'treatment_approvals.evaluate',
         'preapproved_wastes.read', 'preapproved_wastes.manage',
+        'service_requests.read', 'service_requests.evaluate',
     ])->sort()->values()->all());
+
+    // Los de Solicitudes NO entran al conjunto exclusivo de Gestor.
+    expect(Permission::GESTOR_ONLY_CODES)->not->toContain('service_requests.evaluate')
+        ->and(Permission::GESTOR_ONLY_CODES)->not->toContain('service_requests.read');
 });
 
 test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, Auditoría, Corrientes de Residuos, Códigos UN, Catálogos Maestros (geografía/tipos de sede/áreas organizacionales/características de peligrosidad/categorías de residuo/estados físicos/tipos de embalaje/estados del embalaje/tipos de vehículo), Sedes + Contactos, Vehículos, Tratamiento (tratamientos + tratamientos por sede), núcleo del Módulo Residuos (tipos de residuo/unidades de medida/frecuencias de generación/estados operativos + CRUD/workflow de residuos) y Evaluación del Gestor (waste_treatment_approvals)', function () {
@@ -331,6 +348,6 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
         ->and(Role::query()->count())->toBe(4)
         ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(133)
         ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(28)
-        ->and(Role::query()->where('code', 'OPERACIONES')->firstOrFail()->permissions()->count())->toBe(17)
-        ->and(Role::query()->where('code', 'TECNICO_AMBIENTAL')->firstOrFail()->permissions()->count())->toBe(5);
+        ->and(Role::query()->where('code', 'OPERACIONES')->firstOrFail()->permissions()->count())->toBe(22)
+        ->and(Role::query()->where('code', 'TECNICO_AMBIENTAL')->firstOrFail()->permissions()->count())->toBe(7);
 });
