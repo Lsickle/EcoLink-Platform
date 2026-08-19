@@ -39,7 +39,34 @@ class ServiceRequestPolicy
     public function view(User $actor, WasteServiceRequest $serviceRequest): bool
     {
         return $actor->hasPermission('service_requests.read')
-            && ($serviceRequest->isAccessibleBy($actor) || $this->hasAnyItemAssignedTo($serviceRequest, $actor));
+            && (
+                $serviceRequest->isAccessibleBy($actor)
+                || $this->isDestinationOf($serviceRequest, $actor)
+                || $this->hasAnyItemAssignedTo($serviceRequest, $actor)
+            );
+    }
+
+    /**
+     * Destinatario de la cabecera (2026-08-18): la CONTRAPARTE comercial o el
+     * GESTOR que queda detrás. Ambos lados ven la solicitud -- cuando hay un
+     * Subgestor de por medio, la solicitud "se gestiona entre los dos".
+     *
+     * `hasAnyItemAssignedTo()` sigue existiendo, pero ya solo cubre las
+     * solicitudes ANTERIORES al destinatario único, que no tienen estas dos
+     * columnas: sin él, un Gestor perdería el acceso a sus propias solicitudes
+     * históricas.
+     */
+    private function isDestinationOf(WasteServiceRequest $serviceRequest, User $actor): bool
+    {
+        if ($actor->tenant_organization_id === null) {
+            return false;
+        }
+
+        return in_array(
+            $actor->tenant_organization_id,
+            [$serviceRequest->counterparty_organization_id, $serviceRequest->gestor_organization_id],
+            true,
+        );
     }
 
     /**

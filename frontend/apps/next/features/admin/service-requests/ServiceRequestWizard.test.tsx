@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ServiceRequestWizard } from './ServiceRequestWizard'
 
@@ -6,8 +6,8 @@ const fetchBranchesMock = vi.fn()
 const fetchMeasurementUnitsMock = vi.fn()
 const fetchPhysicalStatesMock = vi.fn()
 const fetchPackagingTypesMock = vi.fn()
-const fetchWastesMock = vi.fn()
-const fetchWasteTreatmentApprovalsMock = vi.fn()
+const fetchServiceRequestCounterpartiesMock = vi.fn()
+const fetchEligibleWastesForCounterpartyMock = vi.fn()
 const createServiceRequestMock = vi.fn()
 const updateServiceRequestMock = vi.fn()
 const submitServiceRequestMock = vi.fn()
@@ -21,8 +21,8 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     fetchMeasurementUnits: (...args: unknown[]) => fetchMeasurementUnitsMock(...args),
     fetchPhysicalStates: (...args: unknown[]) => fetchPhysicalStatesMock(...args),
     fetchPackagingTypes: (...args: unknown[]) => fetchPackagingTypesMock(...args),
-    fetchWastes: (...args: unknown[]) => fetchWastesMock(...args),
-    fetchWasteTreatmentApprovals: (...args: unknown[]) => fetchWasteTreatmentApprovalsMock(...args),
+    fetchServiceRequestCounterparties: (...args: unknown[]) => fetchServiceRequestCounterpartiesMock(...args),
+    fetchEligibleWastesForCounterparty: (...args: unknown[]) => fetchEligibleWastesForCounterpartyMock(...args),
     createServiceRequest: (...args: unknown[]) => createServiceRequestMock(...args),
     updateServiceRequest: (...args: unknown[]) => updateServiceRequestMock(...args),
     submitServiceRequest: (...args: unknown[]) => submitServiceRequestMock(...args),
@@ -132,8 +132,27 @@ function viableApproval(overrides: Partial<Record<string, unknown>> = {}) {
   }
 }
 
-async function goToStep2() {
+// Residuo elegible tal como lo devuelve `GET /service-requests/eligible-wastes`
+// (2026-08-18): ya viene acotado a la contraparte y con la atribución resuelta
+// por el backend.
+function eligibleWaste(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    waste: { id: 20, name: 'Aceite Lubricante Usado', code: 'RSI-001', waste_category: { id: 1, name: 'Aceites' } },
+    approvals: [
+      { id: 100, gestor_organization_id: 3, gestor_name: 'EcoGestor SAS', treatment_name: 'Coprocesamiento' },
+    ],
+    ...overrides,
+  }
+}
+
+async function elegirDestinatario() {
   await screen.findByRole('heading', { name: 'Paso 1 de 6 — Información General' })
+  fireEvent.click(await screen.findByRole('combobox', { name: /Destinatario de la Solicitud/ }))
+  fireEvent.click(await screen.findByRole('option', { name: /EcoGestor SAS/ }))
+}
+
+async function goToStep2() {
+  await elegirDestinatario()
   fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
   await screen.findByRole('heading', { name: 'Paso 2 de 6 — Selección de Residuos' })
 }
@@ -162,8 +181,12 @@ describe('ServiceRequestWizard', () => {
       ...emptyPage,
       data: [{ id: 1, uuid: 'pt-1', code: 'DRUM', name: 'Tambor', is_system: true, is_active: true, created_at: '', updated_at: '' }],
     })
-    fetchWastesMock.mockResolvedValue({ ...emptyPage, data: [waste()], kpis: { total: 1, active: 1, inactive: 0 } })
-    fetchWasteTreatmentApprovalsMock.mockResolvedValue({ ...emptyPage, data: [viableApproval()] })
+    fetchServiceRequestCounterpartiesMock.mockResolvedValue({
+      counterparties: [
+        { id: 3, legal_name: 'EcoGestor SAS', tax_id: '900123456-1', role: 'GESTOR', ready_wastes_count: 1 },
+      ],
+    })
+    fetchEligibleWastesForCounterpartyMock.mockResolvedValue({ wastes: [eligibleWaste()] })
     createServiceRequestMock.mockResolvedValue({ service_request: { id: 500, request_code: 'SR-1-ABCDEFGH' } })
     submitServiceRequestMock.mockResolvedValue({ service_request: { id: 500 } })
   })
@@ -180,53 +203,73 @@ describe('ServiceRequestWizard', () => {
     expect(screen.getByLabelText('Sede Solicitante *')).toBeInTheDocument()
   })
 
-  // El gate pasó a ser el ESTADO del residuo (2026-08-14): antes se pedía
-  // `withViableTreatment`, un eje aparte que el usuario no veía en ninguna
-  // pantalla. Ahora solo un residuo Aprobado puede solicitarse, que es lo
-  // mismo que valida `ServiceRequestController::resolveAndValidateItems()`.
-  test('Step 2 loads only APPROVED wastes and lists them for selection', async () => {
+  // La elegibilidad se resolvía en el cliente: se pedían TODOS los residuos
+  // `APR` y luego sus evaluaciones RESIDUO POR RESIDUO (N+1 de red), y el
+  // wizard filtraba por eje técnico. Desde el destinatario único (2026-08-18)
+  // eso vive en el backend, que además acota a la contraparte elegida -- las
+  // reglas de elegibilidad se prueban en `ServiceRequestControllerTest`.
+  test('el Paso 2 pide los residuos ya acotados a la contraparte, en UNA sola llamada', async () => {
     render(<ServiceRequestWizard />)
     await goToStep2()
 
-    await vi.waitFor(() => expect(fetchWastesMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'APR' })))
-    expect(fetchWastesMock).not.toHaveBeenCalledWith(expect.objectContaining({ withViableTreatment: true }))
-    await vi.waitFor(() => expect(fetchWasteTreatmentApprovalsMock).toHaveBeenCalledWith(20, expect.objectContaining({ perPage: 50 })))
-    // Ya no hay N+1 de descubrimiento: fetchWastes() trae solo los residuos
-    // elegibles (filtrados server-side), fetchWasteTreatmentApprovals() se
-    // llama una única vez por residuo devuelto (aquí, uno solo).
-    expect(fetchWasteTreatmentApprovalsMock).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(fetchEligibleWastesForCounterpartyMock).toHaveBeenCalledWith(3, expect.anything()))
+    expect(fetchEligibleWastesForCounterpartyMock).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('Aceite Lubricante Usado')).toBeInTheDocument()
     expect(screen.getByText(/Coprocesamiento/)).toBeInTheDocument()
   })
 
-  // El proceso comercial (precio, condiciones) ocurre FUERA de la plataforma
-  // y antes de declarar, así que no debe bloquear. Antes este filtro exigía
-  // `commercial_status === 'APPROVED'` y dejaba el residuo fuera del wizard.
-  test('un residuo Aprobado se ofrece aunque su evaluación no tenga el eje comercial cerrado', async () => {
-    fetchWasteTreatmentApprovalsMock.mockResolvedValue({
-      ...emptyPage,
-      data: [viableApproval({ commercial_status: 'DRAFT' })],
+  // El wizard ya no vuelve a filtrar lo que el backend devolvió: si lo hiciera,
+  // las dos reglas se separarían con el tiempo.
+  test('muestra lo que devuelve el backend, sin filtrar de nuevo en el cliente', async () => {
+    fetchEligibleWastesForCounterpartyMock.mockResolvedValue({
+      wastes: [
+        eligibleWaste(),
+        eligibleWaste({ waste: { id: 21, name: 'Solvente Agotado', code: 'RSI-002', waste_category: null } }),
+      ],
     })
 
     render(<ServiceRequestWizard />)
     await goToStep2()
 
     expect(await screen.findByText('Aceite Lubricante Usado')).toBeInTheDocument()
+    expect(screen.getByText('Solvente Agotado')).toBeInTheDocument()
   })
 
-  // ...pero el eje TÉCNICO sí manda: sin tratamiento asignado no hay nada que
-  // ofrecer en el selector de tratamiento del ítem.
-  test('un residuo sin aprobación técnica no aparece, aunque el backend lo haya devuelto', async () => {
-    fetchWasteTreatmentApprovalsMock.mockResolvedValue({
-      ...emptyPage,
-      data: [viableApproval({ technical_status: 'PENDING' })],
-    })
+  // El destinatario ANTES que los residuos: sin él no hay nada que ofrecer.
+  test('el Paso 2 no pide residuos mientras no haya destinatario', async () => {
+    render(<ServiceRequestWizard />)
+    await screen.findByRole('heading', { name: 'Paso 1 de 6 — Información General' })
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
+
+    await screen.findByRole('heading', { name: 'Paso 2 de 6 — Selección de Residuos' })
+    expect(fetchEligibleWastesForCounterpartyMock).not.toHaveBeenCalled()
+  })
+
+  // NO se prueba aquí que cambiar de destinatario descarte los residuos ya
+  // elegidos, aunque el componente lo haga (`setItems([])` en el
+  // `onValueChange` del selector): abrir el Select de Base UI una SEGUNDA vez
+  // no registra en jsdom, y forzarlo daría un test que pasa por accidente.
+  // La garantía de fondo no depende de la UI: `store()` rechaza cualquier ítem
+  // que no resuelva al destinatario elegido, así que una selección obsoleta se
+  // frena en el backend -- cubierto en `ServiceRequestControllerTest`.
+
+  // El rol distingue por dónde entra la contraparte, y los residuos listos
+  // evitan que se elija un destinatario que lleve a un paso 2 vacío.
+  test('el selector de destinatario muestra el rol y cuántos residuos hay listos', async () => {
+    render(<ServiceRequestWizard />)
+    await screen.findByRole('heading', { name: 'Paso 1 de 6 — Información General' })
+    fireEvent.click(await screen.findByRole('combobox', { name: /Destinatario de la Solicitud/ }))
+
+    expect(await screen.findByRole('option', { name: /EcoGestor SAS · Gestor · 1 residuo\(s\) listo\(s\)/ })).toBeInTheDocument()
+  })
+
+  test('si no hay contrapartes con residuos listos lo explica, en vez de dejar el selector vacío', async () => {
+    fetchServiceRequestCounterpartiesMock.mockResolvedValue({ counterparties: [] })
 
     render(<ServiceRequestWizard />)
-    await goToStep2()
+    await screen.findByRole('heading', { name: 'Paso 1 de 6 — Información General' })
 
-    await vi.waitFor(() => expect(fetchWasteTreatmentApprovalsMock).toHaveBeenCalled())
-    expect(screen.queryByText('Aceite Lubricante Usado')).not.toBeInTheDocument()
+    expect(await screen.findByText(/No hay Gestores ni Subgestores con residuos aprobados/i)).toBeInTheDocument()
   })
 
   test('"Guardar Borrador" without any selected item shows a validation error and does not call the API', async () => {
@@ -266,6 +309,7 @@ describe('ServiceRequestWizard', () => {
     await screen.findByRole('heading', { name: 'Paso 1 de 6 — Información General' })
     fireEvent.change(screen.getByLabelText('Fecha Deseada de Recolección *'), { target: { value: '2026-08-01' } })
     await selectBranch()
+    await elegirDestinatario()
 
     fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
     await screen.findByRole('heading', { name: 'Paso 2 de 6 — Selección de Residuos' })
@@ -305,6 +349,7 @@ describe('ServiceRequestWizard', () => {
     render(<ServiceRequestWizard />)
     await screen.findByRole('heading', { name: 'Paso 1 de 6 — Información General' })
     await selectBranch()
+    await elegirDestinatario()
 
     fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
     await screen.findByRole('heading', { name: 'Paso 2 de 6 — Selección de Residuos' })

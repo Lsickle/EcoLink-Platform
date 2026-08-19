@@ -15,6 +15,7 @@ use App\Models\WasteServiceRequest;
 use App\Models\WasteServiceRequestItem;
 use App\Models\WasteTreatmentApproval;
 use App\Policies\ServiceRequestPolicy;
+use App\Services\CommercialCounterpartyService;
 use App\Services\ServiceRequestApprovalService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -66,6 +67,13 @@ class ServiceRequestController extends Controller
             ->when(! $actor->isPlatformStaff(), function ($query) use ($actor) {
                 $query->where(function ($query) use ($actor) {
                     $query->where('organization_id', $actor->tenant_organization_id)
+                        // Destinatario de la cabecera (2026-08-18): la
+                        // contraparte comercial y el Gestor detrás ven la
+                        // solicitud. El join contra los ítems sigue solo por
+                        // las solicitudes ANTERIORES al destinatario único, que
+                        // no tienen estas columnas.
+                        ->orWhere('counterparty_organization_id', $actor->tenant_organization_id)
+                        ->orWhere('gestor_organization_id', $actor->tenant_organization_id)
                         ->orWhereHas('items.wasteTreatmentApproval', function ($query) use ($actor) {
                             $query->where('organization_id', $actor->tenant_organization_id);
                         });
@@ -75,7 +83,14 @@ class ServiceRequestController extends Controller
             ->when($statusCode, function ($query) use ($statusCode) {
                 $query->whereHas('serviceStatus', fn ($query) => $query->where('code', $statusCode));
             })
-            ->with(['organization:id,legal_name', 'branch:id,name', 'serviceStatus'])
+            ->with([
+                'organization:id,legal_name',
+                // Destinatario en el LISTADO (2026-08-18): sin él, distinguir a
+                // quién va dirigida cada solicitud obligaba a entrar una por una.
+                'counterpartyOrganization:id,legal_name',
+                'branch:id,name',
+                'serviceStatus',
+            ])
             ->orderByDesc('created_at')
             ->paginate($request->integer('per_page', 15));
 
@@ -105,6 +120,10 @@ class ServiceRequestController extends Controller
 
         $serviceRequest->load([
             'organization:id,legal_name',
+            // Destinatario (2026-08-18): la contraparte comercial y, si es
+            // distinto, el Gestor que trata.
+            'counterpartyOrganization:id,legal_name',
+            'gestorOrganization:id,legal_name',
             'branch:id,name',
             'serviceStatus',
             'cancellationReason',
@@ -118,12 +137,28 @@ class ServiceRequestController extends Controller
             'items.physicalState',
         ]);
 
-        if ($actor->isPlatformStaff() || $serviceRequest->isAccessibleBy($actor)) {
+        // Destinatario de la cabecera (2026-08-18): la contraparte comercial y
+        // el Gestor detrás ven el detalle COMPLETO. Con un solo destinatario ya
+        // no hay ítems de competidores que ocultar dentro de una solicitud --
+        // la vista reducida de abajo solo sigue aplicando a las solicitudes
+        // ANTERIORES al cambio, que sí podían mezclar varios Gestores.
+        $isDestination = $actor->tenant_organization_id !== null && in_array(
+            $actor->tenant_organization_id,
+            [$serviceRequest->counterparty_organization_id, $serviceRequest->gestor_organization_id],
+            true,
+        );
+
+        if ($actor->isPlatformStaff() || $serviceRequest->isAccessibleBy($actor) || $isDestination) {
             return response()->json(['service_request' => $serviceRequest]);
         }
 
         $payload = $serviceRequest->toArray();
         $otherItemsCount = 0;
+
+        // `isEvaluableBy()` consulta la cabecera para saber si el actor es el
+        // destinatario. Sin fijar aquí la relación INVERSA sería una consulta
+        // por ítem -- y ya tenemos la cabecera en memoria.
+        $serviceRequest->items->each(fn (WasteServiceRequestItem $item) => $item->setRelation('serviceRequest', $serviceRequest));
 
         $payload['items'] = $serviceRequest->items
             ->map(function (WasteServiceRequestItem $item) use ($actor, &$otherItemsCount) {
@@ -144,6 +179,133 @@ class ServiceRequestController extends Controller
         $payload['other_items_count'] = $otherItemsCount;
 
         return response()->json(['service_request' => $payload]);
+    }
+
+    /**
+     * Destinatarios posibles para una solicitud nueva -- alimenta el PASO 1 del
+     * asistente (2026-08-18).
+     *
+     * Cruza las dos condiciones que hacen viable una solicitud: relación
+     * comercial ACTIVA con el Generador, y al menos un residuo suyo en `APR`
+     * cuya evaluación sea atribuible a esa contraparte.
+     *
+     * La segunda condición es deliberada: una contraparte con relación pero sin
+     * residuos listos no aparece, para que el Generador no llegue a un paso 2
+     * vacío sin saber por qué. Elegir el destinatario ANTES que los residuos es
+     * lo que vuelve estructural la regla del destinatario único -- si se
+     * eligieran primero los residuos, sería una validación al final que
+     * obligaría a rehacer el trabajo.
+     */
+    public function counterparties(Request $request)
+    {
+        $actor = $request->user();
+        abort_unless((new ServiceRequestPolicy)->viewAny($actor), 403, 'No tiene permiso para consultar solicitudes de servicio.');
+
+        $organizationId = $actor->isPlatformStaff()
+            ? $request->integer('organization_id')
+            : $actor->tenant_organization_id;
+
+        $generator = Organization::query()->find($organizationId);
+
+        if ($generator === null) {
+            return response()->json(['counterparties' => []]);
+        }
+
+        $service = new CommercialCounterpartyService;
+
+        // Las evaluaciones vigentes de residuos APROBADOS del Generador,
+        // agrupadas por la contraparte a la que se atribuyen.
+        $approvals = WasteTreatmentApproval::query()
+            ->where('is_active', true)
+            ->whereHas('waste', fn ($query) => $query
+                ->where('organization_id', $generator->id)
+                ->where('status', Waste::STATUS_APPROVED))
+            ->get();
+
+        $withReadyWastes = $approvals
+            ->filter(fn (WasteTreatmentApproval $approval) => $approval->technical_status === 'APPROVED')
+            ->groupBy(fn (WasteTreatmentApproval $approval) => $service->resolveForApproval($approval)['counterparty_organization_id']);
+
+        $counterparties = $service->counterpartiesFor($generator)
+            ->filter(fn (array $entry) => $withReadyWastes->has($entry['organization']->id))
+            ->map(fn (array $entry) => [
+                'id' => $entry['organization']->id,
+                'legal_name' => $entry['organization']->legal_name,
+                'tax_id' => $entry['organization']->tax_id,
+                'role' => $entry['role'],
+                'ready_wastes_count' => $withReadyWastes->get($entry['organization']->id)->count(),
+            ])
+            ->values();
+
+        return response()->json(['counterparties' => $counterparties]);
+    }
+
+    /**
+     * Residuos que pueden entrar a una solicitud dirigida a ESTA contraparte --
+     * alimenta el PASO 2 del asistente (2026-08-18).
+     *
+     * Dos filtros, ninguno negociable: el residuo debe estar `APR` (un único
+     * dato visible, en vez de una regla invisible sobre los ejes de la
+     * evaluación) y su evaluación debe ser ATRIBUIBLE a la contraparte elegida.
+     *
+     * La atribución se resuelve aquí y no en el cliente a propósito: es la
+     * misma regla que aplica `store()` al validar, y duplicarla en el frontend
+     * garantizaría que las dos se separen. De paso retira el N+1 de red que
+     * hacía el asistente (una petición de evaluaciones POR RESIDUO).
+     */
+    public function eligibleWastes(Request $request)
+    {
+        $actor = $request->user();
+        abort_unless((new ServiceRequestPolicy)->viewAny($actor), 403, 'No tiene permiso para consultar solicitudes de servicio.');
+
+        $data = $request->validate([
+            'counterparty_organization_id' => ['required', 'integer', 'exists:organizations,id'],
+            'organization_id' => ['sometimes', 'integer', 'exists:organizations,id'],
+        ]);
+
+        $organizationId = $actor->isPlatformStaff()
+            ? ($data['organization_id'] ?? 0)
+            : $actor->tenant_organization_id;
+
+        $counterpartyId = (int) $data['counterparty_organization_id'];
+        $service = new CommercialCounterpartyService;
+
+        $approvals = WasteTreatmentApproval::query()
+            ->where('is_active', true)
+            ->whereHas('waste', fn ($query) => $query
+                ->where('organization_id', $organizationId)
+                ->where('status', Waste::STATUS_APPROVED))
+            ->with([
+                'waste:id,name,code,organization_id,waste_category_id',
+                'waste.wasteCategory:id,name',
+                'branchTreatment.treatment:id,code,name',
+                'organization:id,legal_name',
+            ])
+            ->get()
+            ->filter(fn (WasteTreatmentApproval $approval) => $approval->technical_status === 'APPROVED'
+                && $service->resolveForApproval($approval)['counterparty_organization_id'] === $counterpartyId);
+
+        $wastes = $approvals
+            ->groupBy('waste_id')
+            ->map(fn ($group) => [
+                'waste' => [
+                    'id' => $group->first()->waste->id,
+                    'name' => $group->first()->waste->name,
+                    'code' => $group->first()->waste->code,
+                    'waste_category' => $group->first()->waste->wasteCategory
+                        ? ['id' => $group->first()->waste->wasteCategory->id, 'name' => $group->first()->waste->wasteCategory->name]
+                        : null,
+                ],
+                'approvals' => $group->map(fn (WasteTreatmentApproval $approval) => [
+                    'id' => $approval->id,
+                    'gestor_organization_id' => $approval->organization_id,
+                    'gestor_name' => $approval->organization?->legal_name,
+                    'treatment_name' => $approval->branchTreatment?->treatment?->name,
+                ])->values(),
+            ])
+            ->values();
+
+        return response()->json(['wastes' => $wastes]);
     }
 
     /**
@@ -184,16 +346,27 @@ class ServiceRequestController extends Controller
         }
 
         $items = $data['items'];
-        unset($data['items'], $data['organization_id']);
+        $counterpartyOrganizationId = (int) $data['counterparty_organization_id'];
+        unset($data['items'], $data['organization_id'], $data['counterparty_organization_id']);
+
+        $this->assertActiveCommercialRelationship($organizationId, $counterpartyOrganizationId);
 
         $resolvedItems = $this->resolveAndValidateItems($items, $organizationId);
+
+        // Un solo destinatario por solicitud: todos los ítems deben resolver a
+        // la MISMA contraparte y al MISMO Gestor detrás. Sin esto se podrían
+        // mezclar en un mismo documento residuos de Gestores que compiten entre
+        // sí, y no habría un dueño único del siguiente paso.
+        $gestorOrganizationId = $this->resolveSingleDestination($resolvedItems, $counterpartyOrganizationId);
 
         $draftStatusId = $this->defaultCatalogId(ServiceStatus::class, 'DRAFT', ['organization_id' => null]);
         $pendingItemStatusId = $this->defaultCatalogId(ServiceItemStatus::class, 'PENDING');
 
-        $serviceRequest = DB::transaction(function () use ($data, $organizationId, $actor, $resolvedItems, $draftStatusId, $pendingItemStatusId) {
+        $serviceRequest = DB::transaction(function () use ($data, $organizationId, $counterpartyOrganizationId, $gestorOrganizationId, $actor, $resolvedItems, $draftStatusId, $pendingItemStatusId) {
             $data['tenant_organization_id'] = $actor->tenant_organization_id;
             $data['organization_id'] = $organizationId;
+            $data['counterparty_organization_id'] = $counterpartyOrganizationId;
+            $data['gestor_organization_id'] = $gestorOrganizationId;
             $data['request_code'] = $this->generateRequestCode($organizationId);
             $data['requested_by'] ??= $actor->id;
             $data['is_active'] = true;
@@ -238,10 +411,18 @@ class ServiceRequestController extends Controller
         $this->logSecurityEvent(
             $request, 'SERVICE_REQUEST_CREATED', 'SUCCESS',
             "Solicitud de servicio '{$serviceRequest->request_code}' creada.", $actor,
-            ['service_request_id' => $serviceRequest->id, 'organization_id' => $organizationId],
+            [
+                'service_request_id' => $serviceRequest->id,
+                'organization_id' => $organizationId,
+                'counterparty_organization_id' => $counterpartyOrganizationId,
+                'gestor_organization_id' => $gestorOrganizationId,
+            ],
         );
 
-        return response()->json(['service_request' => $serviceRequest->fresh(['items', 'serviceStatus', 'organization:id,legal_name', 'branch:id,name'])], 201);
+        return response()->json(['service_request' => $serviceRequest->fresh([
+            'items', 'serviceStatus', 'organization:id,legal_name', 'branch:id,name',
+            'counterpartyOrganization:id,legal_name', 'gestorOrganization:id,legal_name',
+        ])], 201);
     }
 
     /**
@@ -496,6 +677,83 @@ class ServiceRequestController extends Controller
     }
 
     /**
+     * El destinatario tiene que ser alguien con quien el Generador YA tiene
+     * relación comercial activa -- Gestor o Subgestor, cualquiera de las dos
+     * tablas. Sin esto se podría dirigir una solicitud a una organización con
+     * la que nunca se pactó nada.
+     */
+    private function assertActiveCommercialRelationship(int $generatorOrganizationId, int $counterpartyOrganizationId): void
+    {
+        $generator = Organization::query()->find($generatorOrganizationId);
+
+        $isCounterparty = $generator !== null && (new CommercialCounterpartyService)
+            ->counterpartiesFor($generator)
+            ->contains(fn (array $entry) => (int) $entry['organization']->id === $counterpartyOrganizationId);
+
+        if (! $isCounterparty) {
+            throw ValidationException::withMessages([
+                'counterparty_organization_id' => ['No tiene una relación comercial activa con esa organización.'],
+            ]);
+        }
+    }
+
+    /**
+     * Comprueba que TODOS los ítems resuelvan al mismo destinatario que se
+     * pidió, y devuelve el Gestor que queda detrás.
+     *
+     * La atribución de cada evaluación la decide
+     * `CommercialCounterpartyService::resolveForApproval()`: si hubo
+     * intermediario, gana el intermediario. Así, un residuo evaluado a través
+     * de un Subgestor solo se le puede solicitar a ese Subgestor.
+     *
+     * Se exige un único Gestor además de una única contraparte: un Subgestor
+     * puede tener varios Gestores detrás, y mezclarlos dejaría la solicitud sin
+     * un responsable único del tratamiento.
+     *
+     * @param  array<int, array{waste: Waste, approval: WasteTreatmentApproval|null, data: array}>  $resolvedItems
+     */
+    private function resolveSingleDestination(array $resolvedItems, int $counterpartyOrganizationId): int
+    {
+        $service = new CommercialCounterpartyService;
+        $gestorOrganizationId = null;
+
+        foreach ($resolvedItems as $index => $resolved) {
+            /** @var WasteTreatmentApproval|null $approval */
+            $approval = $resolved['approval'];
+
+            if ($approval === null) {
+                throw ValidationException::withMessages([
+                    "items.{$index}.waste_treatment_approval_id" => ['Cada residuo debe traer la evaluación de tratamiento con la que entra a la solicitud.'],
+                ]);
+            }
+
+            $destination = $service->resolveForApproval($approval);
+
+            if ($destination['counterparty_organization_id'] !== $counterpartyOrganizationId) {
+                throw ValidationException::withMessages([
+                    "items.{$index}.waste_id" => ['El tratamiento de este residuo no corresponde al destinatario elegido para la solicitud.'],
+                ]);
+            }
+
+            if ($gestorOrganizationId !== null && $gestorOrganizationId !== $destination['gestor_organization_id']) {
+                throw ValidationException::withMessages([
+                    "items.{$index}.waste_id" => ['No se pueden mezclar en una misma solicitud residuos que trata más de un Gestor.'],
+                ]);
+            }
+
+            $gestorOrganizationId = $destination['gestor_organization_id'];
+        }
+
+        if ($gestorOrganizationId === null) {
+            throw ValidationException::withMessages([
+                'items' => ['La solicitud debe tener al menos un residuo.'],
+            ]);
+        }
+
+        return $gestorOrganizationId;
+    }
+
+    /**
      * D-S04/D-S12: si existe una fila `organization_cartera_statuses`
      * ACTIVA para el par Generador<->Gestor de este ítem y su estado
      * bloquea nuevas solicitudes (`cartera_statuses.blocks_new_requests`),
@@ -585,6 +843,15 @@ class ServiceRequestController extends Controller
 
         return [
             'branch_id' => [$required, 'integer', 'exists:branches,id'],
+            // Destinatario único (2026-08-18). OBLIGATORIO al crear pese a ser
+            // nullable en base de datos -- la columna admite `null` solo por
+            // las filas anteriores al cambio, no como opción válida.
+            // `update()` NO lo acepta (pasa `$sometimes`): cambiar el
+            // destinatario de una solicitud ya creada invalidaría sus ítems,
+            // que están atados a las evaluaciones de ESA contraparte.
+            'counterparty_organization_id' => $sometimes
+                ? ['sometimes', 'prohibited']
+                : ['required', 'integer', 'exists:organizations,id'],
             'requested_collection_date' => ['sometimes', 'nullable', 'date'],
             'estimated_ready_date' => ['sometimes', 'nullable', 'date'],
             'scheduled_collection_date' => ['sometimes', 'nullable', 'date'],

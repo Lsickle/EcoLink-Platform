@@ -203,6 +203,7 @@ export function ServiceRequestsListScreen() {
                 <TableHead>Código</TableHead>
                 <TableHead>Sede</TableHead>
                 {isPlatformStaff && <TableHead>Organización</TableHead>}
+                <TableHead>Destinatario</TableHead>
                 <TableHead>Fecha Deseada</TableHead>
                 <TableHead>Estado</TableHead>
               </TableRow>
@@ -210,7 +211,7 @@ export function ServiceRequestsListScreen() {
             <TableBody>
               {serviceRequests.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={isPlatformStaff ? 5 : 4} className="text-center text-muted-foreground">
+                  <TableCell colSpan={isPlatformStaff ? 6 : 5} className="text-center text-muted-foreground">
                     No hay solicitudes de servicio que coincidan con los filtros.
                   </TableCell>
                 </TableRow>
@@ -230,6 +231,11 @@ export function ServiceRequestsListScreen() {
                   {isPlatformStaff && (
                     <TableCell className="text-muted-foreground">{serviceRequest.organization?.legal_name ?? '—'}</TableCell>
                   )}
+                  {/* Destinatario (2026-08-18): a quién va dirigida. Antes
+                      había que entrar solicitud por solicitud para saberlo. */}
+                  <TableCell className="text-muted-foreground">
+                    {serviceRequest.counterparty_organization?.legal_name ?? '—'}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{serviceRequest.requested_collection_date ?? '—'}</TableCell>
                   <TableCell>
                     <Badge variant={statusBadgeVariant(serviceRequest.service_status?.code)}>

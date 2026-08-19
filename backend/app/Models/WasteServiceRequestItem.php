@@ -90,14 +90,49 @@ class WasteServiceRequestItem extends Model
     }
 
     /**
-     * D-S25 (Fase 1b): SOLO el Gestor dueño del `waste_treatment_approval`
-     * de ESTE ítem (o platform staff) puede evaluarlo -- nunca otro Gestor
-     * de la misma solicitud. Un ítem sin `waste_treatment_approval_id`
-     * asignado (todavía en Borrador) no tiene Gestor dueño -- no es
-     * evaluable por nadie salvo platform staff.
+     * Quién puede evaluar ESTE ítem.
+     *
+     * DESTINATARIO DE LA CABECERA (2026-08-19): la contraparte comercial Y el
+     * Gestor que queda detrás. Cuando intermedió un Subgestor, la solicitud
+     * "se gestiona entre los dos" -- decisión del usuario.
+     *
+     * Sin esto, una solicitud dirigida a un Subgestor quedaba en un limbo: le
+     * llegaba, la veía, y nadie podía resolverla. El criterio anterior (abajo)
+     * comparaba contra el `organization_id` de la evaluación, que en la vía
+     * DELEGADA es el Gestor DE REFERENCIA -- justamente el que no tiene
+     * usuarios en EcoLink.
+     *
+     * D-S25 (Fase 1b) se conserva como último criterio: SOLO el Gestor dueño
+     * del `waste_treatment_approval` de este ítem, nunca otro Gestor de la
+     * misma solicitud. Ya solo alcanza a las solicitudes ANTERIORES al
+     * destinatario único (las únicas que podían mezclar Gestores); en las
+     * nuevas, todos los ítems son del mismo Gestor, así que las dos vías
+     * coinciden y ninguna abre acceso a un ítem ajeno.
+     *
+     * Un ítem sin `waste_treatment_approval_id` no tiene Gestor dueño -- desde
+     * 2026-08-18 tampoco es construible por API (`store()` exige la
+     * evaluación), pero las filas viejas siguen existiendo.
      */
     public function isEvaluableBy(User $actor): bool
     {
-        return $actor->isPlatformStaff() || $this->wasteTreatmentApproval?->organization_id === $actor->tenant_organization_id;
+        if ($actor->isPlatformStaff()) {
+            return true;
+        }
+
+        if ($actor->tenant_organization_id === null) {
+            return false;
+        }
+
+        $serviceRequest = $this->serviceRequest;
+
+        if ($serviceRequest !== null && in_array(
+            $actor->tenant_organization_id,
+            [$serviceRequest->counterparty_organization_id, $serviceRequest->gestor_organization_id],
+            true,
+        )) {
+            return true;
+        }
+
+        return $this->wasteTreatmentApproval?->organization_id === $actor->tenant_organization_id;
     }
 }

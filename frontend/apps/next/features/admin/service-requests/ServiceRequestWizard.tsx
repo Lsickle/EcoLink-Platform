@@ -14,20 +14,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import {
   ApiValidationError,
   createServiceRequest,
+  fetchEligibleWastesForCounterparty,
+  fetchServiceRequestCounterparties,
   fetchBranches,
   fetchMeasurementUnits,
   fetchPackagingTypes,
   fetchPhysicalStates,
-  fetchWastes,
-  fetchWasteTreatmentApprovals,
   submitServiceRequest,
   updateServiceRequest,
   type AdminBranch,
   type AdminMeasurementUnit,
   type AdminPackagingType,
+  type EligibleWasteForCounterparty,
+  type ServiceRequestCounterparty,
   type AdminPhysicalState,
-  type AdminTreatmentApprovalForWaste,
-  type AdminWaste,
 } from 'app/features/admin/api'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { OrganizationQuickSelect } from '../OrganizationQuickSelect'
@@ -129,47 +129,28 @@ function ChecklistList({ items }: { items: ChecklistItem[] }) {
   )
 }
 
-// Residuo elegible para Solicitud de Servicio -- Paso 2. La elegibilidad se
-// resuelve server-side con UNA llamada: `status=APR`, el mismo gate que aplica
-// `ServiceRequestController::resolveAndValidateItems()`.
+// Residuo elegible para Solicitud de Servicio -- Paso 2. El gate es el ESTADO
+// (`APR`), el mismo que aplica `ServiceRequestController`: hasta 2026-08-14 se
+// pedía `with_viable_treatment=1`, un eje invisible para el usuario -- un
+// residuo podía verse "Clasificado" y aun así no aparecer aquí, sin que nada lo
+// explicara.
 //
-// Hasta 2026-08-14 se pedía `with_viable_treatment=1` (ambos ejes APPROVED),
-// un eje invisible para el usuario: un residuo podía verse "Clasificado" y aun
-// así no aparecer aquí, sin que nada explicara por qué.
-//
-// La llamada restante por residuo a `fetchWasteTreatmentApprovals()` sigue
-// siendo NECESARIA: `index()` no embebe las aprobaciones y el selector
-// "Tratamiento" de cada ítem necesita el id/nombre real de cada una.
-type EligibleWaste = {
-  waste: AdminWaste
-  approvals: AdminTreatmentApprovalForWaste[]
-}
+// Desde 2026-08-18 la forma la fija el backend (`GET /service-requests/eligible-wastes`),
+// que ya devuelve los residuos ACOTADOS a la contraparte elegida en el paso 1 y
+// resuelve la atribución -- misma regla que valida `store()`.
+type EligibleWaste = EligibleWasteForCounterparty
+type EligibleApproval = EligibleWasteForCounterparty['approvals'][number]
 
-async function loadEligibleWastes(organizationId?: number | string): Promise<EligibleWaste[]> {
-  // El gate es el ESTADO: solo un residuo Aprobado puede solicitarse
-  // (`ServiceRequestController::resolveAndValidateItems()`). Antes se pedía
-  // `withViableTreatment`, un eje aparte e invisible para el usuario.
-  const { data: wastes } = await fetchWastes({ perPage: 100, organizationId, status: 'APR' })
-  const results: EligibleWaste[] = []
-  for (const waste of wastes) {
-    try {
-      const { data: approvals } = await fetchWasteTreatmentApprovals(waste.id, { perPage: 50 })
-      // El eje comercial NO se exige: se resuelve fuera de la plataforma y no
-      // debe bloquear. Este filtro solo sirve para ofrecer los tratamientos
-      // realmente aplicables en el selector del ítem.
-      // `RESTRICTED` retirado (2026-08-18, decisión del usuario pendiente de
-      // consultar con stakeholders) -- ver docblock de
-      // `WasteTreatmentApprovalController::approveTechnical()` en el backend.
-      const viable = approvals.filter((a) => a.technical_status === 'APPROVED' && a.is_active)
-      if (viable.length > 0) {
-        results.push({ waste, approvals: viable })
-      }
-    } catch {
-      // Residuo sin acceso o sin evaluaciones -- se omite en silencio, igual
-      // que el resto del wizard trata catálogos opcionales.
-    }
-  }
-  return results
+async function loadEligibleWastes(
+  counterpartyOrganizationId: number,
+  organizationId?: number | string
+): Promise<EligibleWaste[]> {
+  // Una sola petición: antes se pedían TODOS los residuos `APR` y luego sus
+  // evaluaciones RESIDUO POR RESIDUO (N+1 de red). Ahora el backend devuelve
+  // solo los atribuibles a la contraparte elegida en el paso 1.
+  const { wastes } = await fetchEligibleWastesForCounterparty(counterpartyOrganizationId, { organizationId })
+
+  return wastes
 }
 
 type ItemState = {
@@ -177,7 +158,7 @@ type ItemState = {
   wasteId: number
   wasteName: string
   wasteCode: string | null
-  approvals: AdminTreatmentApprovalForWaste[]
+  approvals: EligibleApproval[]
   wasteTreatmentApprovalId: number | null
   estimatedQuantity: string
   measurementUnitId: number | null
@@ -187,13 +168,17 @@ type ItemState = {
   requiresIsolation: boolean
 }
 
-function approvalLabel(approval: AdminTreatmentApprovalForWaste): string {
-  return `${approval.branch_treatment.treatment.name} · ${approval.organization.legal_name}`
+function approvalLabel(approval: EligibleApproval): string {
+  return `${approval.treatment_name ?? '—'} · ${approval.gestor_name ?? '—'}`
 }
 
 type WizardState = {
   organizationId: number | null
   organizationLabel: string | null
+  // Destinatario de la solicitud (2026-08-18). Se elige ANTES que los residuos
+  // a propósito: así la regla de "un solo destinatario" es estructural y no una
+  // validación al final que obligue a rehacer el paso 2.
+  counterpartyId: number | null
   branchId: number | null
   requestedCollectionDate: string
   estimatedReadyDate: string
@@ -218,6 +203,7 @@ type WizardState = {
 const initialState: WizardState = {
   organizationId: null,
   organizationLabel: null,
+  counterpartyId: null,
   branchId: null,
   requestedCollectionDate: '',
   estimatedReadyDate: '',
@@ -273,6 +259,9 @@ export function ServiceRequestWizard() {
   const [physicalStates, setPhysicalStates] = useState<AdminPhysicalState[]>([])
   const [packagingTypes, setPackagingTypes] = useState<AdminPackagingType[]>([])
 
+  const [counterparties, setCounterparties] = useState<ServiceRequestCounterparty[]>([])
+  const [isLoadingCounterparties, setIsLoadingCounterparties] = useState(false)
+
   const [eligibleWastes, setEligibleWastes] = useState<EligibleWaste[]>([])
   const [isLoadingWastes, setIsLoadingWastes] = useState(false)
   const [wastesSearch, setWastesSearch] = useState('')
@@ -314,15 +303,39 @@ export function ServiceRequestWizard() {
       .catch(() => setBranches([]))
   }, [isAuthorized, isPlatformStaff, state.organizationId])
 
+  // Contrapartes posibles -- se cargan al entrar (paso 1) y cuando cambia la
+  // organización dueña (platform staff eligiendo por cuenta de otro).
+  useEffect(() => {
+    if (!isAuthorized || itemsLocked) return
+    if (isPlatformStaff && !state.organizationId) return
+    let cancelled = false
+    setIsLoadingCounterparties(true)
+    fetchServiceRequestCounterparties({ organizationId: isPlatformStaff ? state.organizationId! : undefined })
+      .then((result) => {
+        if (!cancelled) setCounterparties(result.counterparties)
+      })
+      .catch(() => {
+        if (!cancelled) setCounterparties([])
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingCounterparties(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthorized, itemsLocked, isPlatformStaff, state.organizationId])
+
   // Residuos elegibles (ver AVISO completo en `loadEligibleWastes()` arriba)
   // -- se cargan al entrar al Paso 2, mientras la solicitud no se haya
   // creado todavía.
   useEffect(() => {
     if (!isAuthorized || step !== 2 || itemsLocked) return
     if (isPlatformStaff && !state.organizationId) return
+    // Sin destinatario no hay qué ofrecer: el paso 1 lo exige antes de avanzar.
+    if (state.counterpartyId === null) return
     let cancelled = false
     setIsLoadingWastes(true)
-    loadEligibleWastes(isPlatformStaff ? state.organizationId! : undefined)
+    loadEligibleWastes(state.counterpartyId, isPlatformStaff ? state.organizationId! : undefined)
       .then((result) => {
         if (!cancelled) setEligibleWastes(result)
       })
@@ -332,7 +345,7 @@ export function ServiceRequestWizard() {
     return () => {
       cancelled = true
     }
-  }, [isAuthorized, step, itemsLocked, isPlatformStaff, state.organizationId])
+  }, [isAuthorized, step, itemsLocked, isPlatformStaff, state.organizationId, state.counterpartyId])
 
   function toggleWasteSelected(entry: EligibleWaste, checked: boolean) {
     if (itemsLocked) return
@@ -446,9 +459,16 @@ export function ServiceRequestWizard() {
           setSaveError('Selecciona la organización dueña de la solicitud.')
           return null
         }
+        if (state.counterpartyId === null) {
+          setSaveError('Debe seleccionar el destinatario de la solicitud (Paso 1) antes de guardar.')
+          return null
+        }
         const { service_request: created } = await createServiceRequest({
           ...buildHeaderPayload(),
           branch_id: state.branchId,
+          // Solo al CREAR: `update()` lo rechaza, porque cambiarlo invalidaría
+          // los ítems, atados a las evaluaciones de esa contraparte.
+          counterparty_organization_id: state.counterpartyId,
           organization_id: isPlatformStaff ? state.organizationId! : undefined,
           items: buildItemsPayload(),
         })
@@ -503,6 +523,7 @@ export function ServiceRequestWizard() {
 
   const finalChecklist: ChecklistItem[] = useMemo(
     () => [
+      { label: 'Destinatario seleccionado', complete: state.counterpartyId != null },
       { label: 'Sede solicitante seleccionada', complete: state.branchId != null },
       { label: 'Al menos un residuo seleccionado', complete: items.length > 0 },
       { label: 'Todos los ítems con tratamiento asignado', complete: items.length > 0 && itemsWithApproval.length === items.length },
@@ -516,6 +537,7 @@ export function ServiceRequestWizard() {
   const stepChecklist: ChecklistItem[] = useMemo(() => {
     if (step === 1) {
       return [
+        { label: 'Destinatario', complete: state.counterpartyId != null },
         { label: 'Sede Solicitante', complete: state.branchId != null },
         { label: 'Fecha Deseada de Recolección', complete: state.requestedCollectionDate.trim().length > 0 },
         { label: 'Prioridad', complete: state.priority.trim().length > 0 },
@@ -572,6 +594,48 @@ export function ServiceRequestWizard() {
                   onClear={() => setState({ organizationId: null, organizationLabel: null })}
                 />
               )}
+
+              {/* Destinatario ANTES que los residuos (2026-08-18): la regla
+                  del destinatario único deja de ser una validación al final y
+                  pasa a estructurar el asistente. Solo se ofrecen contrapartes
+                  con relación comercial activa Y con residuos listos, para no
+                  llevar a un paso 2 vacío. */}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="counterpartyId">Destinatario de la Solicitud *</Label>
+                {isLoadingCounterparties ? (
+                  <p className="text-sm text-muted-foreground" role="status">
+                    Cargando destinatarios…
+                  </p>
+                ) : counterparties.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay Gestores ni Subgestores con residuos aprobados listos para solicitar. Primero necesitas un
+                    residuo Aprobado con su tratamiento asignado.
+                  </p>
+                ) : (
+                  <Select
+                    items={counterparties.map((c) => ({ value: String(c.id), label: c.legal_name }))}
+                    value={state.counterpartyId !== null ? String(state.counterpartyId) : null}
+                    onValueChange={(value) => {
+                      // Cambiar de destinatario invalida los residuos ya
+                      // elegidos: pertenecen a la contraparte anterior.
+                      setItems([])
+                      setState({ counterpartyId: value !== null ? Number(value) : null })
+                    }}
+                  >
+                    <SelectTrigger id="counterpartyId" disabled={itemsLocked}>
+                      <SelectValue placeholder="Selecciona a quién va dirigida" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {counterparties.map((counterparty) => (
+                        <SelectItem key={counterparty.id} value={String(counterparty.id)}>
+                          {counterparty.legal_name} · {counterparty.role === 'SUBGESTOR' ? 'Subgestor' : 'Gestor'} ·{' '}
+                          {counterparty.ready_wastes_count} residuo(s) listo(s)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
 
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="branchId">Sede Solicitante *</Label>
@@ -1154,7 +1218,7 @@ export function ServiceRequestWizard() {
                         <TableRow key={item.key}>
                           <TableCell>{item.wasteName}</TableCell>
                           <TableCell className="text-muted-foreground">
-                            {item.approvals.find((a) => a.id === item.wasteTreatmentApprovalId)?.branch_treatment.treatment.name ?? '—'}
+                            {item.approvals.find((a) => a.id === item.wasteTreatmentApprovalId)?.treatment_name ?? '—'}
                           </TableCell>
                           <TableCell className="text-muted-foreground">
                             {item.estimatedQuantity || '—'}{' '}

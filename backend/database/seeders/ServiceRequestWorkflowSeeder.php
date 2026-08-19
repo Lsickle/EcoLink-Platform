@@ -32,7 +32,8 @@ use Illuminate\Database\Seeder;
  *   - SUBMITTED -> UNDER_REVIEW: automática (`is_automatic=true`), sin
  *     actor -- D-S13 no asigna un rol que "inicie" la revisión, es el
  *     ingreso a la cola de revisión del Gestor/Subgestor/Transportador.
- *   - UNDER_REVIEW -> APPROVED/REJECTED: business_role GESTOR ("quien
+ *   - UNDER_REVIEW -> APPROVED/REJECTED: business_role GESTOR y SUBGESTOR
+ *     (el segundo desde 2026-08-19, ver comentario en `run()`) ("quien
  *     aprueba/rechaza (cabecera o por ítem) es GESTOR" -- D-S25; la regla de
  *     AGREGADO cabecera<->ítems de D-S01 vive en la futura capa de
  *     orquestación, D-S27, no en este workflow genérico).
@@ -70,6 +71,7 @@ class ServiceRequestWorkflowSeeder extends Seeder
     {
         $generator = BusinessRole::query()->where('code', 'GENERATOR')->firstOrFail();
         $gestor = BusinessRole::query()->where('code', 'GESTOR')->firstOrFail();
+        $subgestor = BusinessRole::query()->where('code', 'SUBGESTOR')->firstOrFail();
         $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
 
         $workflow = Workflow::query()->updateOrCreate(
@@ -102,9 +104,21 @@ class ServiceRequestWorkflowSeeder extends Seeder
         // Enviada -> En Revisión: automática, sin actor.
         $this->createTransition($version->id, 'SUBMITTED', 'UNDER_REVIEW', isAutomatic: true);
 
-        // En Revisión -> Aprobada/Rechazada: GESTOR (cabecera, D-S25).
+        // En Revisión -> Aprobada/Rechazada: GESTOR (cabecera, D-S25) y, desde
+        // 2026-08-19, también SUBGESTOR.
+        //
+        // Con el destinatario único, una solicitud puede ir dirigida a un
+        // Subgestor, y entonces "se gestiona entre el Subgestor y el Gestor"
+        // (decisión del usuario). Sin esta autorización el Subgestor podía
+        // evaluar los ÍTEMS pero la transición de CABECERA lo frenaba con 403,
+        // dejando la solicitud sin poder cerrarse -- justo el limbo que este
+        // cambio venía a quitar. Se añade una segunda fila de rol sobre la
+        // MISMA transición (`createTransition` es idempotente en la transición
+        // y solo agrega el rol).
         $this->createTransition($version->id, 'UNDER_REVIEW', 'APPROVED', businessRoleId: $gestor->id);
+        $this->createTransition($version->id, 'UNDER_REVIEW', 'APPROVED', businessRoleId: $subgestor->id);
         $this->createTransition($version->id, 'UNDER_REVIEW', 'REJECTED', businessRoleId: $gestor->id);
+        $this->createTransition($version->id, 'UNDER_REVIEW', 'REJECTED', businessRoleId: $subgestor->id);
 
         // Reapertura Rechazada -> Borrador (D-S23) -- inferencia de rol, ver docblock.
         $this->createTransition($version->id, 'REJECTED', 'DRAFT', businessRoleId: $generator->id, requiresApproval: true);

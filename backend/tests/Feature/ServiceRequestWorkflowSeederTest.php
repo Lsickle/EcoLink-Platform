@@ -86,14 +86,19 @@ dataset('transiciones de revisión por GESTOR', [
     ['UNDER_REVIEW', 'REJECTED'],
 ]);
 
-test('la aprobación/rechazo de cabecera está autorizada para business_role GESTOR (D-S25)', function (string $from, string $to) {
+// SUBGESTOR se sumó el 2026-08-19: con el destinatario único, una solicitud
+// puede ir dirigida a un Subgestor y entonces se gestiona entre él y el Gestor.
+// Sin esta autorización el Subgestor evaluaba los ítems pero la transición de
+// CABECERA lo frenaba con 403, y la solicitud no podía cerrarse.
+test('la aprobación/rechazo de cabecera está autorizada para GESTOR y SUBGESTOR', function (string $from, string $to) {
     $gestor = BusinessRole::query()->where('code', 'GESTOR')->firstOrFail();
+    $subgestor = BusinessRole::query()->where('code', 'SUBGESTOR')->firstOrFail();
     $version = Workflow::query()->where('code', 'SERVICE_REQUEST')->firstOrFail()->currentVersion;
 
     $transition = $version->transitions()->where('from_status_code', $from)->where('to_status_code', $to)->firstOrFail();
 
-    expect($transition->roles)->toHaveCount(1)
-        ->and($transition->roles->first()->business_role_id)->toBe($gestor->id);
+    expect($transition->roles)->toHaveCount(2)
+        ->and($transition->roles->pluck('business_role_id')->all())->toEqualCanonicalizing([$gestor->id, $subgestor->id]);
 })->with('transiciones de revisión por GESTOR');
 
 test('REJECTED -> DRAFT (reapertura, D-S23) requiere aprobación y está autorizada para GENERATOR', function () {

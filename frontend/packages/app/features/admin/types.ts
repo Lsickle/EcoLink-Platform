@@ -2709,10 +2709,43 @@ export type AdminServiceRequestItemReduced = {
   item_sequence: number
 }
 
+// Destinatario único de la solicitud (2026-08-18). Reemplaza a `D-S01`, que
+// permitía dirigir una misma solicitud a VARIOS Gestores: sin un destinatario
+// no había a quién notificar ni quién fuera dueño del siguiente paso.
+//
+// `role` distingue por dónde entra la contraparte: GESTOR es la vía directa,
+// SUBGESTOR es cuando intermedió y el Gestor queda detrás.
+export type ServiceRequestCounterparty = {
+  id: number
+  legal_name: string
+  tax_id: string
+  role: 'GESTOR' | 'SUBGESTOR'
+  ready_wastes_count: number
+}
+
+// Residuos que pueden entrar a una solicitud dirigida a una contraparte
+// concreta. La atribución la resuelve el backend (misma regla que valida
+// `store()`), no el cliente.
+export type EligibleWasteForCounterparty = {
+  waste: { id: number; name: string; code: string | null; waste_category: { id: number; name: string } | null }
+  approvals: {
+    id: number
+    gestor_organization_id: number
+    gestor_name: string | null
+    treatment_name: string | null
+  }[]
+}
+
 export type AdminServiceRequest = {
   id: number
   uuid: string
   organization_id: number
+  // `null` solo en solicitudes ANTERIORES al destinatario único: la columna es
+  // nullable en base de datos por las filas existentes, pero obligatoria al
+  // crear.
+  counterparty_organization_id: number | null
+  gestor_organization_id: number | null
+  counterparty_organization?: { id: number; legal_name: string } | null
   branch_id: number
   request_code: string
   service_status_id: number
@@ -2756,6 +2789,9 @@ export type AdminServiceRequest = {
 // para el Generador dueño ni platform staff.
 export type AdminServiceRequestDetail = Omit<AdminServiceRequest, 'organization' | 'branch' | 'service_status'> & {
   organization: { id: number; legal_name: string }
+  // Destinatario (2026-08-18). `null` solo en solicitudes anteriores al cambio.
+  counterparty_organization?: { id: number; legal_name: string } | null
+  gestor_organization?: { id: number; legal_name: string } | null
   branch: { id: number; name: string }
   service_status: AdminServiceStatus
   cancellation_reason: AdminCancellationReason | null
@@ -2792,6 +2828,11 @@ export type ServiceRequestItemPayload = {
 // al final del asistente (Paso 6), nunca progresivamente por paso.
 export type CreateServiceRequestPayload = {
   organization_id?: number
+  // OBLIGATORIO desde 2026-08-18. NO existe en `UpdateServiceRequestPayload` a
+  // propósito: cambiar el destinatario de una solicitud ya creada invalidaría
+  // sus ítems, atados a las evaluaciones de ESA contraparte -- el backend lo
+  // rechaza explícitamente en `update()`.
+  counterparty_organization_id: number
   branch_id: number
   requested_collection_date?: string
   estimated_ready_date?: string

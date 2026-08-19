@@ -263,20 +263,19 @@ class ServiceRequestApprovalService
     }
 
     /**
-     * D-S25: SOLO el Gestor dueño de `waste_treatment_approval_id` de ESTE
-     * ítem (o platform staff) puede evaluarlo -- nunca otro Gestor de la
-     * misma solicitud. Un ítem sin `waste_treatment_approval_id` asignado
-     * (todavía en Borrador) no tiene Gestor dueño -- nadie puede evaluarlo.
+     * Quién puede evaluar este ítem -- delegado en
+     * {@see WasteServiceRequestItem::isEvaluableBy()}.
+     *
+     * Hasta 2026-08-19 esta comprobación tenía su PROPIA copia de la regla
+     * D-S25 (comparar contra el `organization_id` de la evaluación), duplicando
+     * lo que ya decidía el modelo. Las dos copias se separaron en cuanto el
+     * destinatario pasó a la cabecera: la Policy dejaba entrar al Subgestor
+     * destinatario y esta lo rechazaba con 403, dejando la solicitud en un
+     * limbo. Una sola fuente, y el problema no puede repetirse.
      */
     private static function assertActorOwnsItemGestor(WasteServiceRequestItem $item, User $actor): void
     {
-        if ($actor->isPlatformStaff()) {
-            return;
-        }
-
-        $gestorOrganizationId = $item->wasteTreatmentApproval?->organization_id;
-
-        if ($gestorOrganizationId === null || $gestorOrganizationId !== $actor->tenant_organization_id) {
+        if (! $item->isEvaluableBy($actor)) {
             abort(403, 'No tiene acceso para evaluar este ítem.');
         }
     }

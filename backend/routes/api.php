@@ -490,6 +490,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         // módulo de Programación/Dispatch (Fase 2), sin endpoint todavía --
         // ver docblock de ServiceRequestController.
         Route::get('service-requests', [ServiceRequestController::class, 'index'])->name('service-requests.index');
+        // ANTES de la ruta con {serviceRequest}: si no, 'counterparties' se
+        // captura como un id de solicitud.
+        Route::get('service-requests/counterparties', [ServiceRequestController::class, 'counterparties'])->name('service-requests.counterparties');
+        Route::get('service-requests/eligible-wastes', [ServiceRequestController::class, 'eligibleWastes'])->name('service-requests.eligible-wastes');
         Route::post('service-requests', [ServiceRequestController::class, 'store'])->name('service-requests.store');
         Route::get('service-requests/{serviceRequest}', [ServiceRequestController::class, 'show'])->name('service-requests.show');
         Route::put('service-requests/{serviceRequest}', [ServiceRequestController::class, 'update'])->name('service-requests.update');

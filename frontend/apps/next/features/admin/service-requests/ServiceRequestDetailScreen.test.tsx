@@ -76,6 +76,10 @@ function baseServiceRequest(overrides: Partial<Record<string, unknown>> = {}) {
     created_at: '2026-07-01T00:00:00Z',
     updated_at: '2026-07-01T00:00:00Z',
     organization: { id: 1, legal_name: 'Hospital San José' },
+    counterparty_organization_id: 5,
+    gestor_organization_id: 5,
+    counterparty_organization: { id: 5, legal_name: 'EcoGestor SAS' },
+    gestor_organization: { id: 5, legal_name: 'EcoGestor SAS' },
     branch: { id: 3, name: 'Sede Principal' },
     service_status: DRAFT_STATUS,
     cancellation_reason: null,
@@ -346,5 +350,52 @@ describe('ServiceRequestDetailScreen', () => {
     expect(screen.getByText('+1 ítem(s) de otros Gestores')).toBeInTheDocument()
     expect(screen.getByText('Ítem de otro Gestor -- sin acceso al detalle.')).toBeInTheDocument()
     expect(screen.getByText('Envases Contaminados')).toBeInTheDocument()
+  })
+
+  // ---------------------------------------------------------------------
+  // Destinatario (2026-08-18/19): a quién va dirigida, y quién puede evaluar.
+  // ---------------------------------------------------------------------
+  describe('destinatario', () => {
+    test('muestra el destinatario de la solicitud', async () => {
+      fetchServiceRequestMock.mockResolvedValue({ service_request: baseServiceRequest() })
+
+      render(<ServiceRequestDetailScreen serviceRequestId={7} />)
+
+      await screen.findByText('SR-1-ABCDEFGH')
+      expect(screen.getByText('Destinatario')).toBeInTheDocument()
+      expect(screen.getAllByText('EcoGestor SAS').length).toBeGreaterThan(0)
+    })
+
+    // Con un Subgestor de por medio, contraparte y Gestor son distintos: saber
+    // ambas cosas importa -- con el Subgestor es con quien se habla, el Gestor
+    // es quien recibe el residuo.
+    test('cuando hay un Subgestor de por medio, muestra también el Gestor que trata', async () => {
+      fetchServiceRequestMock.mockResolvedValue({
+        service_request: {
+          ...baseServiceRequest(),
+          counterparty_organization_id: 4,
+          counterparty_organization: { id: 4, legal_name: 'Logística Verde SAS' },
+          gestor_organization_id: 5,
+          gestor_organization: { id: 5, legal_name: 'Gestor Externo SAS' },
+        },
+      })
+
+      render(<ServiceRequestDetailScreen serviceRequestId={7} />)
+
+      await screen.findByText('SR-1-ABCDEFGH')
+      expect(screen.getByText('Logística Verde SAS')).toBeInTheDocument()
+      expect(screen.getByText('Gestor que trata')).toBeInTheDocument()
+      expect(screen.getByText('Gestor Externo SAS')).toBeInTheDocument()
+    })
+
+    // No se repite el dato cuando es la misma organización.
+    test('en la vía directa no repite el Gestor', async () => {
+      fetchServiceRequestMock.mockResolvedValue({ service_request: baseServiceRequest() })
+
+      render(<ServiceRequestDetailScreen serviceRequestId={7} />)
+
+      await screen.findByText('SR-1-ABCDEFGH')
+      expect(screen.queryByText('Gestor que trata')).not.toBeInTheDocument()
+    })
   })
 })

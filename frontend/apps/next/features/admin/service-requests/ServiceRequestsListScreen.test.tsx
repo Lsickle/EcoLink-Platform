@@ -38,6 +38,9 @@ function serviceRequestsPage(overrides: Partial<Record<string, unknown>> = {}) {
         id: 7,
         uuid: 'sr-7',
         organization_id: 1,
+        counterparty_organization_id: 3,
+        gestor_organization_id: 3,
+        counterparty_organization: { id: 3, legal_name: 'EcoGestor SAS' },
         branch_id: 3,
         request_code: 'SR-1-ABCDEFGH',
         service_status_id: 1,
@@ -150,5 +153,15 @@ describe('ServiceRequestsListScreen', () => {
     render(<ServiceRequestsListScreen />)
 
     expect(await screen.findByText(/No hay solicitudes de servicio/i)).toBeInTheDocument()
+  })
+
+  // Destinatario en el listado (2026-08-18): antes había que entrar solicitud
+  // por solicitud para saber a quién iba dirigida cada una.
+  test('muestra el destinatario de cada solicitud', async () => {
+    render(<ServiceRequestsListScreen />)
+
+    await screen.findByText('SR-1-ABCDEFGH')
+    expect(screen.getByRole('columnheader', { name: 'Destinatario' })).toBeInTheDocument()
+    expect(screen.getByText('EcoGestor SAS')).toBeInTheDocument()
   })
 })

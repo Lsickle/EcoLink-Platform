@@ -102,6 +102,8 @@ import type {
   CreateGeneratorSubgestorRelationshipPayload,
   CreateGestorCarrierAuthorizationPayload,
   CreateServiceRequestPayload,
+  EligibleWasteForCounterparty,
+  ServiceRequestCounterparty,
   CreateHazardCharacteristicPayload,
   CreateManifestLoadPayload,
   CreateManifestUnloadPayload,
@@ -2509,6 +2511,31 @@ export async function fetchServiceRequests(
 // completo en `AdminServiceRequestDetail` (types.ts).
 export async function fetchServiceRequest(id: number | string): Promise<{ service_request: AdminServiceRequestDetail }> {
   return apiFetch(`/api/admin/service-requests/${id}`)
+}
+
+// GET /api/admin/service-requests/counterparties -- alimenta el PASO 1 del
+// asistente. Solo devuelve contrapartes con relación comercial ACTIVA Y con al
+// menos un residuo listo: una con relación pero sin residuos llevaría al
+// Generador a un paso 2 vacío sin explicación.
+export async function fetchServiceRequestCounterparties(
+  params: { organizationId?: number | string } = {}
+): Promise<{ counterparties: ServiceRequestCounterparty[] }> {
+  return apiFetch(`/api/admin/service-requests/counterparties${buildQuery({ organization_id: params.organizationId })}`)
+}
+
+// GET /api/admin/service-requests/eligible-wastes -- alimenta el PASO 2, ya
+// acotado a la contraparte elegida en el paso 1. Una sola petición: antes el
+// asistente pedía las evaluaciones RESIDUO POR RESIDUO.
+export async function fetchEligibleWastesForCounterparty(
+  counterpartyOrganizationId: number,
+  params: { organizationId?: number | string } = {}
+): Promise<{ wastes: EligibleWasteForCounterparty[] }> {
+  const query = buildQuery({
+    counterparty_organization_id: counterpartyOrganizationId,
+    organization_id: params.organizationId,
+  })
+
+  return apiFetch(`/api/admin/service-requests/eligible-wastes${query}`)
 }
 
 // POST /api/admin/service-requests -- `items` es OBLIGATORIO desde la

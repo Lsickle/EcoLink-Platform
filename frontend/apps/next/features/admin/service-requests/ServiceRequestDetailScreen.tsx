@@ -71,7 +71,9 @@ const STATUS_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructiv
  * con al menos un ítem propio ve SOLO sus propios ítems completos, los
  * ajenos se reducen a `{id, item_sequence}` + `other_items_count` agregado.
  *
- * Acciones "Aprobar"/"Rechazar" por ítem: visibles SOLO para el Gestor
+ * Acciones "Aprobar"/"Rechazar" por ítem: para el destinatario de la cabecera
+ * (contraparte y Gestor detrás, 2026-08-19) y, en solicitudes anteriores al
+ * destinatario único, para el Gestor
  * dueño de ESE ítem específico (`item.waste_treatment_approval.organization.id
  * === user.tenant_organization_id`) o platform staff, y solo mientras el
  * ítem siga `PENDING` (D-S25, `WasteServiceRequestItem::isEvaluableBy()`).
@@ -252,10 +254,23 @@ export function ServiceRequestDetailScreen({ serviceRequestId }: { serviceReques
 
   const statusBadgeVariant = (detail.service_status?.code && STATUS_BADGE_VARIANT[detail.service_status.code]) || 'outline'
 
+  // Espeja `WasteServiceRequestItem::isEvaluableBy()`. El destinatario de la
+  // CABECERA -- contraparte comercial y Gestor detrás -- evalúa (2026-08-19):
+  // cuando intermedió un Subgestor, la solicitud se gestiona entre los dos.
+  //
+  // La comparación contra el `organization_id` de la evaluación se conserva
+  // como último criterio, y ya solo alcanza a las solicitudes anteriores al
+  // destinatario único, que podían mezclar Gestores.
   function canEvaluateItem(item: AdminServiceRequestItem): boolean {
     if (!permissions.includes('service_requests.evaluate')) return false
     if (isPlatformStaff) return true
-    return item.waste_treatment_approval?.organization?.id === user?.tenant_organization_id
+
+    const tenantId = user?.tenant_organization_id
+    if (tenantId == null) return false
+
+    if (tenantId === detail?.counterparty_organization_id || tenantId === detail?.gestor_organization_id) return true
+
+    return item.waste_treatment_approval?.organization?.id === tenantId
   }
 
   return (
@@ -345,6 +360,17 @@ export function ServiceRequestDetailScreen({ serviceRequestId }: { serviceReques
       <Card>
         <CardContent className="flex flex-col gap-4">
           <div className="grid grid-cols-1 gap-4 border-b border-border pb-4 sm:grid-cols-2">
+            {/* Destinatario (2026-08-18): a quién va dirigida y quién trata.
+                Cuando hay un Subgestor de por medio no son la misma
+                organización, y saber ambas cosas importa -- con el Subgestor es
+                con quien se habla, el Gestor es quien recibe el residuo. */}
+            <InfoField label="Destinatario">
+              {detail.counterparty_organization?.legal_name ?? '—'}
+            </InfoField>
+            {detail.gestor_organization != null &&
+              detail.gestor_organization.id !== detail.counterparty_organization?.id && (
+                <InfoField label="Gestor que trata">{detail.gestor_organization.legal_name}</InfoField>
+              )}
             <InfoField label="Fecha Deseada de Recolección">{detail.requested_collection_date ?? '—'}</InfoField>
             <InfoField label="Fecha Disponibilidad de Residuos">{detail.estimated_ready_date ?? '—'}</InfoField>
             <InfoField label="Prioridad">{detail.priority}</InfoField>

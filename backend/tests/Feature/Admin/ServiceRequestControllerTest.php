@@ -4,6 +4,8 @@ use App\Models\Branch;
 use App\Models\BusinessRole;
 use App\Models\CancellationReason;
 use App\Models\CarteraStatus;
+use App\Models\GeneratorGestorRelationship;
+use App\Models\GeneratorSubgestorRelationship;
 use App\Models\MeasurementUnit;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
@@ -12,6 +14,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\SecurityLog;
+use App\Models\ServiceStatus;
 use App\Models\User;
 use App\Models\UserRole;
 use App\Models\Waste;
@@ -119,6 +122,10 @@ function srGestorOrganization(): Organization
 /**
  * Residuo del Generador + aprobación VIABLE (ambos ejes APPROVED) de un
  * Gestor concreto -- building block reutilizado por casi todos los tests.
+ *
+ * Crea además la relación comercial Generador->Gestor: desde el destinatario
+ * único (2026-08-18) `store()` exige que la contraparte elegida tenga vínculo
+ * ACTIVO con el Generador, y sin él ningún test podría crear una solicitud.
  */
 function srViableItemFixture(Organization $generator, Organization $gestor): array
 {
@@ -128,7 +135,21 @@ function srViableItemFixture(Organization $generator, Organization $gestor): arr
         'waste_id' => $waste->id,
     ]);
 
+    srLinkGeneratorTo($generator, $gestor);
+
     return [$waste, $approval];
+}
+
+/**
+ * Relación comercial ACTIVA Generador->Gestor, idempotente (varios fixtures
+ * pueden pedir el mismo par dentro de un test).
+ */
+function srLinkGeneratorTo(Organization $generator, Organization $gestor): void
+{
+    GeneratorGestorRelationship::query()->firstOrCreate([
+        'generator_organization_id' => $generator->id,
+        'gestor_organization_id' => $gestor->id,
+    ]);
 }
 
 function srItemPayload(Waste $waste, ?WasteTreatmentApproval $approval = null): array
@@ -153,6 +174,7 @@ test('store crea la cabecera en DRAFT + ítems, con item_status PENDING', functi
 
     $response = $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertCreated();
 
@@ -167,6 +189,11 @@ test('store crea la cabecera en DRAFT + ítems, con item_status PENDING', functi
 
 test('store rechaza un waste_id que NO pertenece a la organización actora (IDOR)', function () {
     $generator = srGeneratorOrganization();
+    // Destinatario válido: sin él saltaría primero la validación de
+    // contraparte y este test dejaría de ejercer el IDOR que le da nombre.
+    $gestor = srGestorOrganization();
+    srLinkGeneratorTo($generator, $gestor);
+
     $otherOrganization = Organization::factory()->create();
     $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $otherOrganization->id]);
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
@@ -175,6 +202,7 @@ test('store rechaza un waste_id que NO pertenece a la organización actora (IDOR
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste)],
     ])->assertUnprocessable()->assertJsonValidationErrors('items.0.waste_id');
 });
@@ -192,6 +220,7 @@ test('store rechaza un waste_treatment_approval_id que pertenece a OTRO residuo 
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $foreignApproval)],
     ])->assertUnprocessable()->assertJsonValidationErrors('items.0.waste_treatment_approval_id');
 });
@@ -202,6 +231,7 @@ test('store rechaza un waste_treatment_approval_id que pertenece a OTRO residuo 
 test('store ACEPTA una aprobación con el eje comercial sin resolver', function () {
     $generator = srGeneratorOrganization();
     $gestor = srGestorOrganization();
+    srLinkGeneratorTo($generator, $gestor);
     $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
     $approval = WasteTreatmentApproval::factory()->create([
         'organization_id' => $gestor->id,
@@ -215,6 +245,7 @@ test('store ACEPTA una aprobación con el eje comercial sin resolver', function 
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertCreated();
 });
@@ -222,6 +253,7 @@ test('store ACEPTA una aprobación con el eje comercial sin resolver', function 
 test('store rechaza una aprobación con el eje TÉCNICO sin aprobar', function () {
     $generator = srGeneratorOrganization();
     $gestor = srGestorOrganization();
+    srLinkGeneratorTo($generator, $gestor);
     $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
     $approval = WasteTreatmentApproval::factory()->create([
         'organization_id' => $gestor->id,
@@ -234,6 +266,7 @@ test('store rechaza una aprobación con el eje TÉCNICO sin aprobar', function (
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertUnprocessable()->assertJsonValidationErrors('items.0.waste_treatment_approval_id');
 });
@@ -243,6 +276,7 @@ test('store rechaza una aprobación con el eje TÉCNICO sin aprobar', function (
 test('store rechaza un residuo que aún NO está Aprobado', function () {
     $generator = srGeneratorOrganization();
     $gestor = srGestorOrganization();
+    srLinkGeneratorTo($generator, $gestor);
     $waste = Waste::factory()->create(['status' => Waste::STATUS_CLASSIFIED, 'organization_id' => $generator->id]);
     $approval = WasteTreatmentApproval::factory()->create([
         'organization_id' => $gestor->id,
@@ -255,6 +289,7 @@ test('store rechaza un residuo que aún NO está Aprobado', function () {
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertUnprocessable()->assertJsonValidationErrors('items.0.waste_id');
 });
@@ -277,6 +312,7 @@ test('store rechaza cuando la cartera Generador<->Gestor está bloqueada (D-S04/
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertUnprocessable()->assertJsonValidationErrors('items.0.waste_treatment_approval_id');
 
@@ -301,12 +337,16 @@ test('store permite crear cuando la cartera está en un estado que NO bloquea (e
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertCreated();
 });
 
 test('store rechaza si la organización actora NO tiene la capacidad can_generate_waste', function () {
     $nonGenerator = Organization::factory()->create();
+    // El 403 lo produce la Policy, antes de cualquier validación de cuerpo:
+    // este destinatario solo existe para que el payload esté completo.
+    $gestor = srGestorOrganization();
     $branch = Branch::factory()->create(['organization_id' => $nonGenerator->id]);
     $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $nonGenerator->id]);
 
@@ -314,32 +354,37 @@ test('store rechaza si la organización actora NO tiene la capacidad can_generat
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste)],
     ])->assertForbidden();
 });
 
 // ---- submit(): validación de campos completos + transición automática ----
 
-test('submit exige waste_treatment_approval_id/estimated_quantity/measurement_unit_id completos en TODOS los ítems', function () {
+// PREMISA CAMBIADA (2026-08-18). Este test creaba una solicitud con un ítem
+// SIN aprobación y comprobaba que `submit()` la frenaba después. Eso ya no se
+// puede montar: con destinatario único, la evaluación es lo que DICE a quién se
+// atribuye el residuo, así que `store()` la exige de entrada.
+//
+// De paso cierra un callejón sin salida real: el ítem sin aprobación se
+// aceptaba al crear, `submit()` lo rechazaba, y como `update()` no sincroniza
+// ítems, esa solicitud no podía enviarse NUNCA. La validación de `submit()` se
+// conserva como guarda de las solicitudes anteriores al cambio.
+test('store exige la evaluación de tratamiento en cada ítem (antes se aceptaba y la solicitud quedaba imposible de enviar)', function () {
     $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    srLinkGeneratorTo($generator, $gestor);
     $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     $actor = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [['waste_id' => $waste->id]],
-    ])->assertCreated();
+    ])->assertUnprocessable()->assertJsonValidationErrors('items.0.waste_treatment_approval_id');
 
-    $serviceRequest = WasteServiceRequest::query()->where('organization_id', $generator->id)->firstOrFail();
-
-    $this->actingAs($actor)->postJson("/api/admin/service-requests/{$serviceRequest->id}/submit")
-        ->assertUnprocessable()
-        ->assertJsonValidationErrors([
-            'items.0.waste_treatment_approval_id',
-            'items.0.estimated_quantity',
-            'items.0.measurement_unit_id',
-        ]);
+    expect(WasteServiceRequest::query()->where('organization_id', $generator->id)->exists())->toBeFalse();
 });
 
 test('submit con campos completos transiciona DIRECTO a UNDER_REVIEW (SUBMITTED->UNDER_REVIEW es automática)', function () {
@@ -351,6 +396,7 @@ test('submit con campos completos transiciona DIRECTO a UNDER_REVIEW (SUBMITTED-
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertCreated();
 
@@ -363,22 +409,41 @@ test('submit con campos completos transiciona DIRECTO a UNDER_REVIEW (SUBMITTED-
 
 // ---- approveItem()/rejectItem(): SOLO el Gestor dueño de ESE ítem ----
 
+/**
+ * Solicitud en UNDER_REVIEW con ítems de DOS Gestores distintos.
+ *
+ * Se monta directamente en base de datos (2026-08-18): por API ya no es
+ * construible, porque el destinatario único prohíbe mezclar Gestores. Sigue
+ * haciendo falta para probar D-S25 -- que solo el Gestor dueño de un ítem puede
+ * evaluarlo -- sobre las solicitudes ANTERIORES al cambio, que sí podían
+ * mezclarlos y son exactamente donde esa regla protege algo.
+ */
 function srSubmittedRequestWithTwoGestores(Organization $generator, Organization $gestorA, Organization $gestorB): WasteServiceRequest
 {
     [$wasteA, $approvalA] = srViableItemFixture($generator, $gestorA);
     [$wasteB, $approvalB] = srViableItemFixture($generator, $gestorB);
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
-    $actor = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
 
-    $response = test()->actingAs($actor)->postJson('/api/admin/service-requests', [
+    $serviceRequest = WasteServiceRequest::factory()->create([
+        'organization_id' => $generator->id,
         'branch_id' => $branch->id,
-        'items' => [srItemPayload($wasteA, $approvalA), srItemPayload($wasteB, $approvalB)],
-    ])->assertCreated();
+        'counterparty_organization_id' => null,
+        'gestor_organization_id' => null,
+    ]);
 
-    $serviceRequest = WasteServiceRequest::query()->findOrFail($response->json('service_request.id'));
+    // `service_status_id` no es fillable (ver docblock del modelo).
+    $serviceRequest->forceFill([
+        'service_status_id' => ServiceStatus::query()->where('code', 'UNDER_REVIEW')->value('id'),
+    ])->save();
 
-    test()->actingAs($actor)->postJson("/api/admin/service-requests/{$serviceRequest->id}/submit")
-        ->assertOk()->assertJsonPath('service_request.service_status.code', 'UNDER_REVIEW');
+    foreach ([[$wasteA, $approvalA], [$wasteB, $approvalB]] as $index => [$waste, $approval]) {
+        WasteServiceRequestItem::factory()->create([
+            'service_request_id' => $serviceRequest->id,
+            'item_sequence' => $index + 1,
+            'waste_id' => $waste->id,
+            'waste_treatment_approval_id' => $approval->id,
+        ]);
+    }
 
     return $serviceRequest->fresh();
 }
@@ -471,6 +536,7 @@ test('cancel exige cancellation_reason_id y transiciona a CANCELLED', function (
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertCreated();
 
@@ -502,6 +568,7 @@ test('index: el Generador ve SUS solicitudes; un Gestor con >=1 ítem asignado t
 
     $response = $this->actingAs($creator)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestorA->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertCreated();
 
@@ -530,6 +597,7 @@ test('show: un Gestor SIN ítems asignados en la solicitud recibe 403 (IDOR)', f
 
     $response = $this->actingAs($creator)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestorA->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertCreated();
 
@@ -555,11 +623,13 @@ test('platform staff ve TODAS las solicitudes y puede filtrar por organization_i
 
     $responseA = $this->actingAs($creatorA)->postJson('/api/admin/service-requests', [
         'branch_id' => $branchA->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($wasteA, $approvalA)],
     ])->assertCreated();
 
     $this->actingAs($creatorB)->postJson('/api/admin/service-requests', [
         'branch_id' => $branchB->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($wasteB, $approvalB)],
     ])->assertCreated();
 
@@ -587,6 +657,7 @@ test('submit() escribe un WorkflowLog para DRAFT->SUBMITTED y otro para la autom
 
     $response = $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertCreated();
 
@@ -622,6 +693,7 @@ test('cancel() escribe un WorkflowLog de la transición hacia CANCELLED', functi
 
     $response = $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertCreated();
 
@@ -699,58 +771,11 @@ test('el rechazo de un ítem que dispara REJECTED de cabecera escribe su propio 
 
 // ---- Revisión de seguridad 2026-07-19: restricción cross-Gestor en show() ----
 
-test('show(): un Gestor con ítems propios ve su detalle completo pero NO el de ítems de otros Gestores (solo sabe que existen)', function () {
-    $generator = srGeneratorOrganization();
-    $gestorA = srGestorOrganization();
-    $gestorB = srGestorOrganization();
-
-    [$wasteOwn, $approvalOwn] = srViableItemFixture($generator, $gestorA);
-    [$wasteOther1, $approvalOther1] = srViableItemFixture($generator, $gestorB);
-    [$wasteOther2, $approvalOther2] = srViableItemFixture($generator, $gestorB);
-
-    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
-    $creator = srActor(['service_requests.create'], $generator->id);
-
-    $response = $this->actingAs($creator)->postJson('/api/admin/service-requests', [
-        'branch_id' => $branch->id,
-        'items' => [
-            srItemPayload($wasteOwn, $approvalOwn),
-            srItemPayload($wasteOther1, $approvalOther1),
-            srItemPayload($wasteOther2, $approvalOther2),
-        ],
-    ])->assertCreated();
-
-    $serviceRequestId = $response->json('service_request.id');
-
-    $gestorAActor = srActor(['service_requests.read'], $gestorA->id);
-
-    $show = $this->actingAs($gestorAActor)
-        ->getJson("/api/admin/service-requests/{$serviceRequestId}")
-        ->assertOk();
-
-    $items = collect($show->json('service_request.items'));
-
-    expect($items)->toHaveCount(3);
-
-    $ownItem = $items->firstWhere('waste_id', $wasteOwn->id);
-    expect($ownItem)->not->toBeNull()
-        ->and($ownItem['waste_treatment_approval_id'])->toBe($approvalOwn->id)
-        ->and(data_get($ownItem, 'waste_treatment_approval.organization.legal_name'))->toBe($gestorA->legal_name);
-
-    $foreignItems = $items->reject(fn ($item) => ($item['id'] ?? null) === $ownItem['id']);
-
-    foreach ($foreignItems as $foreignItem) {
-        expect($foreignItem)->not->toHaveKey('waste_id')
-            ->and($foreignItem)->not->toHaveKey('waste_treatment_approval_id')
-            ->and($foreignItem)->not->toHaveKey('waste_treatment_approval')
-            ->and($foreignItem)->not->toHaveKey('estimated_quantity')
-            ->and($foreignItem)->not->toHaveKey('treatment_snapshot');
-    }
-
-    expect($show->json('service_request.other_items_count'))->toBe(2);
-});
-
-test('show(): el Generador dueño y platform staff siguen viendo el detalle COMPLETO de TODOS los ítems', function () {
+// PREMISA CAMBIADA (2026-08-18): una solicitud NUEVA ya no puede mezclar
+// Gestores, así que el escenario que este test montaba por API es ahora
+// imposible de crear. La regla lo sustituye: en vez de ocultar los ítems del
+// competidor, se impide que compartan documento.
+test('store rechaza mezclar en una misma solicitud residuos que trata más de un Gestor', function () {
     $generator = srGeneratorOrganization();
     $gestorA = srGestorOrganization();
     $gestorB = srGestorOrganization();
@@ -759,10 +784,81 @@ test('show(): el Generador dueño y platform staff siguen viendo el detalle COMP
     [$wasteB, $approvalB] = srViableItemFixture($generator, $gestorB);
 
     $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $creator = srActor(['service_requests.create'], $generator->id);
+
+    $this->actingAs($creator)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestorA->id,
+        'items' => [srItemPayload($wasteA, $approvalA), srItemPayload($wasteB, $approvalB)],
+    ])->assertUnprocessable()->assertJsonValidationErrors('items.1.waste_id');
+});
+
+// La vista reducida NO se retira: sigue protegiendo las solicitudes anteriores
+// al destinatario único, que sí podían mezclar Gestores. Se monta directamente
+// en base de datos porque por API ya no es construible (ver test de arriba).
+test('show(): en una solicitud ANTERIOR al destinatario único, un Gestor sigue sin ver los ítems de otro', function () {
+    $generator = srGeneratorOrganization();
+    $gestorA = srGestorOrganization();
+    $gestorB = srGestorOrganization();
+
+    [$wasteOwn, $approvalOwn] = srViableItemFixture($generator, $gestorA);
+    [$wasteOther, $approvalOther] = srViableItemFixture($generator, $gestorB);
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+
+    $serviceRequest = WasteServiceRequest::factory()->create([
+        'organization_id' => $generator->id,
+        'branch_id' => $branch->id,
+        // Sin destinatario: exactamente la forma de las filas viejas.
+        'counterparty_organization_id' => null,
+        'gestor_organization_id' => null,
+    ]);
+
+    foreach ([[$wasteOwn, $approvalOwn], [$wasteOther, $approvalOther]] as $index => [$waste, $approval]) {
+        WasteServiceRequestItem::factory()->create([
+            'service_request_id' => $serviceRequest->id,
+            'item_sequence' => $index + 1,
+            'waste_id' => $waste->id,
+            'waste_treatment_approval_id' => $approval->id,
+        ]);
+    }
+
+    $gestorAActor = srActor(['service_requests.read'], $gestorA->id);
+
+    $show = $this->actingAs($gestorAActor)
+        ->getJson("/api/admin/service-requests/{$serviceRequest->id}")
+        ->assertOk();
+
+    $items = collect($show->json('service_request.items'));
+    $ownItem = $items->firstWhere('waste_id', $wasteOwn->id);
+
+    expect($items)->toHaveCount(2)
+        ->and($ownItem)->not->toBeNull()
+        ->and($ownItem['waste_treatment_approval_id'])->toBe($approvalOwn->id);
+
+    $foreignItem = $items->firstWhere(fn ($item) => ($item['id'] ?? null) !== $ownItem['id']);
+
+    expect($foreignItem)->not->toHaveKey('waste_id')
+        ->and($foreignItem)->not->toHaveKey('waste_treatment_approval_id')
+        ->and($foreignItem)->not->toHaveKey('estimated_quantity')
+        ->and($show->json('service_request.other_items_count'))->toBe(1);
+});
+
+test('show(): el Generador dueño y platform staff siguen viendo el detalle COMPLETO de TODOS los ítems', function () {
+    $generator = srGeneratorOrganization();
+    // Los dos residuos van al MISMO Gestor: desde el destinatario único
+    // (2026-08-18) una solicitud no puede mezclarlos.
+    $gestorA = srGestorOrganization();
+
+    [$wasteA, $approvalA] = srViableItemFixture($generator, $gestorA);
+    [$wasteB, $approvalB] = srViableItemFixture($generator, $gestorA);
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
     $creator = srActor(['service_requests.create', 'service_requests.read'], $generator->id);
 
     $response = $this->actingAs($creator)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestorA->id,
         'items' => [srItemPayload($wasteA, $approvalA), srItemPayload($wasteB, $approvalB)],
     ])->assertCreated();
 
@@ -788,10 +884,15 @@ test('store rechaza más de 100 ítems', function () {
     $measurementUnitId = MeasurementUnit::factory()->create()->id;
     $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
 
+    // El tope de 100 lo aplica `$request->validate()`, antes de cualquier
+    // comprobación de destinatario: este solo completa el payload.
+    $gestor = srGestorOrganization();
+    srLinkGeneratorTo($generator, $gestor);
     $items = array_fill(0, 101, ['waste_id' => $waste->id, 'estimated_quantity' => 50, 'measurement_unit_id' => $measurementUnitId]);
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => $items,
     ])->assertUnprocessable()->assertJsonValidationErrors('items');
 });
@@ -799,6 +900,7 @@ test('store rechaza más de 100 ítems', function () {
 test('store rechaza una aprobación con is_active=false aunque ambos ejes estén APPROVED', function () {
     $generator = srGeneratorOrganization();
     $gestor = srGestorOrganization();
+    srLinkGeneratorTo($generator, $gestor);
     $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
     $approval = WasteTreatmentApproval::factory()->viable()->create([
         'organization_id' => $gestor->id,
@@ -811,6 +913,7 @@ test('store rechaza una aprobación con is_active=false aunque ambos ejes estén
 
     $this->actingAs($actor)->postJson('/api/admin/service-requests', [
         'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
         'items' => [srItemPayload($waste, $approval)],
     ])->assertUnprocessable()->assertJsonValidationErrors('items.0.waste_treatment_approval_id');
 });
@@ -836,4 +939,444 @@ test('approveItem/rejectItem registran organization_id en el metadata del Securi
 
     expect($approvedLog->metadata['organization_id'])->toBe($gestorA->id)
         ->and($rejectedLog->metadata['organization_id'])->toBe($gestorB->id);
+});
+
+// ---------------------------------------------------------------------------
+// Destinatario único (2026-08-18). `D-S01` permitía dirigir una solicitud a
+// VARIOS Gestores a la vez; con varios no hay a quién notificar ni quién es
+// dueño del siguiente paso, y se mezclaban en un documento residuos de Gestores
+// que compiten entre sí.
+//
+// La atribución la decide `CommercialCounterpartyService::resolveForApproval()`:
+// si hubo intermediario, gana el intermediario.
+// ---------------------------------------------------------------------------
+
+/** Subgestor con business_role real y capacidad de transporte. */
+function srSubgestorOrganization(): Organization
+{
+    $organization = Organization::factory()->create();
+    $subgestor = BusinessRole::query()->where('code', 'SUBGESTOR')->firstOrFail();
+
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id,
+        'business_role_id' => $subgestor->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    return $organization->fresh();
+}
+
+test('vía DIRECTA: la contraparte y el Gestor son la misma organización', function () {
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $actor = srActor(['service_requests.create'], $generator->id);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated();
+
+    $response->assertJsonPath('service_request.counterparty_organization_id', $gestor->id)
+        ->assertJsonPath('service_request.gestor_organization_id', $gestor->id);
+});
+
+// El caso que describió el usuario: el Generador solo tiene trato con el
+// Subgestor, que registró la evaluación a nombre de un Gestor DE REFERENCIA.
+test('vía DELEGADA: la contraparte es el Subgestor y el Gestor de referencia queda detrás', function () {
+    $generator = srGeneratorOrganization();
+    $subgestor = srSubgestorOrganization();
+    $gestorExterno = srGestorOrganization();
+
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
+    $approval = WasteTreatmentApproval::factory()->viable()->create([
+        'organization_id' => $gestorExterno->id,
+        'waste_id' => $waste->id,
+        'delegated_by_organization_id' => $subgestor->id,
+    ]);
+
+    GeneratorSubgestorRelationship::query()->create([
+        'generator_organization_id' => $generator->id,
+        'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $actor = srActor(['service_requests.create'], $generator->id);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $subgestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated();
+
+    $response->assertJsonPath('service_request.counterparty_organization_id', $subgestor->id)
+        ->assertJsonPath('service_request.gestor_organization_id', $gestorExterno->id);
+});
+
+// Reenviado y delegado comparten la misma lógica comercial: el Generador nunca
+// tuvo trato con el Gestor final.
+test('vía REENVIADA: la contraparte también es el Subgestor', function () {
+    $generator = srGeneratorOrganization();
+    $subgestor = srSubgestorOrganization();
+    $gestor = srGestorOrganization();
+
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
+    $approval = WasteTreatmentApproval::factory()->viable()->create([
+        'organization_id' => $gestor->id,
+        'waste_id' => $waste->id,
+        'forwarded_by_organization_id' => $subgestor->id,
+    ]);
+
+    GeneratorSubgestorRelationship::query()->create([
+        'generator_organization_id' => $generator->id,
+        'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $actor = srActor(['service_requests.create'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $subgestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()
+        ->assertJsonPath('service_request.counterparty_organization_id', $subgestor->id)
+        ->assertJsonPath('service_request.gestor_organization_id', $gestor->id);
+});
+
+// Gana el intermediario aunque exista relación directa con el Gestor que
+// evaluó: la relación comercial de ESE residuo pasó por el Subgestor.
+test('un residuo evaluado vía Subgestor NO se le puede solicitar al Gestor directamente', function () {
+    $generator = srGeneratorOrganization();
+    $subgestor = srSubgestorOrganization();
+    $gestor = srGestorOrganization();
+    srLinkGeneratorTo($generator, $gestor);
+
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
+    $approval = WasteTreatmentApproval::factory()->viable()->create([
+        'organization_id' => $gestor->id,
+        'waste_id' => $waste->id,
+        'forwarded_by_organization_id' => $subgestor->id,
+    ]);
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $actor = srActor(['service_requests.create'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertUnprocessable()->assertJsonValidationErrors('items.0.waste_id');
+});
+
+test('no se puede elegir una contraparte sin relación comercial activa', function () {
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+
+    // Un tercero con el que no hay ningún vínculo.
+    $ajeno = srGestorOrganization();
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $actor = srActor(['service_requests.create'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $ajeno->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertUnprocessable()->assertJsonValidationErrors('counterparty_organization_id');
+});
+
+test('una relación REVOCADA ya no habilita como contraparte', function () {
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+
+    // `is_active` no es fillable en las relaciones comerciales: solo cambia por
+    // la lógica de revocación del controller.
+    GeneratorGestorRelationship::query()
+        ->where('generator_organization_id', $generator->id)
+        ->where('gestor_organization_id', $gestor->id)
+        ->first()
+        ->forceFill(['is_active' => false])->save();
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $actor = srActor(['service_requests.create'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertUnprocessable()->assertJsonValidationErrors('counterparty_organization_id');
+});
+
+test('el destinatario queda registrado en la auditoría de creación', function () {
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $actor = srActor(['service_requests.create'], $generator->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated();
+
+    $log = SecurityLog::query()->where('event_type', 'SERVICE_REQUEST_CREATED')->firstOrFail();
+    expect($log->metadata['counterparty_organization_id'])->toBe($gestor->id)
+        ->and($log->metadata['gestor_organization_id'])->toBe($gestor->id);
+});
+
+// Cambiar el destinatario de una solicitud ya creada invalidaría sus ítems, que
+// están atados a las evaluaciones de ESA contraparte.
+test('update NO acepta cambiar el destinatario', function () {
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    $otro = srGestorOrganization();
+    srLinkGeneratorTo($generator, $otro);
+    [$waste, $approval] = srViableItemFixture($generator, $gestor);
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $actor = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $gestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated();
+
+    $id = $response->json('service_request.id');
+
+    $this->actingAs($actor)->putJson("/api/admin/service-requests/{$id}", [
+        'counterparty_organization_id' => $otro->id,
+    ])->assertUnprocessable()->assertJsonValidationErrors('counterparty_organization_id');
+
+    expect(WasteServiceRequest::query()->find($id)->counterparty_organization_id)->toBe($gestor->id);
+});
+
+// ---- Visibilidad por destinatario ----
+
+test('el Subgestor destinatario ve la solicitud y su detalle COMPLETO', function () {
+    $generator = srGeneratorOrganization();
+    $subgestor = srSubgestorOrganization();
+    $gestorExterno = srGestorOrganization();
+
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
+    $approval = WasteTreatmentApproval::factory()->viable()->create([
+        'organization_id' => $gestorExterno->id,
+        'waste_id' => $waste->id,
+        'delegated_by_organization_id' => $subgestor->id,
+    ]);
+
+    GeneratorSubgestorRelationship::query()->create([
+        'generator_organization_id' => $generator->id,
+        'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $creator = srActor(['service_requests.create'], $generator->id);
+
+    $id = $this->actingAs($creator)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $subgestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()->json('service_request.id');
+
+    // Antes esto era imposible: la visibilidad se derivaba del
+    // `organization_id` de la evaluación, que aquí es el Gestor externo.
+    $subgestorActor = srActor(['service_requests.read'], $subgestor->id);
+
+    expect(collect($this->actingAs($subgestorActor)->getJson('/api/admin/service-requests')->assertOk()->json('data'))->pluck('id'))
+        ->toContain($id);
+
+    $show = $this->actingAs($subgestorActor)->getJson("/api/admin/service-requests/{$id}")->assertOk();
+    expect($show->json('service_request.items.0.waste_id'))->toBe($waste->id)
+        ->and($show->json('service_request.other_items_count'))->toBeNull();
+});
+
+// ---- counterparties(): alimenta el paso 1 del asistente ----
+
+test('counterparties devuelve solo contrapartes con residuos listos', function () {
+    $generator = srGeneratorOrganization();
+    $conResiduos = srGestorOrganization();
+    $sinResiduos = srGestorOrganization();
+
+    srViableItemFixture($generator, $conResiduos);
+    srLinkGeneratorTo($generator, $sinResiduos);
+
+    $actor = srActor(['service_requests.read'], $generator->id);
+
+    $counterparties = collect($this->actingAs($actor)
+        ->getJson('/api/admin/service-requests/counterparties')
+        ->assertOk()
+        ->json('counterparties'));
+
+    expect($counterparties->pluck('id'))->toContain($conResiduos->id)->not->toContain($sinResiduos->id)
+        ->and($counterparties->firstWhere('id', $conResiduos->id)['ready_wastes_count'])->toBe(1)
+        ->and($counterparties->firstWhere('id', $conResiduos->id)['role'])->toBe('GESTOR');
+});
+
+// Un residuo que no llegó a Aprobado no habilita a su contraparte: si no, el
+// Generador elegiría un destinatario y encontraría el paso 2 vacío.
+test('counterparties ignora los residuos que no están Aprobados', function () {
+    $generator = srGeneratorOrganization();
+    $gestor = srGestorOrganization();
+    srLinkGeneratorTo($generator, $gestor);
+
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_CLASSIFIED, 'organization_id' => $generator->id]);
+    WasteTreatmentApproval::factory()->viable()->create([
+        'organization_id' => $gestor->id,
+        'waste_id' => $waste->id,
+    ]);
+
+    $actor = srActor(['service_requests.read'], $generator->id);
+
+    expect($this->actingAs($actor)->getJson('/api/admin/service-requests/counterparties')->assertOk()->json('counterparties'))
+        ->toBe([]);
+});
+
+test('counterparties atribuye al Subgestor los residuos que él evaluó por delegación', function () {
+    $generator = srGeneratorOrganization();
+    $subgestor = srSubgestorOrganization();
+    $gestorExterno = srGestorOrganization();
+
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
+    WasteTreatmentApproval::factory()->viable()->create([
+        'organization_id' => $gestorExterno->id,
+        'waste_id' => $waste->id,
+        'delegated_by_organization_id' => $subgestor->id,
+    ]);
+
+    GeneratorSubgestorRelationship::query()->create([
+        'generator_organization_id' => $generator->id,
+        'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $actor = srActor(['service_requests.read'], $generator->id);
+
+    $counterparties = collect($this->actingAs($actor)
+        ->getJson('/api/admin/service-requests/counterparties')
+        ->assertOk()
+        ->json('counterparties'));
+
+    // El Gestor externo NO aparece: no hay relación comercial con él.
+    expect($counterparties->pluck('id'))->toContain($subgestor->id)->not->toContain($gestorExterno->id)
+        ->and($counterparties->firstWhere('id', $subgestor->id)['role'])->toBe('SUBGESTOR');
+});
+
+// ---------------------------------------------------------------------------
+// El destinatario EVALÚA, no solo mira (2026-08-19).
+//
+// Con el destinatario en la cabecera, un Subgestor ya veía su solicitud pero no
+// podía resolverla: `isEvaluableBy()` comparaba contra el `organization_id` de
+// la evaluación, que en la vía DELEGADA es el Gestor DE REFERENCIA -- el que no
+// tiene usuarios aquí. La solicitud le llegaba y se quedaba en un limbo.
+// ---------------------------------------------------------------------------
+
+/**
+ * Solicitud enviada a un SUBGESTOR, con el Gestor de referencia detrás.
+ * Devuelve [$serviceRequest, $subgestor, $gestorExterno].
+ */
+function srDelegatedSubmittedRequest(): array
+{
+    $generator = srGeneratorOrganization();
+    $subgestor = srSubgestorOrganization();
+    $gestorExterno = srGestorOrganization();
+
+    $waste = Waste::factory()->create(['status' => Waste::STATUS_APPROVED, 'organization_id' => $generator->id]);
+    $approval = WasteTreatmentApproval::factory()->viable()->create([
+        'organization_id' => $gestorExterno->id,
+        'waste_id' => $waste->id,
+        'delegated_by_organization_id' => $subgestor->id,
+    ]);
+
+    GeneratorSubgestorRelationship::query()->create([
+        'generator_organization_id' => $generator->id,
+        'subgestor_organization_id' => $subgestor->id,
+    ]);
+
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    $actor = srActor(['service_requests.create', 'service_requests.update'], $generator->id);
+
+    $id = test()->actingAs($actor)->postJson('/api/admin/service-requests', [
+        'branch_id' => $branch->id,
+        'counterparty_organization_id' => $subgestor->id,
+        'items' => [srItemPayload($waste, $approval)],
+    ])->assertCreated()->json('service_request.id');
+
+    test()->actingAs($actor)->postJson("/api/admin/service-requests/{$id}/submit")
+        ->assertOk()->assertJsonPath('service_request.service_status.code', 'UNDER_REVIEW');
+
+    return [WasteServiceRequest::query()->findOrFail($id), $subgestor, $gestorExterno];
+}
+
+test('el SUBGESTOR destinatario puede aprobar los ítems de su solicitud', function () {
+    [$serviceRequest, $subgestor] = srDelegatedSubmittedRequest();
+    $item = $serviceRequest->items()->firstOrFail();
+
+    $subgestorActor = srActor(['service_requests.evaluate'], $subgestor->id);
+
+    $this->actingAs($subgestorActor)
+        ->postJson("/api/admin/service-requests/items/{$item->id}/approve")
+        ->assertOk();
+
+    expect($item->fresh()->itemStatus->code)->toBe('ACCEPTED');
+});
+
+test('el SUBGESTOR destinatario también puede rechazar', function () {
+    [$serviceRequest, $subgestor] = srDelegatedSubmittedRequest();
+    $item = $serviceRequest->items()->firstOrFail();
+
+    $subgestorActor = srActor(['service_requests.evaluate'], $subgestor->id);
+
+    $this->actingAs($subgestorActor)
+        ->postJson("/api/admin/service-requests/items/{$item->id}/reject", ['notes' => 'Sin cupo esta semana.'])
+        ->assertOk();
+
+    expect($item->fresh()->itemStatus->code)->toBe('REJECTED');
+});
+
+// "Se gestiona entre los dos": el Gestor que queda detrás conserva el acceso,
+// no se lo quita el hecho de que la contraparte sea el Subgestor.
+test('el GESTOR que queda detrás sigue pudiendo evaluar', function () {
+    [$serviceRequest, , $gestorExterno] = srDelegatedSubmittedRequest();
+    $item = $serviceRequest->items()->firstOrFail();
+
+    $gestorActor = srActor(['service_requests.evaluate'], $gestorExterno->id);
+
+    $this->actingAs($gestorActor)
+        ->postJson("/api/admin/service-requests/items/{$item->id}/approve")
+        ->assertOk();
+});
+
+// El acceso lo da SER el destinatario, no ser Subgestor.
+test('un Subgestor AJENO a la solicitud sigue recibiendo 403', function () {
+    [$serviceRequest] = srDelegatedSubmittedRequest();
+    $item = $serviceRequest->items()->firstOrFail();
+
+    $ajeno = srSubgestorOrganization();
+    $ajenoActor = srActor(['service_requests.evaluate'], $ajeno->id);
+
+    $this->actingAs($ajenoActor)
+        ->postJson("/api/admin/service-requests/items/{$item->id}/approve")
+        ->assertForbidden();
+});
+
+// D-S25 sigue protegiendo lo único que puede protegerse ya: las solicitudes
+// anteriores al destinatario único, que sí mezclaban Gestores.
+test('en una solicitud ANTERIOR al destinatario único, un Gestor sigue sin poder evaluar el ítem de otro', function () {
+    $generator = srGeneratorOrganization();
+    $gestorA = srGestorOrganization();
+    $gestorB = srGestorOrganization();
+
+    $serviceRequest = srSubmittedRequestWithTwoGestores($generator, $gestorA, $gestorB);
+    $itemA = $serviceRequest->items()->orderBy('item_sequence')->first();
+
+    $foreignActor = srActor(['service_requests.evaluate'], $gestorB->id);
+    $this->actingAs($foreignActor)
+        ->postJson("/api/admin/service-requests/items/{$itemA->id}/approve")
+        ->assertForbidden();
 });

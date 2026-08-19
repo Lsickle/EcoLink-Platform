@@ -13,9 +13,17 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 // esquema-bd (Módulo Solicitudes de Servicio, cabecera): waste_service_requests
 // -- solicitud operativa de recolección/disposición del Generador
-// (`organization_id`). El/los Gestor(es) destino se fijan POR ÍTEM
-// (D-S01, ver WasteServiceRequestItem::wasteTreatmentApproval()), esta
-// cabecera no tiene columna "Gestor destino" propia. `service_status_id`
+// (`organization_id`).
+//
+// DESTINATARIO (2026-08-18): `counterparty_organization_id` (con quién tiene la
+// relación comercial el Generador -- Gestor o Subgestor) y
+// `gestor_organization_id` (quién finalmente trata). Antes el destino se fijaba
+// POR ÍTEM y una solicitud podía dirigirse a VARIOS Gestores a la vez (`D-S01`,
+// REEMPLAZADA por decisión del usuario): sin un destinatario único no había a
+// quién notificar ni quién fuera dueño del siguiente paso. Ver la migración
+// `2026_08_18_000001_add_counterparty_to_waste_service_requests_table`.
+//
+// `service_status_id`
 // (D-S02) es el estado agregado de la solicitud completa -- la regla de
 // agregado cabecera<->ítems de D-S01 (una solicitud solo pasa a Approved
 // cuando TODOS sus ítems tienen aprobación vigente) es responsabilidad de
@@ -30,6 +38,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 // de un store()/update() genérico.
 #[Fillable([
     'tenant_organization_id', 'organization_id', 'branch_id', 'request_code',
+    'counterparty_organization_id', 'gestor_organization_id',
     'requested_at', 'requested_collection_date', 'estimated_ready_date',
     'scheduled_collection_date', 'estimated_total_weight', 'estimated_total_volume',
     'measurement_unit_id', 'packaging_type', 'requires_lift_platform', 'requires_audit',
@@ -72,6 +81,25 @@ class WasteServiceRequest extends Model
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    /**
+     * La contraparte comercial del Generador: a quién se le notifica y quién
+     * gestiona la solicitud. Gestor en la vía directa, Subgestor cuando
+     * intermedió.
+     */
+    public function counterpartyOrganization(): BelongsTo
+    {
+        return $this->belongsTo(Organization::class, 'counterparty_organization_id');
+    }
+
+    /**
+     * Quién finalmente trata el residuo. Igual a la contraparte en la vía
+     * directa; distinto cuando hay un Subgestor de por medio.
+     */
+    public function gestorOrganization(): BelongsTo
+    {
+        return $this->belongsTo(Organization::class, 'gestor_organization_id');
     }
 
     public function serviceStatus(): BelongsTo
