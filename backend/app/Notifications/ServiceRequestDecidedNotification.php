@@ -39,12 +39,18 @@ class ServiceRequestDecidedNotification extends Notification implements ShouldQu
 
     public function toMail(object $notifiable): MailMessage
     {
-        $resultado = $this->approved ? 'aprobada' : 'rechazada';
+        // Dos formas distintas a proposito: el asunto la usa como PARTICIPIO
+        // ("fue rechazada", concuerda con "solicitud") y el cuerpo como VERBO
+        // conjugado ("rechazo la solicitud"). Reutilizar una sola producia
+        // "EcoTrata rechazada la solicitud" -- detectado leyendo el correo real
+        // en Mailpit, no por los tests, que solo comprueban que se envio.
+        $participio = $this->approved ? 'aprobada' : 'rechazada';
+        $verbo = $this->approved ? 'aprobó' : 'rechazó';
 
         $message = (new MailMessage)
-            ->subject("Su solicitud {$this->serviceRequest->request_code} fue {$resultado}")
+            ->subject("Su solicitud {$this->serviceRequest->request_code} fue {$participio}")
             ->greeting('Hola,')
-            ->line("\"{$this->counterpartyName}\" {$resultado} la solicitud de servicio {$this->serviceRequest->request_code}.");
+            ->line("\"{$this->counterpartyName}\" {$verbo} la solicitud de servicio {$this->serviceRequest->request_code}.");
 
         if ($this->approved) {
             return $message->line('El siguiente paso es la programación de la recolección.');

@@ -1837,3 +1837,35 @@ test('OPERACIONES de un tercero NO puede evaluar aunque tenga el permiso', funct
         ->postJson("/api/admin/service-requests/items/{$item->id}/approve")
         ->assertForbidden();
 });
+
+// El defecto que los tests NO vieron (detectado leyendo el correo real en
+// Mailpit, 2026-08-19): el cuerpo decia "EcoTrata rechazada la solicitud".
+// `aprobada`/`rechazada` son participios que concuerdan con "solicitud" (bien
+// en el asunto: "fue rechazada"), no verbos conjugados. Hasta ahora los tests
+// solo comprobaban que la notificacion se enviaba, no que se leyera bien.
+test('el correo de decisión usa participio en el asunto y verbo en el cuerpo', function () {
+    $serviceRequest = WasteServiceRequest::factory()->create(['request_code' => 'SR-9-TEST']);
+    $destinatario = User::factory()->create();
+
+    $rechazo = (new ServiceRequestDecidedNotification($serviceRequest, 'EcoTrata S.A.S.', false))->toMail($destinatario);
+    expect($rechazo->subject)->toBe('Su solicitud SR-9-TEST fue rechazada')
+        ->and($rechazo->introLines[0])->toContain('"EcoTrata S.A.S." rechazó la solicitud')
+        ->and($rechazo->introLines[0])->not->toContain('rechazada la solicitud');
+
+    $aprobacion = (new ServiceRequestDecidedNotification($serviceRequest, 'EcoTrata S.A.S.', true))->toMail($destinatario);
+    expect($aprobacion->subject)->toBe('Su solicitud SR-9-TEST fue aprobada')
+        ->and($aprobacion->introLines[0])->toContain('"EcoTrata S.A.S." aprobó la solicitud')
+        ->and($aprobacion->introLines[0])->not->toContain('aprobada la solicitud');
+});
+
+// Mismo criterio para el otro correo: singular/plural del conteo de residuos.
+test('el correo de envío concuerda el número de residuos', function () {
+    $serviceRequest = WasteServiceRequest::factory()->create(['request_code' => 'SR-9-TEST']);
+    $destinatario = User::factory()->create();
+
+    expect((new ServiceRequestSubmittedNotification($serviceRequest, 'Industrias S.A.S.', 1))->toMail($destinatario)->introLines[0])
+        ->toContain('con 1 residuo.');
+
+    expect((new ServiceRequestSubmittedNotification($serviceRequest, 'Industrias S.A.S.', 3))->toMail($destinatario)->introLines[0])
+        ->toContain('con 3 residuos.');
+});
