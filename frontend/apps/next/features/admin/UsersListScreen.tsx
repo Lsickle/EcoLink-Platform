@@ -323,7 +323,7 @@ export function UsersListScreen() {
                         className="text-left hover:underline"
                         onClick={() => router.push(`/admin/users/${user.id}`)}
                       >
-                        <div className="font-medium">{user.person.full_name}</div>
+                        <div className="font-medium">{user.person?.full_name ?? user.username}</div>
                         <div className="text-xs text-muted-foreground">@{user.username}</div>
                       </button>
                     </TableCell>
@@ -352,7 +352,7 @@ export function UsersListScreen() {
                         <DropdownMenu>
                           <DropdownMenuTrigger
                             render={
-                              <Button variant="outline" size="sm" aria-label={`Acciones para ${user.person.full_name}`}>
+                              <Button variant="outline" size="sm" aria-label={`Acciones para ${user.person?.full_name ?? user.username}`}>
                                 <MoreHorizontal className="size-4" />
                               </Button>
                             }
@@ -440,7 +440,7 @@ export function UsersListScreen() {
           <AlertDialogHeader>
             <AlertDialogTitle>Inactivar usuario</AlertDialogTitle>
             <AlertDialogDescription>
-              ¿Seguro que quieres inactivar a {pendingDeactivation?.person.full_name}? No podrá iniciar sesión hasta
+              ¿Seguro que quieres inactivar a {pendingDeactivation?.person?.full_name ?? pendingDeactivation?.username}? No podrá iniciar sesión hasta
               que se reactive.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -468,7 +468,7 @@ export function UsersListScreen() {
           <AlertDialogHeader>
             <AlertDialogTitle>Restablecer contraseña</AlertDialogTitle>
             <AlertDialogDescription>
-              Se enviará un código de verificación al correo de {pendingResetPassword?.person.full_name} (
+              Se enviará un código de verificación al correo de {pendingResetPassword?.person?.full_name ?? pendingResetPassword?.username} (
               {pendingResetPassword?.email}) para restablecer su contraseña. ¿Deseas continuar?
             </AlertDialogDescription>
           </AlertDialogHeader>

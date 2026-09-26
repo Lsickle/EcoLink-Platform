@@ -253,7 +253,7 @@ export function LinkedGeneratorDetailScreen({ organizationId }: { organizationId
                           className="text-left hover:underline"
                           onClick={() => router.push(`/admin/users/${user.id}`)}
                         >
-                          <div className="font-medium">{user.person.full_name}</div>
+                          <div className="font-medium">{user.person?.full_name ?? user.username}</div>
                           <div className="text-xs text-muted-foreground">@{user.username}</div>
                         </button>
                       </TableCell>

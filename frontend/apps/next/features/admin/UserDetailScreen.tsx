@@ -68,10 +68,10 @@ function errorMessage(error: unknown, key: string): string {
 }
 
 function initialsOf(user: AdminUser): string {
-  const first = user.person.first_name?.[0] ?? ''
-  const last = user.person.last_name?.[0] ?? ''
+  const first = user.person?.first_name?.[0] ?? ''
+  const last = user.person?.last_name?.[0] ?? ''
   const value = `${first}${last}`.toUpperCase()
-  return value || '?'
+  return value || user.username[0]?.toUpperCase() || '?'
 }
 
 // "Tiempo en Sistema" (panel lateral "Resumen del Usuario") -- derivado de
@@ -258,10 +258,10 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
       .then(async ([userResult, rolesResult]) => {
         if (cancelled) return
         setUser(userResult.user)
-        setFirstName(userResult.user.person.first_name)
-        setLastName(userResult.user.person.last_name)
+        setFirstName(userResult.user.person?.first_name ?? '')
+        setLastName(userResult.user.person?.last_name ?? '')
         setEmail(userResult.user.email)
-        setPhone(userResult.user.person.phone ?? '')
+        setPhone(userResult.user.person?.phone ?? '')
         setAllRoles(rolesResult.data)
         await loadEffectivePermissions(userResult.user.roles)
         if (cancelled) return
@@ -521,7 +521,7 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <CardTitle className="text-xl">{user.person.full_name}</CardTitle>
+                <CardTitle className="text-xl">{user.person?.full_name ?? user.username}</CardTitle>
                 <Badge className={userStatusBadgeClasses(user.status.code)}>{user.status.name}</Badge>
                 {activeRoles.length === 0 && <span className="text-xs text-muted-foreground">Sin roles asignados</span>}
                 {activeRoles.map((role) => (
@@ -622,7 +622,7 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
 
                 <InfoField label="Usuario">@{user.username}</InfoField>
                 <InfoField label="Documento">
-                  {user.person.document_type} {user.person.document_number}
+                  {user.person ? `${user.person.document_type} ${user.person.document_number}` : '—'}
                 </InfoField>
 
                 <div className="flex flex-col gap-1.5">
@@ -859,7 +859,7 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Desactivar usuario</AlertDialogTitle>
             <AlertDialogDescription>
-              ¿Seguro que quieres desactivar a {user.person.full_name}? No podrá iniciar sesión hasta que se
+              ¿Seguro que quieres desactivar a {user.person?.full_name ?? user.username}? No podrá iniciar sesión hasta que se
               reactive.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -880,7 +880,7 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Restablecer contraseña</AlertDialogTitle>
             <AlertDialogDescription>
-              Se enviará un código de verificación al correo de {user.person.full_name} ({user.email}) para
+              Se enviará un código de verificación al correo de {user.person?.full_name ?? user.username} ({user.email}) para
               restablecer su contraseña. ¿Deseas continuar?
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -902,7 +902,7 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Revocar rol</AlertDialogTitle>
             <AlertDialogDescription>
-              ¿Seguro que quieres revocar el rol {pendingRevokeRole?.name} a {user.person.full_name}?
+              ¿Seguro que quieres revocar el rol {pendingRevokeRole?.name} a {user.person?.full_name ?? user.username}?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

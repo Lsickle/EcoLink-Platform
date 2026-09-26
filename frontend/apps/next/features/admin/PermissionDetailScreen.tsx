@@ -411,7 +411,7 @@ export function PermissionDetailScreen({ permissionId }: { permissionId: string 
                           )}
                           {users.map((user) => (
                             <TableRow key={user.id}>
-                              <TableCell>{user.person.full_name}</TableCell>
+                              <TableCell>{user.person?.full_name ?? user.username}</TableCell>
                               <TableCell>{user.email}</TableCell>
                               <TableCell>{user.roles.map((role) => role.name).join(', ') || '—'}</TableCell>
                             </TableRow>

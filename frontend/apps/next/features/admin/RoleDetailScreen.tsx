@@ -292,7 +292,7 @@ export function RoleDetailScreen({ roleId }: { roleId: number | string }) {
   // Mismo fix que priorityLevelItems: sin `items`, el trigger colapsado
   // mostraba el user_id crudo en vez del nombre completo tras seleccionar.
   const userSelectItems = useMemo(
-    () => users.map((user) => ({ value: String(user.id), label: user.person.full_name })),
+    () => users.map((user) => ({ value: String(user.id), label: user.person?.full_name ?? user.username })),
     [users]
   )
 
@@ -691,7 +691,7 @@ export function RoleDetailScreen({ roleId }: { roleId: number | string }) {
                           )}
                           {roleUsers.map((user) => (
                             <TableRow key={user.id}>
-                              <TableCell>{user.person.full_name}</TableCell>
+                              <TableCell>{user.person?.full_name ?? user.username}</TableCell>
                               <TableCell>{user.email}</TableCell>
                               <TableCell>
                                 <Badge variant={user.status.code === 'ACTIVE' ? 'default' : 'secondary'}>
@@ -762,7 +762,7 @@ export function RoleDetailScreen({ roleId }: { roleId: number | string }) {
                   <SelectContent>
                     {users.map((user) => (
                       <SelectItem key={user.id} value={String(user.id)}>
-                        {user.person.full_name}
+                        {user.person?.full_name ?? user.username}
                       </SelectItem>
                     ))}
                   </SelectContent>

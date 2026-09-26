@@ -1114,7 +1114,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                           )}
                           {users.map((user) => (
                             <TableRow key={user.id}>
-                              <TableCell>{user.person.full_name}</TableCell>
+                              <TableCell>{user.person?.full_name ?? user.username}</TableCell>
                               <TableCell className="text-muted-foreground">{user.email}</TableCell>
                               <TableCell>
                                 <Badge variant={user.status.code === 'ACTIVE' ? 'default' : 'secondary'}>

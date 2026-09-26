@@ -123,7 +123,7 @@ export type AdminUser = {
   email: string
   tenant_organization_id: number | null
   organization_id: number | null
-  person: AdminPersonInfo
+  person?: AdminPersonInfo
   status: AdminUserStatus
   roles: AdminUserRole[]
   last_login_at?: string | null
