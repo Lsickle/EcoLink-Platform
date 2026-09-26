@@ -89,3 +89,5 @@ GoogleService-Info.plist
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+# Logs de desarrollo (dev-server.log, etc.)
+*.log
