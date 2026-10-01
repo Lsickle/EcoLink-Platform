@@ -12,6 +12,7 @@ import { ApiValidationError, createUser, fetchRoles, type AdminRole } from 'app/
 import { createUserSchema, documentTypeOptions } from 'app/features/admin/schemas'
 import { useRequireAuth } from 'app/provider/auth'
 import { OrganizationQuickSelect } from './OrganizationQuickSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type FieldErrors = Partial<
   Record<'documentNumber' | 'firstName' | 'lastName' | 'username' | 'email', string>
@@ -122,9 +123,7 @@ export function CreateUserForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

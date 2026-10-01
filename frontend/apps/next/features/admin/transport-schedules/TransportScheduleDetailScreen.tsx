@@ -23,6 +23,7 @@ import { formatDate } from 'app/features/admin/formatDate'
 import { createManifestLoadSchema } from 'app/features/admin/schemas'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { ContactSearchSelect } from '../ContactSearchSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function errorMessage(error: unknown, key: string): string {
   if (error instanceof ApiValidationError) {
@@ -217,9 +218,7 @@ export function TransportScheduleDetailScreen({ scheduleId }: { scheduleId: numb
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

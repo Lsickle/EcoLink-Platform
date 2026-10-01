@@ -16,6 +16,7 @@ import {
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const APPROVED_REQUESTS_PAGE_SIZE = 50
 const SCHEDULES_PAGE_SIZE = 100
@@ -155,9 +156,7 @@ export function PlantReceptionAgendaScreen() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -214,9 +213,7 @@ export function PlantReceptionAgendaScreen() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          Cargando…
-        </p>
+        <EcoLinkSpinner />
       ) : approvedRequests.length === 0 ? (
         <p className="text-sm text-muted-foreground">No hay solicitudes Aprobadas pendientes de recepción en esta planta.</p>
       ) : (

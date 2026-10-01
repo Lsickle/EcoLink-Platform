@@ -43,6 +43,7 @@ import { formatDate } from 'app/features/admin/formatDate'
 import { useRequireAuth } from 'app/provider/auth'
 import { BranchLocationsPanel } from './BranchLocationsPanel'
 import { OrganizationContactsPanel } from './OrganizationContactsPanel'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const BRANCH_STATUSES: BranchStatus[] = ['ACTIVE', 'INACTIVE', 'SUSPENDED']
 
@@ -426,9 +427,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -792,9 +791,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
                     </p>
                   )}
                   {usersLoading && !usersLoaded ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : (
                     <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
                       <Table>
@@ -876,9 +873,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
                       </div>
                     )}
                     {branchTreatmentsLoading && !branchTreatmentsLoaded ? (
-                      <p className="text-sm text-muted-foreground" role="status">
-                        Cargando…
-                      </p>
+                      <EcoLinkSpinner />
                     ) : (
                       <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
                         <Table>
@@ -922,9 +917,7 @@ export function BranchDetailScreen({ branchId }: { branchId: number | string }) 
                     </p>
                   )}
                   {activityLoading && activityEvents.length === 0 && !activityLoaded ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : activityEvents.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin actividad registrada.</p>
                   ) : (

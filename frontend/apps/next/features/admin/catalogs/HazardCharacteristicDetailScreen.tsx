@@ -21,6 +21,7 @@ import { formatDate } from 'app/features/admin/formatDate'
 import { HAZARD_RISK_LEVEL_LABELS, hazardRiskLevel } from 'app/features/admin/hazardRiskLevel'
 import { useRequireAuth } from 'app/provider/auth'
 import { RiskLevelBadge } from './HazardCharacteristicsListScreen'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function InfoField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -130,9 +131,7 @@ export function HazardCharacteristicDetailScreen({
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

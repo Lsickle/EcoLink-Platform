@@ -18,6 +18,7 @@ import {
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function InfoField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -129,9 +130,7 @@ export function WasteStreamDetailScreen({ wasteStreamId }: { wasteStreamId: numb
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

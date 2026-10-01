@@ -20,6 +20,7 @@ import { moduleLabel } from 'app/features/admin/moduleLabels'
 import { permissionPriorityLevel } from 'app/features/admin/permissionPriority'
 import { RISK_LEVEL_CLASSES, RISK_LEVEL_LABELS } from 'app/features/admin/riskLevel'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 type CriticalFilter = 'all' | 'yes' | 'no'
@@ -145,9 +146,7 @@ export function PermissionsListScreen() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -226,9 +225,7 @@ export function PermissionsListScreen() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          Cargando…
-        </p>
+        <EcoLinkSpinner />
       ) : (
         <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
           <Table>

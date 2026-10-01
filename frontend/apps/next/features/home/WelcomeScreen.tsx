@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 // Placeholder honesto post-login (gap confirmado: antes mandaba a la demo
 // de Solito en '/'). Sin contenido de negocio real todavía -- solo
@@ -21,9 +22,7 @@ export function WelcomeScreen() {
 
   if (isLoading || !user) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

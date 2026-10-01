@@ -17,6 +17,7 @@ import {
 import { createVehicleSchema } from 'app/features/admin/schemas'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { OrganizationSearchSelect } from './OrganizationSearchSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h3 className="text-sm font-semibold text-foreground">{children}</h3>
@@ -156,9 +157,7 @@ export function CreateVehicleForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

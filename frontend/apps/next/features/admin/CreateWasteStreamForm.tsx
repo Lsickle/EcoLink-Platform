@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ApiValidationError, createWasteStream, type WasteStreamTipo } from 'app/features/admin/api'
 import { createWasteStreamSchema } from 'app/features/admin/schemas'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type FieldErrors = Partial<Record<'code' | 'name' | 'tipo', string>>
 
@@ -86,9 +87,7 @@ export function CreateWasteStreamForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

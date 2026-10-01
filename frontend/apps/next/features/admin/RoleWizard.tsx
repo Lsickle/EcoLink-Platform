@@ -21,6 +21,7 @@ import {
 import { priorityLevelOptions, roleGeneralInfoSchema } from 'app/features/admin/schemas'
 import { moduleLabel } from 'app/features/admin/moduleLabels'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const TOTAL_STEPS = 4
 
@@ -166,9 +167,7 @@ export function RoleWizard() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

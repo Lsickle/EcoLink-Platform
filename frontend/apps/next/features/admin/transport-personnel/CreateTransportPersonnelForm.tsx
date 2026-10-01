@@ -12,6 +12,7 @@ import { createTransportPersonnelSchema } from 'app/features/admin/schemas'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { ContactSearchSelect } from '../ContactSearchSelect'
 import { OrganizationSearchSelect } from '../OrganizationSearchSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type FieldErrors = Partial<Record<'personId', string>>
 
@@ -126,9 +127,7 @@ export function CreateTransportPersonnelForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

@@ -17,6 +17,7 @@ import {
   type LinkedOrganizationSummary,
 } from 'app/features/admin/api'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const PER_PAGE = 15
 
@@ -149,9 +150,7 @@ export function LinkedGeneratorDetailScreen({ organizationId }: { organizationId
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -224,9 +223,7 @@ export function LinkedGeneratorDetailScreen({ organizationId }: { organizationId
             </p>
           )}
           {usersLoading ? (
-            <p className="text-sm text-muted-foreground" role="status">
-              Cargando…
-            </p>
+            <EcoLinkSpinner />
           ) : (
             <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
               <Table>
@@ -276,9 +273,7 @@ export function LinkedGeneratorDetailScreen({ organizationId }: { organizationId
             </p>
           )}
           {branchesLoading ? (
-            <p className="text-sm text-muted-foreground" role="status">
-              Cargando…
-            </p>
+            <EcoLinkSpinner />
           ) : (
             <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
               <Table>
@@ -328,9 +323,7 @@ export function LinkedGeneratorDetailScreen({ organizationId }: { organizationId
             </p>
           )}
           {contactsLoading ? (
-            <p className="text-sm text-muted-foreground" role="status">
-              Cargando…
-            </p>
+            <EcoLinkSpinner />
           ) : (
             <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
               <Table>

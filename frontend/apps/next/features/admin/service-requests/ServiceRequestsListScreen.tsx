@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { fetchServiceRequests, type AdminServiceRequest } from 'app/features/admin/api'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { OrganizationSearchSelect } from '../OrganizationSearchSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const PER_PAGE = 15
 const SEARCH_DEBOUNCE_MS = 300
@@ -121,9 +122,7 @@ export function ServiceRequestsListScreen() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -192,9 +191,7 @@ export function ServiceRequestsListScreen() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          Cargando…
-        </p>
+        <EcoLinkSpinner />
       ) : (
         <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
           <Table>

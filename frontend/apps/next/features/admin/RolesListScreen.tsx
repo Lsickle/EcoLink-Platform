@@ -36,6 +36,7 @@ import { priorityLevelOptions } from 'app/features/admin/schemas'
 import { RISK_LEVEL_CLASSES, RISK_LEVEL_LABELS } from 'app/features/admin/riskLevel'
 import { formatDate } from 'app/features/admin/formatDate'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 type TypeFilter = 'all' | 'system' | 'custom'
@@ -190,9 +191,7 @@ export function RolesListScreen() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -258,9 +257,7 @@ export function RolesListScreen() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          Cargando…
-        </p>
+        <EcoLinkSpinner />
       ) : (
         <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
           <Table>

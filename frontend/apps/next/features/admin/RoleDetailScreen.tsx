@@ -38,6 +38,7 @@ import { RISK_LEVEL_BAR_CLASSES, RISK_LEVEL_CLASSES, RISK_LEVEL_LABELS } from 'a
 import { formatDate } from 'app/features/admin/formatDate'
 import { moduleLabel } from 'app/features/admin/moduleLabels'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 // Bug menor encontrado en el mismo lote que el badge/botón de estado
 // stale: sin `items`, Base UI `<Select.Value>` renderiza el VALOR crudo
@@ -425,9 +426,7 @@ export function RoleDetailScreen({ roleId }: { roleId: number | string }) {
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -668,9 +667,7 @@ export function RoleDetailScreen({ roleId }: { roleId: number | string }) {
                     </p>
                   )}
                   {roleUsersLoading && !roleUsersLoaded ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : (
                     <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
                       <Table>
@@ -713,9 +710,7 @@ export function RoleDetailScreen({ roleId }: { roleId: number | string }) {
                     </p>
                   )}
                   {activityLoading && activityEvents.length === 0 ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : activityEvents.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin actividad registrada.</p>
                   ) : (

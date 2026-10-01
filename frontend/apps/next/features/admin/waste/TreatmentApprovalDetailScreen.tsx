@@ -29,6 +29,7 @@ import { formatDate } from 'app/features/admin/formatDate'
 import { HAZARD_RISK_LEVEL_LABELS, hazardRiskLevel } from 'app/features/admin/hazardRiskLevel'
 import { HazardRiskLevelInfo } from '../HazardRiskLevelInfo'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const TECHNICAL_STATUS_LABELS: Record<TreatmentApprovalTechnicalStatus, string> = {
   PENDING: 'Pendiente',
@@ -388,9 +389,7 @@ export function TreatmentApprovalDetailScreen({ treatmentApprovalId }: { treatme
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

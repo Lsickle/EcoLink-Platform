@@ -10,6 +10,7 @@ import { ApiValidationError, createHazardCharacteristic } from 'app/features/adm
 import { HAZARD_RISK_LEVEL_LABELS, hazardRiskLevel } from 'app/features/admin/hazardRiskLevel'
 import { createHazardCharacteristicSchema } from 'app/features/admin/schemas'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type FieldErrors = Partial<Record<'code' | 'name' | 'riskLevel', string>>
 
@@ -75,9 +76,7 @@ export function CreateHazardCharacteristicForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

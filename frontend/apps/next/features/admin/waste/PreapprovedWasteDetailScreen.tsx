@@ -34,6 +34,7 @@ import {
 import { formatDate } from 'app/features/admin/formatDate'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { MultiChipPicker } from './MultiChipPicker'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function errorMessage(error: unknown, key: string): string {
   if (error instanceof ApiValidationError) {
@@ -281,9 +282,7 @@ export function PreapprovedWasteDetailScreen({ preapprovedWasteId }: { preapprov
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

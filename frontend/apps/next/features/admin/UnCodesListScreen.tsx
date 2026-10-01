@@ -25,6 +25,7 @@ import {
 import { formatDate } from 'app/features/admin/formatDate'
 import { useRequireAuth } from 'app/provider/auth'
 import { ImportCsvDialog } from './ImportCsvDialog'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 
@@ -135,9 +136,7 @@ export function UnCodesListScreen() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -190,9 +189,7 @@ export function UnCodesListScreen() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          Cargando…
-        </p>
+        <EcoLinkSpinner />
       ) : (
         <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
           <Table>

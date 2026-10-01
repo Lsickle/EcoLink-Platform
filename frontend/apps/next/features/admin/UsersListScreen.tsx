@@ -38,6 +38,7 @@ import {
 import { formatDate } from 'app/features/admin/formatDate'
 import { userStatusBadgeClasses } from 'app/features/admin/userStatus'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 // Los 5 códigos reales de UserStatus (esquema-bd/UserStatusSeeder) -- nunca
 // inventar uno adicional. Etiquetas tomadas literal del seeder (name), no
@@ -223,9 +224,7 @@ export function UsersListScreen() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -287,9 +286,7 @@ export function UsersListScreen() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          Cargando…
-        </p>
+        <EcoLinkSpinner />
       ) : (
         <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
           <Table>

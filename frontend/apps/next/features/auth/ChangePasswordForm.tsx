@@ -16,6 +16,7 @@ import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 import { ApiValidationError, changePassword } from 'app/features/auth/api'
 import { changePasswordSchema } from 'app/features/auth/schemas'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type FieldErrors = Partial<Record<'currentPassword' | 'newPassword' | 'newPasswordConfirmation', string>>
 
@@ -45,9 +46,7 @@ export function ChangePasswordForm() {
 
   if (isLoading || !user) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

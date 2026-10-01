@@ -29,6 +29,7 @@ import {
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { MultiChipPicker } from './MultiChipPicker'
 import { OrganizationSearchSelect } from '../OrganizationSearchSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h3 className="text-sm font-semibold text-foreground">{children}</h3>
@@ -233,9 +234,7 @@ export function CreatePreapprovedWasteForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

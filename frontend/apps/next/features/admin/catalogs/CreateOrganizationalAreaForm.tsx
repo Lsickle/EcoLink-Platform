@@ -18,6 +18,7 @@ import { ORGANIZATIONAL_AREA_LEVELS, type OrganizationalAreaLevel } from 'app/fe
 import { useRequireAuth } from 'app/provider/auth'
 import { ContactSearchSelect } from '../ContactSearchSelect'
 import { OrganizationSearchSelect } from '../OrganizationSearchSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type FieldErrors = Partial<Record<'code' | 'name' | 'level', string>>
 
@@ -160,9 +161,7 @@ export function CreateOrganizationalAreaForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

@@ -29,6 +29,7 @@ import {
   type OrganizationContactRelationshipType,
 } from 'app/features/admin/api'
 import { documentTypeOptions } from 'app/features/auth/schemas'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const RELATIONSHIP_TYPES: OrganizationContactRelationshipType[] = ['Empleado', 'Consultor', 'Externo']
 
@@ -139,9 +140,7 @@ export function OrganizationContactsPanel({
       )}
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          Cargando…
-        </p>
+        <EcoLinkSpinner />
       ) : (
         <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
           <Table>

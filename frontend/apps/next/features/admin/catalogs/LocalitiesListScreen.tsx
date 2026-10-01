@@ -24,6 +24,7 @@ import {
   type AdminMunicipality,
 } from 'app/features/admin/api'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 
@@ -204,9 +205,7 @@ export function LocalitiesListScreen() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -297,9 +296,7 @@ export function LocalitiesListScreen() {
           )}
 
           {isLoading ? (
-            <p className="text-sm text-muted-foreground" role="status">
-              Cargando…
-            </p>
+            <EcoLinkSpinner />
           ) : (
             <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
               <Table>

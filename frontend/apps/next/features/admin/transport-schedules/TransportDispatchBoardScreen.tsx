@@ -20,6 +20,7 @@ import {
 } from 'app/features/admin/api'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { OrganizationSearchSelect } from '../OrganizationSearchSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const STATUS_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   BOR: 'secondary',
@@ -182,9 +183,7 @@ export function TransportDispatchBoardScreen() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -219,9 +218,7 @@ export function TransportDispatchBoardScreen() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          Cargando…
-        </p>
+        <EcoLinkSpinner />
       ) : isPlatformStaff && effectiveOrganizationId == null ? (
         <p className="text-sm text-muted-foreground">Selecciona una organización para ver su tablero de despacho.</p>
       ) : (

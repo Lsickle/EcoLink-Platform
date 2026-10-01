@@ -24,6 +24,7 @@ import { formatDate } from 'app/features/admin/formatDate'
 import { ORGANIZATIONAL_AREA_LEVELS, type OrganizationalAreaLevel } from 'app/features/admin/types'
 import { useRequireAuth } from 'app/provider/auth'
 import { ContactSearchSelect } from '../ContactSearchSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const levelOptions = ORGANIZATIONAL_AREA_LEVELS.map((level) => ({ value: level, label: level }))
 const noParentValue = 'none'
@@ -187,9 +188,7 @@ export function OrganizationalAreaDetailScreen({ organizationalAreaId }: { organ
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

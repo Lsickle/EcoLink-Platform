@@ -24,6 +24,7 @@ import { RISK_LEVEL_LABELS } from 'app/features/admin/riskLevel'
 import { createOrganizationSchema } from 'app/features/admin/schemas'
 import { useRequireAuth } from 'app/provider/auth'
 import { OrganizationQuickSelect } from './OrganizationQuickSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type FieldErrors = Partial<
   Record<
@@ -277,9 +278,7 @@ export function CreateOrganizationForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -656,9 +655,7 @@ export function CreateOrganizationForm() {
               <Label>Tipo de Organización</Label>
               <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
                 {catalogsLoading && businessRoles.length === 0 && (
-                  <p className="text-sm text-muted-foreground" role="status">
-                    Cargando…
-                  </p>
+                  <EcoLinkSpinner />
                 )}
                 {businessRoles.map((role) => (
                   <div key={role.id} className="flex items-center gap-2">

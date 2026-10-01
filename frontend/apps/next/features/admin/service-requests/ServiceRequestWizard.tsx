@@ -31,6 +31,7 @@ import {
 } from 'app/features/admin/api'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { OrganizationQuickSelect } from '../OrganizationQuickSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const TOTAL_STEPS = 6
 
@@ -557,9 +558,7 @@ export function ServiceRequestWizard() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -603,9 +602,7 @@ export function ServiceRequestWizard() {
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="counterpartyId">Destinatario de la Solicitud *</Label>
                 {isLoadingCounterparties ? (
-                  <p className="text-sm text-muted-foreground" role="status">
-                    Cargando destinatarios…
-                  </p>
+                  <EcoLinkSpinner label='Cargando destinatarios…' />
                 ) : counterparties.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     No hay Gestores ni Subgestores con residuos aprobados listos para solicitar. Primero necesitas un
@@ -766,9 +763,7 @@ export function ServiceRequestWizard() {
               </div>
 
               {isLoadingWastes ? (
-                <p className="text-sm text-muted-foreground" role="status">
-                  Cargando residuos disponibles…
-                </p>
+                <EcoLinkSpinner label='Cargando residuos disponibles…' />
               ) : (
                 <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
                   <Table>

@@ -29,6 +29,7 @@ import {
 } from 'app/features/admin/api'
 import { TREATMENT_TYPES } from 'app/features/admin/types'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 
@@ -191,9 +192,7 @@ export function TreatmentsListScreen() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -278,9 +277,7 @@ export function TreatmentsListScreen() {
           )}
 
           {isLoading ? (
-            <p className="text-sm text-muted-foreground" role="status">
-              Cargando…
-            </p>
+            <EcoLinkSpinner />
           ) : (
             <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
               <Table>

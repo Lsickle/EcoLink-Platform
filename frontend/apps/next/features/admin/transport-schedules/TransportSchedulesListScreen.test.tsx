@@ -148,6 +148,23 @@ describe('TransportSchedulesListScreen', () => {
     expect(screen.queryByRole('button', { name: '+ Nueva Programación' })).not.toBeInTheDocument()
   })
 
+  test('navigates to the calendar when "Calendario" is clicked', async () => {
+    render(<TransportSchedulesListScreen />)
+    await screen.findByText('PRG-1-ABCDEFGH')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Calendario' }))
+
+    expect(pushMock).toHaveBeenCalledWith('/admin/transport-schedules/calendar')
+  })
+
+  test('hides the "Calendario" button without transport_schedules.create permission', async () => {
+    currentUser = { id: 1, is_platform_staff: false, permissions: ['transport_schedules.read'] }
+    render(<TransportSchedulesListScreen />)
+    await screen.findByText('PRG-1-ABCDEFGH')
+
+    expect(screen.queryByRole('button', { name: 'Calendario' })).not.toBeInTheDocument()
+  })
+
   test('shows an empty message when there are no results', async () => {
     fetchTransportSchedulesMock.mockResolvedValue(emptyPage)
     render(<TransportSchedulesListScreen />)

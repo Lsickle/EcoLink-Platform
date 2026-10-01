@@ -28,6 +28,7 @@ import {
 import { createTransportScheduleSchema } from 'app/features/admin/schemas'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { OrganizationSearchSelect } from '../OrganizationSearchSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const SEARCH_DEBOUNCE_MS = 300
 
@@ -274,9 +275,7 @@ export function CreateTransportScheduleForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -363,9 +362,7 @@ export function CreateTransportScheduleForm() {
           </div>
 
           {isLoadingRequestDetail && (
-            <p className="text-sm text-muted-foreground" role="status">
-              Cargando ítems de la solicitud…
-            </p>
+            <EcoLinkSpinner label='Cargando ítems de la solicitud…' />
           )}
 
           {selectedRequest && !isLoadingRequestDetail && (

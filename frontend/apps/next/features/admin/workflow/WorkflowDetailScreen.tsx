@@ -22,6 +22,7 @@ import {
 import { formatDate } from 'app/features/admin/formatDate'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { CreateWorkflowTransitionForm } from './CreateWorkflowTransitionForm'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function errorMessage(error: unknown, key: string): string {
   if (error instanceof ApiValidationError) {
@@ -258,9 +259,7 @@ export function WorkflowDetailScreen({ workflowId }: { workflowId: number | stri
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

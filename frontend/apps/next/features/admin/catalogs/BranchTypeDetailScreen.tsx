@@ -21,6 +21,7 @@ import {
 import { formatDate } from 'app/features/admin/formatDate'
 import { useRequireAuth } from 'app/provider/auth'
 import { CapabilityBadges } from './BranchTypesListScreen'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function InfoField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -138,9 +139,7 @@ export function BranchTypeDetailScreen({ branchTypeId }: { branchTypeId: number 
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

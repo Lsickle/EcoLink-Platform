@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { ApiValidationError, createWasteCategory } from 'app/features/admin/api'
 import { createWasteCategorySchema } from 'app/features/admin/schemas'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type FieldErrors = Partial<Record<'code' | 'name', string>>
 
@@ -65,9 +66,7 @@ export function CreateWasteCategoryForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

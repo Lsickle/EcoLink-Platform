@@ -26,6 +26,7 @@ import { moduleLabel } from 'app/features/admin/moduleLabels'
 import { permissionPriorityLevel } from 'app/features/admin/permissionPriority'
 import { RISK_LEVEL_BAR_CLASSES, RISK_LEVEL_CLASSES, RISK_LEVEL_LABELS } from 'app/features/admin/riskLevel'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const RISK_LEVEL_ORDER = ['bajo', 'medio', 'alto', 'critico'] as const
 
@@ -245,9 +246,7 @@ export function PermissionDetailScreen({ permissionId }: { permissionId: string 
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -329,9 +328,7 @@ export function PermissionDetailScreen({ permissionId }: { permissionId: string 
                     </p>
                   )}
                   {rolesLoading && !rolesLoaded ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : (
                     <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
                       <Table>
@@ -388,9 +385,7 @@ export function PermissionDetailScreen({ permissionId }: { permissionId: string 
                     </p>
                   )}
                   {usersLoading && !usersLoaded ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : (
                     <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
                       <Table>
@@ -432,9 +427,7 @@ export function PermissionDetailScreen({ permissionId }: { permissionId: string 
                     </p>
                   )}
                   {relatedLoading && !relatedLoaded ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : relatedPermissions.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No hay otros permisos en este módulo.</p>
                   ) : (
@@ -459,9 +452,7 @@ export function PermissionDetailScreen({ permissionId }: { permissionId: string 
                     </p>
                   )}
                   {activityLoading && activityEvents.length === 0 ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : activityEvents.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin actividad registrada.</p>
                   ) : (

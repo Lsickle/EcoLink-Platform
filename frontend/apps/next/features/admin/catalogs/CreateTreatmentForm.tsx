@@ -17,6 +17,7 @@ import {
 import { createTreatmentSchema } from 'app/features/admin/schemas'
 import { TREATMENT_RISK_LEVELS, TREATMENT_TYPES } from 'app/features/admin/types'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const TREATMENT_TYPE_LABELS: Record<TreatmentType, string> = {
   THERMAL: 'Térmico',
@@ -140,9 +141,7 @@ export function CreateTreatmentForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

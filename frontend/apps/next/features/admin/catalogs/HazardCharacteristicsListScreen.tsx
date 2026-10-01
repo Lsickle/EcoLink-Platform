@@ -28,6 +28,7 @@ import {
 } from 'app/features/admin/api'
 import { HAZARD_RISK_LEVEL_CLASSES, HAZARD_RISK_LEVEL_LABELS, hazardRiskLevel } from 'app/features/admin/hazardRiskLevel'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 
@@ -172,9 +173,7 @@ export function HazardCharacteristicsListScreen() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -235,9 +234,7 @@ export function HazardCharacteristicsListScreen() {
           )}
 
           {isLoading ? (
-            <p className="text-sm text-muted-foreground" role="status">
-              Cargando…
-            </p>
+            <EcoLinkSpinner />
           ) : (
             <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
               <Table>

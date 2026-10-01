@@ -31,6 +31,7 @@ import { moduleLabel } from 'app/features/admin/moduleLabels'
 import { permissionPriorityLevel } from 'app/features/admin/permissionPriority'
 import { RISK_LEVEL_CLASSES, RISK_LEVEL_LABELS } from 'app/features/admin/riskLevel'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 // Los 4 módulos reales del catálogo hoy (mismo criterio ya usado en
 // PermissionsListScreen.tsx para el filtro "Módulo").
@@ -270,9 +271,7 @@ function RoleMatrixView({
       </div>
 
       {isLoading && (
-        <p className="text-sm text-muted-foreground" role="status">
-          Cargando…
-        </p>
+        <EcoLinkSpinner />
       )}
 
       {!isLoading && role && (
@@ -487,9 +486,7 @@ function ModuleMatrixView({
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          Cargando…
-        </p>
+        <EcoLinkSpinner />
       ) : matrix ? (
         <div className="flex flex-col gap-3">
           <div className="overflow-auto rounded-xl ring-1 ring-foreground/10">
@@ -803,9 +800,7 @@ function ComparisonView({
         </p>
       )}
       {isLoading && (
-        <p className="text-sm text-muted-foreground" role="status">
-          Cargando…
-        </p>
+        <EcoLinkSpinner />
       )}
 
       {!isLoading && roleA && roleB && (
@@ -951,9 +946,7 @@ export function PermissionsMatrixScreen() {
 
   if (!isAuthorized || isLoadingRoles) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

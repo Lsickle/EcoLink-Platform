@@ -25,6 +25,7 @@ import {
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const STATUS_LABELS: Record<VehicleOperationalStatus, string> = {
   ACTIVE: 'Operativo',
@@ -228,9 +229,7 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: number | string 
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -462,9 +461,7 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: number | string 
                     </p>
                   )}
                   {activityLoading && activityEvents.length === 0 && !activityLoaded ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : activityEvents.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin actividad registrada.</p>
                   ) : (

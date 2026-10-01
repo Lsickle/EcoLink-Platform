@@ -25,6 +25,7 @@ import {
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function errorMessage(error: unknown, key: string): string {
   if (error instanceof ApiValidationError) {
@@ -247,9 +248,7 @@ export function ServiceRequestDetailScreen({ serviceRequestId }: { serviceReques
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

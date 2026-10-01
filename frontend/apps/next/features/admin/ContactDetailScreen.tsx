@@ -18,6 +18,7 @@ import {
 } from 'app/features/admin/api'
 import { documentTypeOptions } from 'app/features/auth/schemas'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function errorMessage(error: unknown, key: string): string {
   if (error instanceof ApiValidationError) {
@@ -124,9 +125,7 @@ export function ContactDetailScreen({ contactId }: { contactId: number | string 
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

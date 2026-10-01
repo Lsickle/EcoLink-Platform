@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { ApiValidationError, createBranchType } from 'app/features/admin/api'
 import { createBranchTypeSchema } from 'app/features/admin/schemas'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type FieldErrors = Partial<Record<'code' | 'name' | 'category', string>>
 
@@ -86,9 +87,7 @@ export function CreateBranchTypeForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

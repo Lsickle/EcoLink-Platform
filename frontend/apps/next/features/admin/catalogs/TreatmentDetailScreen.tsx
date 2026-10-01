@@ -24,6 +24,7 @@ import {
 import { formatDate } from 'app/features/admin/formatDate'
 import { TREATMENT_RISK_LEVELS, TREATMENT_TYPES } from 'app/features/admin/types'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const TREATMENT_TYPE_LABELS: Record<TreatmentType, string> = {
   THERMAL: 'Térmico',
@@ -187,9 +188,7 @@ export function TreatmentDetailScreen({ treatmentId }: { treatmentId: number | s
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

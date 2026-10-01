@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { ApiValidationError, createPackagingType } from 'app/features/admin/api'
 import { createPackagingTypeSchema } from 'app/features/admin/schemas'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 type FieldErrors = Partial<Record<'code' | 'name', string>>
 
@@ -63,9 +64,7 @@ export function CreatePackagingTypeForm() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

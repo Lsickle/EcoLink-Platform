@@ -31,6 +31,7 @@ import { createManifestUnloadSchema } from 'app/features/admin/schemas'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { ContactSearchSelect } from '../ContactSearchSelect'
 import { PlantReceptionSchedulePanel } from './PlantReceptionSchedulePanel'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function errorMessage(error: unknown, key: string): string {
   if (error instanceof ApiValidationError) {
@@ -231,9 +232,7 @@ export function UnloadRequestDetailScreen({ unloadRequestId }: { unloadRequestId
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 

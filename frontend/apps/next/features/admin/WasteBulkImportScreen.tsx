@@ -14,6 +14,7 @@ import {
 } from 'app/features/admin/api'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { OrganizationSearchSelect } from './OrganizationSearchSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiValidationError) {
@@ -189,9 +190,7 @@ export function WasteBulkImportScreen() {
 
   if (!isAuthorized) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
