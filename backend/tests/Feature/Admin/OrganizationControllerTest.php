@@ -11,12 +11,14 @@ use App\Models\Municipality;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
 use App\Models\OrganizationContact;
+use App\Models\OrganizationSidebarModule;
 use App\Models\OrganizationStatus;
 use App\Models\Permission;
 use App\Models\Person;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\SecurityLog;
+use App\Models\SidebarModule;
 use App\Models\SubgestorGestorRelationship;
 use App\Models\User;
 use App\Models\UserRole;
@@ -453,6 +455,19 @@ test('store crea la organización, valida catálogos fijos y business_role_ids',
 
     $log = SecurityLog::query()->where('event_type', 'ORGANIZATION_CREATED')->first();
     expect($log)->not->toBeNull()->and($log->metadata['organization_id'])->toBe($organization->id);
+
+    // Gap cerrado 2026-09-28: una organización nueva nace con los 7 módulos
+    // de sidebar habilitados, mismo criterio del backfill de despliegue --
+    // ver Organization::enableAllSidebarModulesByDefault().
+    $activeSidebarModuleIds = SidebarModule::query()->where('is_active', true)->pluck('id');
+    expect($activeSidebarModuleIds)->toHaveCount(7);
+
+    $enabledPivotCount = OrganizationSidebarModule::query()
+        ->where('organization_id', $organization->id)
+        ->whereIn('sidebar_module_id', $activeSidebarModuleIds)
+        ->where('is_enabled', true)
+        ->count();
+    expect($enabledPivotCount)->toBe(7);
 
     $response->assertJsonPath('organization.legal_name', 'Acme Ambiental S.A.S.');
 });

@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\Admin\PreapprovedWasteController;
 use App\Http\Controllers\Api\Admin\RespelStatusController;
 use App\Http\Controllers\Api\Admin\RoleController;
 use App\Http\Controllers\Api\Admin\ServiceRequestController;
+use App\Http\Controllers\Api\Admin\SidebarModuleController;
 use App\Http\Controllers\Api\Admin\SubgestorGestorRelationshipController;
 use App\Http\Controllers\Api\Admin\TransportPersonnelController;
 use App\Http\Controllers\Api\Admin\TransportRouteController;
@@ -293,6 +294,15 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('organizations/{organization}/business-roles/{businessRole}/set-primary', [OrganizationController::class, 'setPrimaryBusinessRole'])->name('organizations.business-roles.set-primary');
         // Fase 2: Gestor operativo (evalua dentro de EcoLink) vs de referencia.
         Route::post('organizations/{organization}/business-roles/{businessRole}/operating-mode', [OrganizationController::class, 'setBusinessRoleOperatingMode'])->name('organizations.business-roles.operating-mode');
+
+        // Módulos de sidebar (2026-09-28): habilitación/deshabilitación POR
+        // ORGANIZACIÓN INDIVIDUAL de los 7 grupos temáticos del sidebar del
+        // frontend -- distinto de business-roles (por TIPO de organización).
+        // Mismo gate/patrón que assign/revoke de business-roles arriba.
+        Route::get('sidebar-modules', [SidebarModuleController::class, 'index'])->name('sidebar-modules.index');
+        Route::get('organizations/{organization}/sidebar-modules', [SidebarModuleController::class, 'forOrganization'])->name('organizations.sidebar-modules.index');
+        Route::post('organizations/{organization}/sidebar-modules/{sidebarModule}/enable', [SidebarModuleController::class, 'enable'])->name('organizations.sidebar-modules.enable');
+        Route::post('organizations/{organization}/sidebar-modules/{sidebarModule}/disable', [SidebarModuleController::class, 'disable'])->name('organizations.sidebar-modules.disable');
 
         // Catálogos de solo lectura consumidos por el formulario de
         // Organizaciones (ids reales, no asumidos) -- ver docblock de

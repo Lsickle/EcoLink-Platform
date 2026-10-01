@@ -3975,3 +3975,27 @@ export type WasteBulkImportResult = {
   errors: WasteBulkImportRowError[]
   wastes: WasteBulkImportResultItem[]
 }
+
+// ---- Módulos del Sidebar por Organización (/api/admin/sidebar-modules, ---
+// /api/admin/organizations/{organization}/sidebar-modules) ----------------
+// Reorganización del sidebar en 7 grupos temáticos (2026-09-28). Pantalla
+// EXCLUSIVA de platform staff (gate `is_platform_staff`, NO un permiso RBAC
+// normal -- mismo criterio que AdminOrganization/AdminBusinessRole de este
+// archivo). Catálogo fijo de 7 filas (ORGANIZACION/RESIDUOS/SERVICIOS/
+// LOGISTICA/OPERACIONES/CERTIFICADOS/ADMINISTRACION), ver
+// config/sidebar-nav.tsx (apps/next) para los códigos exactos.
+export type AdminSidebarModule = {
+  id: number
+  code: string
+  name: string
+  sort_order: number
+  is_active: boolean
+}
+
+// GET /api/admin/organizations/{organization}/sidebar-modules -- mismo
+// catálogo de arriba, con el estado RESUELTO para esa organización
+// concreta (`is_enabled`/`enabled_at`, ver tabla pivote de habilitación).
+export type AdminOrganizationSidebarModule = AdminSidebarModule & {
+  is_enabled: boolean
+  enabled_at: string | null
+}

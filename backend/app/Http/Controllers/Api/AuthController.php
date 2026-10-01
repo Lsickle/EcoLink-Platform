@@ -210,6 +210,14 @@ class AuthController extends Controller
                 // (caso staff de la organización plataforma). Ver
                 // Organization::primaryBusinessRole().
                 'organization_primary_business_role' => $user->organization?->primaryBusinessRole()?->name,
+                // Módulos de sidebar habilitados para la organización del
+                // actor (2026-09-28): el frontend los usa para decidir qué
+                // de los 7 grupos temáticos del sidebar mostrarle -- un
+                // grupo solo se muestra si SU organización lo tiene
+                // habilitado. Array vacío si el usuario no tiene
+                // organización asociada. Ver
+                // Organization::enabledSidebarModuleCodes().
+                'organization_enabled_sidebar_modules' => $user->organization?->enabledSidebarModuleCodes() ?? [],
             ],
         ]);
     }

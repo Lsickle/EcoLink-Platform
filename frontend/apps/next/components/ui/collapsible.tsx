@@ -33,10 +33,10 @@ function CollapsibleContent({
   return (
     <CollapsiblePrimitive.Panel
       data-slot="collapsible-content"
-      className={cn(
-        "overflow-hidden data-open:animate-accordion-down data-closed:animate-accordion-up",
-        className
-      )}
+      // Altura/transición vía CSS plano en globals.css (selector
+      // `[data-slot='collapsible-content']`), no clases de Tailwind -- ver
+      // el comentario ahí sobre por qué se descartó un `@keyframes`.
+      className={cn(className)}
       {...props}
     >
       {children}

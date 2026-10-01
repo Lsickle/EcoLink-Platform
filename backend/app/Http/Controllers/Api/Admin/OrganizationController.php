@@ -87,7 +87,13 @@ class OrganizationController extends Controller
 
     private const CURRENCIES = ['COP', 'USD', 'EUR'];
 
-    private const BUSINESS_ROLE_EVENTS = ['ORGANIZATION_CREATED', 'ORGANIZATION_UPDATED', 'ORGANIZATION_ACTIVATED', 'ORGANIZATION_DEACTIVATED', 'BUSINESS_ROLE_ASSIGNED', 'BUSINESS_ROLE_REVOKED', 'BUSINESS_ROLE_PRIMARY_CHANGED'];
+    // Nombre heredado ("...BUSINESS_ROLE...") -- en realidad es la lista de
+    // TODOS los tipos de evento que aparecen en el tab "Actividad" de una
+    // organización (activity()), no solo los de business_roles. Se agregan
+    // aquí SIDEBAR_MODULE_ENABLED/SIDEBAR_MODULE_DISABLED (2026-09-28,
+    // SidebarModuleController) siguiendo el mismo mecanismo, sin renombrar
+    // la constante para no ensanchar el diff de este lote.
+    private const BUSINESS_ROLE_EVENTS = ['ORGANIZATION_CREATED', 'ORGANIZATION_UPDATED', 'ORGANIZATION_ACTIVATED', 'ORGANIZATION_DEACTIVATED', 'BUSINESS_ROLE_ASSIGNED', 'BUSINESS_ROLE_REVOKED', 'BUSINESS_ROLE_PRIMARY_CHANGED', 'SIDEBAR_MODULE_ENABLED', 'SIDEBAR_MODULE_DISABLED'];
 
     /**
      * Filtros: `search` (ILIKE legal_name/trade_name/tax_id), `status`
@@ -266,6 +272,13 @@ class OrganizationController extends Controller
                 ]);
 
                 $this->syncBusinessRoles($organization, $businessRoleIds, $request->user(), $gestorOperatesInPlatform);
+
+                // Gap cerrado 2026-09-28 (pedido explícito del usuario): una
+                // organización nueva nace con los 7 módulos de sidebar
+                // habilitados, mismo criterio con el que el backfill dejó a
+                // todas las organizaciones existentes al momento del
+                // despliegue -- ver Organization::enableAllSidebarModulesByDefault().
+                $organization->enableAllSidebarModulesByDefault();
 
                 return $organization;
             });

@@ -16,6 +16,11 @@ class DatabaseSeeder extends Seeder
         $this->call(RoleSeeder::class);
         $this->call(RolePermissionSeeder::class);
         $this->call(BusinessRoleSeeder::class);
+        // Catálogo de los 7 grupos temáticos del sidebar (2026-09-28) --
+        // redundante e idempotente respecto al backfill de la migración
+        // `2026_09_28_000003_backfill_organization_sidebar_modules_table`
+        // (dev/CI únicamente, ver docblock del seeder).
+        $this->call(SidebarModuleSeeder::class);
         $this->call(OrganizationStatusSeeder::class);
         // Debe correr justo después de OrganizationStatusSeeder (necesita el
         // estado ACT) y antes de cualquier consumidor del gate de plataforma

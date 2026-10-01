@@ -111,6 +111,50 @@ body {
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Animación de colapsar/expandir el sidebar (components/ui/collapsible.tsx).
+   Transición CSS sobre `height`, leyendo la variable real que expone
+   @base-ui/react/collapsible en el panel (`--collapsible-panel-height`, ver
+   CollapsiblePanelCssVars.js).
+
+   Dos intentos previos descartados, ambos verificados en navegador con
+   `panel.getAnimations()` (Web Animations API) antes de descartarlos, no por
+   sospecha:
+   1. `@keyframes` + `data-open:animate-*` -- nunca se creaba una animación
+      real; base-ui reinicia animaciones tipo @keyframes quitando y
+      reponiendo `animation-name` en el mismo tick síncrono, sin forzar un
+      reflow entre medio, lo cual no basta para que el navegador la
+      re-dispare.
+   2. `@starting-style` nativo sobre `[data-open]` -- en teoría correcto,
+      pero la carrera entre el layout effect de base-ui (que recién ahí
+      mide y fija el píxel real en la variable) y el momento en que el
+      motor del navegador captura el "starting style" del elemento recién
+      insertado no se resolvía de forma confiable.
+
+   La solución real (confirmada en la documentación oficial embebida del
+   paquete, `node_modules/@base-ui/react/docs/react/components/collapsible.md`,
+   ejemplos Tailwind/CSS-Modules): base-ui NO espera `@starting-style`
+   nativo -- expone sus propios atributos `[data-starting-style]` (animando
+   ENTRADA) y `[data-ending-style]` (animando SALIDA), controlados por JS en
+   el momento exacto que le conviene a su máquina de estados, evitando por
+   completo la carrera de timing del navegador. La regla base siempre usa la
+   altura real de la variable; ambos atributos la fuerzan a 0 mientras la
+   transición está en curso hacia/desde el estado plegado.
+
+   500ms (prueba de diagnóstico, subido desde 300ms para descartar que sea
+   demasiado corta para percibirse) + curva con leve rebote/overshoot
+   (easeOutBack) -- se puede volver a un valor más corto y sin rebote una
+   vez confirmado que corre. */
+[data-slot='collapsible-content'] {
+  overflow: hidden;
+  height: var(--collapsible-panel-height);
+  transition: height 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+[data-slot='collapsible-content'][data-starting-style],
+[data-slot='collapsible-content'][data-ending-style] {
+  height: 0;
+}
+
 :root {
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -144,6 +188,26 @@ body {
   --sidebar-ring: oklch(0.708 0 0);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
+
+  /* Color por grupo del sidebar (reorganización en 7 grupos temáticos,
+     2026-09-28) -- barra vertical en gradiente + tinte de ícono (extremo
+     `-to`) por grupo, ver components/nav-main.tsx. Todos los grupos usan
+     par `-from`/`-to` (mismo hue/chroma, luminosidad distinta), no solo
+     Administración. */
+  --sidebar-group-organizacion-from: oklch(0.65 0.11 200); /* teal/cian */
+  --sidebar-group-organizacion-to: oklch(0.45 0.11 200);
+  --sidebar-group-residuos-from: oklch(0.67 0.245 27.325); /* rojo */
+  --sidebar-group-residuos-to: oklch(0.47 0.245 27.325);
+  --sidebar-group-servicios-from: oklch(0.7 0.145 163.225); /* verde */
+  --sidebar-group-servicios-to: oklch(0.5 0.145 163.225);
+  --sidebar-group-logistica-from: oklch(0.65 0.2 255); /* azul */
+  --sidebar-group-logistica-to: oklch(0.45 0.2 255);
+  --sidebar-group-operaciones-from: oklch(0.75 0.19 45); /* naranja */
+  --sidebar-group-operaciones-to: oklch(0.55 0.19 45);
+  --sidebar-group-certificados-from: oklch(0.6 0.2 300); /* morado */
+  --sidebar-group-certificados-to: oklch(0.4 0.2 300);
+  --sidebar-group-administracion-from: oklch(0.75 0 0); /* plateado claro */
+  --sidebar-group-administracion-to: oklch(0.5 0 0); /* plateado oscuro */
 }
 
 .dark {
@@ -178,6 +242,56 @@ body {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* Espejo oscuro de los colores por grupo del sidebar -- lightness
+     ajustado +/- 0.05-0.1 sobre el valor de :root para mantener contraste
+     contra `--sidebar` oscuro (criterio, sin exactitud perceptual exigida). */
+  --sidebar-group-organizacion-from: oklch(0.75 0.11 200);
+  --sidebar-group-organizacion-to: oklch(0.55 0.11 200);
+  --sidebar-group-residuos-from: oklch(0.75 0.22 27.325);
+  --sidebar-group-residuos-to: oklch(0.55 0.22 27.325);
+  --sidebar-group-servicios-from: oklch(0.78 0.14 163.225);
+  --sidebar-group-servicios-to: oklch(0.58 0.14 163.225);
+  --sidebar-group-logistica-from: oklch(0.75 0.19 255);
+  --sidebar-group-logistica-to: oklch(0.55 0.19 255);
+  --sidebar-group-operaciones-from: oklch(0.82 0.18 45);
+  --sidebar-group-operaciones-to: oklch(0.62 0.18 45);
+  --sidebar-group-certificados-from: oklch(0.7 0.19 300);
+  --sidebar-group-certificados-to: oklch(0.5 0.19 300);
+  --sidebar-group-administracion-from: oklch(0.85 0 0);
+  --sidebar-group-administracion-to: oklch(0.6 0 0);
+}
+
+/* Acento "blue" del calendario de Programación de Servicios de Transporte
+   -- elección EXPLÍCITA del usuario (playground fullcalendar.io: theme
+   Forma, UI kit shadcn, color blue), deliberadamente distinta del Emerald
+   del resto del admin para este módulo únicamente.
+
+   El componente instalado por `npx shadcn add @fullcalendar/forma-event-calendar`
+   (variante "shadcn" del theme Forma) NO usa las variables `--fc-forma-*`
+   de la paleta nativa del theme (esas viven sin usarse en
+   node_modules/@fullcalendar/react/themes/forma/palettes/*.css) -- en su
+   lugar reutiliza directamente los tokens shadcn de esta app (`--primary`,
+   `--ring`, `--chart-2`, etc., ver components/ui/event-calendar-views.tsx).
+   Por eso el override se hace sobre esos tokens, escopeado a la clase
+   `.transport-schedule-calendar` (ver TransportScheduleCalendarWorkspace.tsx)
+   para no filtrar el azul a ningún otro componente de la app. Valores:
+   escala "blue" estándar de Tailwind v4 en oklch. */
+.transport-schedule-calendar {
+  --primary: oklch(0.546 0.245 262.881);
+  --primary-foreground: oklch(0.97 0.014 254.604);
+  --ring: oklch(0.623 0.214 259.815);
+  --chart-1: oklch(0.809 0.105 251.813);
+  --chart-2: oklch(0.546 0.245 262.881);
+  --chart-3: oklch(0.707 0.165 254.624);
+}
+.dark .transport-schedule-calendar {
+  --primary: oklch(0.623 0.214 259.815);
+  --primary-foreground: oklch(0.282 0.091 267.935);
+  --ring: oklch(0.707 0.165 254.624);
+  --chart-1: oklch(0.424 0.199 265.638);
+  --chart-2: oklch(0.707 0.165 254.624);
+  --chart-3: oklch(0.546 0.245 262.881);
 }
 
 @layer base {

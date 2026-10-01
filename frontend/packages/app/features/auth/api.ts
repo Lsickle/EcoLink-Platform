@@ -168,6 +168,16 @@ export type AuthUser = {
   // activo (caso staff de plataforma EcoLink). Solo lo puebla GET /api/user
   // (me()), igual que `organization_business_roles`.
   organization_primary_business_role?: string | null
+  // Reorganización del sidebar en 7 grupos temáticos (2026-09-28) -- códigos
+  // de los `sidebar_modules` HABILITADOS para la organización del usuario
+  // (ej. ["ORGANIZACION","RESIDUOS","ADMINISTRACION"]), o `[]` si no tiene
+  // organización o ninguno habilitado. Solo lo puebla GET /api/user (me()),
+  // igual que `permissions`/`organization_business_roles`. Un grupo del
+  // sidebar solo se muestra si el módulo está aquí Y el usuario tiene al
+  // menos uno de los permisos de algún ítem del grupo (ver app-sidebar.tsx)
+  // -- `is_platform_staff` bypasa ÚNICAMENTE este chequeo de módulo, no el
+  // de permisos.
+  organization_enabled_sidebar_modules?: string[]
   person?: AuthPerson
   roles?: AuthRole[]
 }

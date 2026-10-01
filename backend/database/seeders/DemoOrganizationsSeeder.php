@@ -146,6 +146,13 @@ class DemoOrganizationsSeeder extends Seeder
                 ['assigned_at' => now(), 'is_active' => true],
             );
 
+            // Mismo criterio que OrganizationController::store() (2026-09-28):
+            // toda organización nace con los 7 módulos de sidebar habilitados.
+            // Seguro de re-correr (firstOrCreate, ver Organization::
+            // enableAllSidebarModulesByDefault()) -- no reactiva un módulo que
+            // un admin haya desactivado a mano para una de estas 3 orgs demo.
+            $organization->enableAllSidebarModulesByDefault();
+
             foreach ($cities as $city) {
                 Branch::query()->firstOrCreate(
                     ['organization_id' => $organization->id, 'code' => $organizationData['branch_code_prefix'].'_'.strtoupper(Str::ascii($city['name']))],

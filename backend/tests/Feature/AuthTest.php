@@ -3,8 +3,10 @@
 use App\Models\BusinessRole;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
+use App\Models\OrganizationSidebarModule;
 use App\Models\Role;
 use App\Models\SecurityLog;
+use App\Models\SidebarModule;
 use App\Models\User;
 use App\Models\UserRole;
 use App\Models\UserStatus;
@@ -53,7 +55,11 @@ test('mobile login (device_name) returns a bearer token that authenticates reque
     $this->withHeader('Authorization', "Bearer {$token}")
         ->getJson('/api/user')
         ->assertOk()
-        ->assertJsonPath('user.username', 'ana.gomez');
+        ->assertJsonPath('user.username', 'ana.gomez')
+        // Módulos de sidebar habilitados (2026-09-28): array vacío para un
+        // usuario sin organización asociada -- ver
+        // Organization::enabledSidebarModuleCodes().
+        ->assertJsonPath('user.organization_enabled_sidebar_modules', []);
 });
 
 // Hallazgo `especialista-seguridad` sobre el FRONTEND (2026-07-13): GET
@@ -182,6 +188,34 @@ test('GET /api/user expone organization_primary_business_role=null cuando la org
         ->getJson('/api/user')
         ->assertOk()
         ->assertJsonPath('user.organization_primary_business_role', null);
+});
+
+// Módulos de sidebar habilitados por organización individual (2026-09-28):
+// el frontend los usa para decidir qué de los 7 grupos temáticos del
+// sidebar mostrarle al usuario. Ver Organization::enabledSidebarModuleCodes().
+test('GET /api/user expone organization_enabled_sidebar_modules con los códigos habilitados para la organización del actor', function () {
+    $organization = Organization::factory()->create();
+    $sidebarModule = SidebarModule::query()->where('code', 'RESIDUOS')->firstOrFail();
+
+    OrganizationSidebarModule::query()->create([
+        'organization_id' => $organization->id,
+        'sidebar_module_id' => $sidebarModule->id,
+        'enabled_at' => now(),
+        'is_enabled' => true,
+    ]);
+
+    createActiveUser(['organization_id' => $organization->id]);
+
+    $login = $this->postJson('/api/login', [
+        'login' => 'ana.gomez',
+        'password' => 'Passw0rd123',
+        'device_name' => 'iphone-de-ana',
+    ])->assertOk();
+
+    $this->withHeader('Authorization', "Bearer {$login->json('token')}")
+        ->getJson('/api/user')
+        ->assertOk()
+        ->assertJsonPath('user.organization_enabled_sidebar_modules', ['RESIDUOS']);
 });
 
 // RN-181: el email es insensible a mayúsculas en toda la capa de identidad

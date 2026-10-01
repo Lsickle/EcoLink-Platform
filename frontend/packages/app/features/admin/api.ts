@@ -29,6 +29,7 @@ import type {
   AdminOrganizationalArea,
   AdminOrganizationContact,
   AdminOrganizationDetail,
+  AdminOrganizationSidebarModule,
   AdminOrganizationStatusOption,
   LinkedGeneratorBranch,
   LinkedGeneratorContact,
@@ -62,6 +63,7 @@ import type {
   AdminUnloadRequestDetail,
   AdminServiceRequest,
   AdminServiceRequestDetail,
+  AdminSidebarModule,
   AdminFile,
   AdminGenerationFrequency,
   AdminMeasurementUnit,
@@ -1508,6 +1510,46 @@ export async function setPrimaryBusinessRoleForOrganization(
   businessRoleId: number
 ): Promise<{ message?: string }> {
   return apiFetch(`/api/admin/organizations/${organizationId}/business-roles/${businessRoleId}/set-primary`, {
+    method: 'POST',
+  })
+}
+
+// ---- Módulos del Sidebar por Organización (reorganización del sidebar en --
+// 7 grupos temáticos, 2026-09-28) -- EXCLUSIVO de platform staff (gate
+// `is_platform_staff`, no un permiso RBAC), los 4 endpoints devuelven 403
+// si el actor no lo es. Mismo patrón EXACTO que assignBusinessRoleToOrganization/
+// revokeBusinessRoleFromOrganization de arriba.
+
+// GET /api/admin/sidebar-modules -- catálogo completo (7 filas), sin estado
+// de organización. Usado, por ejemplo, para poblar un selector genérico si
+// hiciera falta -- la pantalla de gestión usa fetchOrganizationSidebarModules
+// (abajo), que ya trae el estado resuelto.
+export async function fetchSidebarModules(): Promise<{ data: AdminSidebarModule[] }> {
+  return apiFetch('/api/admin/sidebar-modules')
+}
+
+// GET /api/admin/organizations/{organization}/sidebar-modules -- mismo
+// catálogo, con `is_enabled`/`enabled_at` resueltos para ESA organización.
+export async function fetchOrganizationSidebarModules(
+  organizationId: number | string
+): Promise<{ data: AdminOrganizationSidebarModule[] }> {
+  return apiFetch(`/api/admin/organizations/${organizationId}/sidebar-modules`)
+}
+
+export async function enableOrganizationSidebarModule(
+  organizationId: number | string,
+  sidebarModuleId: number
+): Promise<{ message?: string }> {
+  return apiFetch(`/api/admin/organizations/${organizationId}/sidebar-modules/${sidebarModuleId}/enable`, {
+    method: 'POST',
+  })
+}
+
+export async function disableOrganizationSidebarModule(
+  organizationId: number | string,
+  sidebarModuleId: number
+): Promise<{ message?: string }> {
+  return apiFetch(`/api/admin/organizations/${organizationId}/sidebar-modules/${sidebarModuleId}/disable`, {
     method: 'POST',
   })
 }

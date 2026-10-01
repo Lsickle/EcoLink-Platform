@@ -190,6 +190,79 @@ class Organization extends Model
             ->withTimestamps();
     }
 
+    /**
+     * Los 7 grupos temáticos del sidebar del frontend habilitados/
+     * deshabilitados para ESTA organización individual (Organización/
+     * Residuos/Servicios/Logística/Operaciones/Certificados/Administración)
+     * -- a diferencia de `businessRoles()` (eje 2, por TIPO de
+     * organización), este mecanismo es puramente por organización, sin
+     * relación con `business_roles`.
+     */
+    public function sidebarModules(): BelongsToMany
+    {
+        return $this->belongsToMany(SidebarModule::class, 'organization_sidebar_modules')
+            ->using(OrganizationSidebarModule::class)
+            ->withPivot(['enabled_by', 'enabled_at', 'is_enabled'])
+            ->withTimestamps();
+    }
+
+    /**
+     * Códigos de los módulos de sidebar HABILITADOS para esta organización
+     * (pivote `is_enabled=true` y catálogo `is_active=true`). El frontend
+     * los usa para decidir qué grupos del sidebar mostrarle al usuario --
+     * un grupo solo se muestra si SU organización tiene ese módulo
+     * habilitado.
+     *
+     * @return list<string>
+     */
+    public function enabledSidebarModuleCodes(): array
+    {
+        return $this->sidebarModules()
+            ->wherePivot('is_enabled', true)
+            ->where('sidebar_modules.is_active', true)
+            ->pluck('sidebar_modules.code')
+            ->all();
+    }
+
+    /**
+     * Deja a esta organización con los 7 módulos de sidebar ACTIVOS del
+     * catálogo en `is_enabled=true` -- mismo criterio con el que la
+     * migración de backfill (`2026_09_28_000003_backfill_organization_
+     * sidebar_modules_table`) dejó a TODAS las organizaciones existentes al
+     * momento del despliegue (pedido explícito del usuario, 2026-09-28: una
+     * organización nueva no debe nacer sin sidebar -- el admin de EcoLink
+     * los desactiva después si no corresponden).
+     *
+     * Se invoca justo después de crear la organización
+     * ({@see \App\Http\Controllers\Api\Admin\OrganizationController::store()}),
+     * cuando `$this` todavía no tiene ninguna fila en el pivote -- por eso
+     * usa `firstOrCreate()` (crea la fila que falte, sin tocar la que ya
+     * exista) en vez de `sync()`/`syncWithoutDetaching()`: estos últimos, al
+     * ir vía `BelongsToMany::attach()`, hacen un INSERT crudo por SQL que NO
+     * dispara el evento `creating` de Eloquent (`HasUuid` de
+     * `OrganizationSidebarModule` no se ejecutaría, dejando el UUID en
+     * manos exclusivas del DEFAULT de Postgres, en vez de generarse en PHP
+     * como el resto del código asume) y además, si se llamara sobre una
+     * organización que YA tuviera filas (no es el caso de este flujo, pero
+     * sí lo sería si esto se reutiliza en un seeder idempotente), `sync()`
+     * sobreescribiría `is_enabled` de módulos que un admin ya hubiera
+     * desactivado explícitamente. `firstOrCreate()` sobre el modelo pivote
+     * directo evita ambos problemas y calca el patrón ya usado por
+     * `AssignBusinessRoleCommand`/`SidebarModuleController::enable()`
+     * (`OrganizationXxx::query()->...Create(...)` directo, no vía relación).
+     */
+    public function enableAllSidebarModulesByDefault(): void
+    {
+        $activeSidebarModuleIds = SidebarModule::query()->where('is_active', true)->pluck('id');
+
+        foreach ($activeSidebarModuleIds as $sidebarModuleId) {
+            OrganizationSidebarModule::query()->firstOrCreate(
+                ['organization_id' => $this->id, 'sidebar_module_id' => $sidebarModuleId],
+                ['is_enabled' => true, 'enabled_at' => now()],
+            );
+        }
+    }
+
     private const CAPABILITY_FLAGS = [
         'can_generate_waste', 'can_transport_waste', 'can_treat_waste',
         'can_approve_treatments', 'can_issue_manifests',

@@ -2,9 +2,11 @@
 
 import * as React from "react"
 import Image from "next/image"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
 
-import { NavMain } from "@/components/nav-main"
+import { NavMain, findActiveItem } from "@/components/nav-main"
 import { NavSecondary } from "@/components/nav-secondary"
 import { NavUser } from "@/components/nav-user"
 import {
@@ -16,515 +18,30 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, LayoutGridIcon, Settings2Icon, SearchIcon, UsersIcon, ShieldCheckIcon, KeyRoundIcon, MailPlusIcon, RecycleIcon, TruckIcon, GlobeIcon, MapIcon, MapPinIcon, LandPlotIcon, Building2Icon, NetworkIcon, AlertTriangleIcon, LayersIcon, DropletsIcon, PackageIcon, ShieldAlertIcon, BuildingIcon, WarehouseIcon, IdCardIcon, CarFrontIcon, FlaskConicalIcon, FlaskRoundIcon, ClipboardListIcon, ClipboardCheckIcon, WorkflowIcon, SendIcon, UserRoundIcon, FileSignatureIcon, PackageSearchIcon, PackageCheckIcon, CalendarClockIcon, UserCheckIcon, UploadCloudIcon } from "lucide-react"
+import { Settings2Icon, SearchIcon } from "lucide-react"
 import { useAuth } from "app/provider/auth"
+import {
+  navHomeItems,
+  navPlatformItems,
+  sidebarModuleGroups,
+  type SidebarModuleCode,
+} from "@/config/sidebar-nav"
 
-// Sin módulos de negocio todavía (Residuos, Solicitudes, Manifiestos, etc.)
-// -- solo los destinos reales de la app hoy (Inicio + Administración RBAC,
-// ya con pantallas construidas en app/admin/*). No inventar ítems.
-const data = {
-  navMain: [
-    {
-      title: "Inicio",
-      url: "/",
-      icon: <LayoutDashboardIcon />,
-    },
-  ],
-  // Revisión de seguridad del lote admin/*: cada item lleva el permiso
-  // `read` de su propio módulo -- se filtra en AppSidebar contra
-  // user.permissions, así que si mañana alguien solo tiene uno de los tres
-  // ve solo ese item (defensa en profundidad, el backend ya rechaza con 403
-  // cada request igual).
-  navAdmin: [
-    {
-      title: "Usuarios",
-      url: "/admin/users",
-      icon: <UsersIcon />,
-      permission: "users.read",
-    },
-    // Plan "CRUD de Sedes (Branches) + Contactos" (2026-07-15) -- acceso
-    // DUAL (platform staff gestiona TODAS las sedes de TODAS las
-    // organizaciones; un admin de tenant solo las de la suya, ver
-    // `BranchController`/`BranchPolicy`), por eso vive en "Administración"
-    // (gateado por `branches.read`, mismo patrón que Usuarios/Roles/
-    // Permisos) y NO en "Plataforma" (exclusivo de `is_platform_staff`, sin
-    // permiso RBAC asociado -- ver `navPlatform` más abajo).
-    {
-      title: "Sucursales",
-      url: "/admin/branches",
-      icon: <WarehouseIcon />,
-      permission: "branches.read",
-    },
-    // Módulo standalone "Contactos" (2026-07-16) -- distinto del panel de
-    // contactos dentro de Organización/Sede (OrganizationContactsPanel.tsx,
-    // sin ítem propio en el sidebar). Mismo criterio que "Sedes": acceso
-    // DUAL (platform staff ve todos, un admin de tenant solo los suyos, ver
-    // ContactController), por eso vive en "Administración" gateado por
-    // `contacts.read` y NO en "Plataforma".
-    {
-      title: "Contactos",
-      url: "/admin/contacts",
-      icon: <IdCardIcon />,
-      permission: "contacts.read",
-    },
-    // CRUD de Vehículos (RN-VEH-001 a RN-VEH-008, CU-051.1/.2/.3/.4,
-    // 2026-07-16) -- mismo mecanismo de acceso DUAL EXACTO que "Sedes"/
-    // "Contactos" (platform staff gestiona TODOS los vehículos de cualquier
-    // organización; un admin de tenant solo los de la suya, ver
-    // `VehicleController`/`VehiclePolicy`), por eso vive en "Administración"
-    // gateado por `vehicles.read` y NO en "Plataforma". `CarFrontIcon` en vez
-    // de `TruckIcon` (ya usado por "Códigos UN"/"Tipos de Vehículo") para no
-    // repetir ícono dentro del mismo grupo de navegación.
-    {
-      title: "Vehículos",
-      url: "/admin/vehicles",
-      icon: <CarFrontIcon />,
-      permission: "vehicles.read",
-    },
-    // CRUD de Conductores (`transport_personnel`, cierre del GAP DE
-    // CONTRATO señalado en el lote anterior de Programación Logística,
-    // 2026-07-19) -- mismo mecanismo de acceso DUAL EXACTO que "Vehículos"
-    // (ver `TransportPersonnelController`/`TransportPersonnelPolicy`), por
-    // eso vive junto a "Vehículos" en "Administración" (mismo grupo de
-    // flota) y no en "Residuos" (donde vive "Programación de Recolección",
-    // que SOLO consume conductores ya registrados, sin CRUD propio).
-    // "Un conductor es una Person ya existente como contacto con cargo
-    // Conductor" (decisión de negocio verbatim) -- por eso NO usa
-    // `IdCardIcon` (ya usado por "Contactos") para no repetir semántica.
-    {
-      title: "Conductores",
-      url: "/admin/transport-personnel",
-      icon: <UserRoundIcon />,
-      permission: "transport_personnel.read",
-    },
-    // Módulo Tratamiento (RN-063/D-R02) -- "Tratamientos de Sucursal"
-    // (`branch_treatments`), acceso DUAL, mismo patrón EXACTO que Sedes/
-    // Vehículos (ver `BranchTreatmentController`/`BranchTreatmentPolicy`).
-    // Distinto del catálogo GLOBAL "Tratamientos" (navCatalogs, exclusivo de
-    // platform staff para escritura) -- `FlaskRoundIcon` en vez de
-    // `FlaskConicalIcon` (ya usado por el catálogo en navCatalogs) para
-    // distinguirlos visualmente aunque estén en grupos distintos.
-    {
-      title: "Tratamientos de Sucursal",
-      url: "/admin/branch-treatments",
-      icon: <FlaskRoundIcon />,
-      permission: "branch_treatments.read",
-    },
-    // "Evaluación del Gestor" (waste_treatment_approvals) -- listado GENERAL
-    // desde la perspectiva del Gestor evaluador (o platform staff viendo
-    // todas), mismo grupo "Administración" que Vehículos/Tratamientos de
-    // Sucursal/Contactos (acceso dual, ver
-    // `WasteTreatmentApprovalController`/`WasteTreatmentApprovalPolicy`).
-    // Sin ítem "Crear" -- las solicitudes SIEMPRE se crean desde el detalle
-    // de un Residuo (tab "Tratamientos" en `WasteDetailScreen.tsx`), nunca
-    // desde este listado.
-    {
-      title: "Evaluaciones de Tratamiento",
-      url: "/admin/treatment-approvals",
-      icon: <ClipboardCheckIcon />,
-      permission: "treatment_approvals.read",
-    },
-    // Mecanismo de invitación (CU-006.1 modificado, reemplaza el registro
-    // público eliminado): mismo permiso `users.read` que "Usuarios" -- es el
-    // mismo gate que usa InvitationRequestController::index() en el backend.
-    {
-      title: "Solicitudes de Invitación",
-      url: "/admin/invitation-requests",
-      icon: <MailPlusIcon />,
-      permission: "users.read",
-    },
-    {
-      title: "Roles",
-      url: "/admin/roles",
-      icon: <ShieldCheckIcon />,
-      permission: "roles.read",
-    },
-    {
-      title: "Permisos",
-      url: "/admin/permissions",
-      icon: <KeyRoundIcon />,
-      permission: "permissions.read",
-    },
-    // Cierre de brecha del CRUD de Permisos vs. Figma: pantalla nueva
-    // "Matriz de Permisos" (3 sub-vistas Por Rol/Por Módulo/Comparativa) --
-    // mismo permiso `permissions.read` que "Permisos".
-    {
-      title: "Matriz de Permisos",
-      url: "/admin/permissions/matrix",
-      icon: <LayoutGridIcon />,
-      permission: "permissions.read",
-    },
-    // CU-021 "Configurar Workflow" -- administración del motor de Workflow
-    // genérico (item 17/D-WF-01, ya consumido en producción por
-    // WasteTreatmentApprovalController). Acceso DUAL controlado por el
-    // permiso dedicado `workflows.manage` (NO por `is_platform_staff` -- ver
-    // `WorkflowPolicy`): platform staff administra el BASE + el workflow
-    // personalizado de cualquier organización Gestor; un admin de
-    // organización Gestor administra el BASE (solo lectura) + el suyo propio
-    // (o lo clona si todavía no existe). Vive en "Administración" (mismo
-    // grupo que Roles/Permisos) y no en "Plataforma" -- no es exclusivo de
-    // platform staff.
-    {
-      title: "Workflows",
-      url: "/admin/workflows",
-      icon: <WorkflowIcon />,
-      permission: "workflows.manage",
-    },
-  ],
-  // Primer módulo real del dominio Residuos (plan aprobado, distinto de
-  // RBAC/Administración): mismo mecanismo de filtrado por permiso que
-  // navAdmin -- ver visibleResiduosItems abajo.
-  navResiduos: [
-    // Núcleo del Módulo Residuos -- declaración/clasificación (wizard de 5
-    // pasos, `wastes`). Acceso DUAL, mismo mecanismo EXACTO que "Vehículos"/
-    // "Tratamientos de Sucursal" (platform staff ve todos, un tenant admin
-    // solo los suyos, ver `WasteController`/`WastePolicy`). Primer ítem del
-    // grupo (antes de los catálogos Corrientes/UN que lo alimentan) --
-    // `ClipboardListIcon` para distinguirlo de `RecycleIcon`/`TruckIcon` ya
-    // usados por los catálogos hermanos de este mismo grupo.
-    {
-      title: "Residuos",
-      url: "/admin/wastes",
-      icon: <ClipboardListIcon />,
-      permission: "wastes.read",
-    },
-    // Carga Masiva de Residuos (CSV) -- pedido explícito del usuario,
-    // 2026-08-11, mismo criterio de permiso que el formulario manual
-    // (`wastes.create`, sin restricción de business_role).
-    {
-      title: "Carga Masiva de Residuos",
-      url: "/admin/wastes/bulk-import",
-      icon: <UploadCloudIcon />,
-      permission: "wastes.create",
-    },
-    // "Residuos Preaprobados" (`wastes.waste_type_id=PREAPPROVED`, RN-191,
-    // ver docblock completo de `PreapprovedWasteController`) -- gateado
-    // SOLO por `preapproved_wastes.read`, MISMO criterio EXACTO que
-    // "Tratamientos de Sucursal" arriba (Gestor-only en la práctica, pero
-    // sin chequeo de `business_role` en el frontend -- se confía en que el
-    // permiso solo se asigna a quien corresponde). `ClipboardCheckIcon` ya
-    // usado por "Evaluaciones de Tratamiento" (navAdmin, grupo distinto) --
-    // se reutiliza aquí a propósito: ambas pantallas giran sobre el mismo
-    // concepto de "aprobación de tratamiento", solo que esta es
-    // auto-aprobada.
-    {
-      title: "Residuos Preaprobados",
-      url: "/admin/preapproved-wastes",
-      icon: <ClipboardCheckIcon />,
-      permission: "preapproved_wastes.read",
-    },
-    // Solicitudes de Servicio (CU-014, Fase 1b, D-S01/D-S25) -- acceso NO
-    // simétrico (ver docblock de `ServiceRequestPolicy`): un Generador ve
-    // SUS solicitudes, un Gestor ve las que tienen al menos un ítem suyo
-    // asignado, platform staff ve todas. Vive en "Residuos" (no en
-    // "Administración") porque es un flujo operativo sobre `wastes`
-    // declarados, mismo criterio que "Residuos Preaprobados" arriba.
-    {
-      title: "Solicitudes de Servicio",
-      url: "/admin/service-requests",
-      icon: <SendIcon />,
-      permission: "service_requests.read",
-    },
-    // Módulo Programación Logística, Fase 2a (D-PRG-01 a D-PRG-14, backend
-    // cerrado -- 1177 tests Pest, revisión de seguridad). Acceso DUAL SIMPLE
-    // (sin acceso cruzado, a diferencia de "Solicitudes de Servicio" -- ver
-    // `TransportSchedulePolicy`), por eso vive en "Residuos" junto a su
-    // dominio hermano y no en "Administración". `TruckIcon` ya usado por
-    // "Códigos UN" (navResiduos) y "Tipos de Vehículo" (navCatalogs) --
-    // ambos en grupos distintos, se reutiliza aquí porque no queda otro
-    // ícono de camión disponible sin repetir semántica con "Vehículos"
-    // (`CarFrontIcon`, navAdmin).
-    {
-      title: "Programación de Recolección",
-      url: "/admin/transport-schedules",
-      icon: <TruckIcon />,
-      permission: "transport_schedules.read",
-    },
-    // "Dispatch board" (CU-059 "Agrupar por Zona/Ruta", cierre del gap de
-    // `TransportRouteController` señalado en el lote anterior) -- gateado
-    // por `transport_routes.read`, un permiso DISTINTO de
-    // `transport_schedules.read` (LOGÍSTICA tiene ambos, pero no son el
-    // mismo permiso -- se refleja aquí como un ítem propio, no anidado bajo
-    // "Programación de Recolección").
-    {
-      title: "Rutas de Transporte",
-      url: "/admin/transport-schedules/dispatch-board",
-      icon: <MapIcon />,
-      permission: "transport_routes.read",
-    },
-    // Módulo Manifiesto de Cargue, Fase 3 (2026-07-19, backend cerrado -- 1247
-    // tests Pest, hallazgo de seguridad ya cerrado; sin frame de Figma para
-    // esta pantalla, diseño PROPUESTO -- ver docblock de
-    // `ManifestLoadsListScreen.tsx`). Vive en "Residuos" junto a "Programación
-    // de Recolección" (su dominio hermano inmediato: un manifiesto se genera
-    // SIEMPRE a partir de una `transport_schedule` ya existente) y no en
-    // "Administración" -- mismo criterio que esa. `FileSignatureIcon` (nuevo
-    // en este grupo) refleja el panel de firmas propio de este dominio, sin
-    // repetir semántica con `TruckIcon`/`MapIcon` ya usados por sus hermanos.
-    {
-      title: "Manifiestos de Cargue",
-      url: "/admin/manifest-loads",
-      icon: <FileSignatureIcon />,
-      permission: "manifest_loads.read",
-    },
-    // Módulo Programación Logística, Fase 4 "Cita de Recepción en Planta
-    // (bilateral)" (D-PRG-02, backend cerrado -- 1319 tests Pest). Vive junto
-    // a "Manifiestos de Cargue" (su dominio hermano inmediato: una solicitud
-    // de descargue nace de un manifiesto/programación ya confirmados) y no
-    // en "Administración" -- mismo criterio que sus hermanos de este grupo.
-    // Acceso DUAL NO SIMÉTRICO (ver `UnloadRequestPolicy`): el lado
-    // transportador crea/envía, el lado receptor aprueba/rechaza.
-    // `PackageSearchIcon` (nuevo en este grupo) refleja "revisar una
-    // solicitud de descargue", sin repetir semántica con `FileSignatureIcon`
-    // (Manifiestos) ni `TruckIcon` (Programación de Recolección).
-    {
-      title: "Solicitudes de Descargue",
-      url: "/admin/unload-requests",
-      icon: <PackageSearchIcon />,
-      permission: "unload_requests.read",
-    },
-    // "Agenda de Recepciones en Planta" (Figma node 991:14128, fileKey
-    // pX6vqXxnJ66YSIYpE7v9pV) -- gateada por `plant_reception_schedules.read`,
-    // un permiso DISTINTO de `unload_requests.read` (mismo criterio que
-    // "Rutas de Transporte" vs. "Programación de Recolección" arriba). Ver
-    // docblock de `PlantReceptionAgendaScreen.tsx` para la simplificación
-    // aplicada (lista agrupada por día, no el calendario semanal
-    // pixel-perfect del frame -- gap de contrato del backend, no solo de
-    // tiempo).
-    {
-      title: "Agenda de Recepciones",
-      url: "/admin/unload-requests/agenda",
-      icon: <CalendarClockIcon />,
-      permission: "plant_reception_schedules.read",
-    },
-    // Módulo Manifiesto de Descargue, Fase 5 -- ÚLTIMA fase del plan
-    // (2026-07-20, backend cerrado; sin frame de Figma confirmado en esta
-    // sesión -- diseño PROPUESTO, ver docblock de
-    // `ManifestUnloadsListScreen.tsx`). Vive junto a "Solicitudes de
-    // Descargue"/"Agenda de Recepciones" (sus hermanos inmediatos: el
-    // manifiesto de descargue cierra el ciclo que ellos empiezan) y no en
-    // "Administración" -- mismo criterio que sus hermanos de este grupo.
-    // Acceso DUAL NO SIMÉTRICO INVERTIDO respecto a "Manifiestos de Cargue"
-    // (ver `ManifestUnloadPolicy`): el lado RECEPTOR gestiona, el lado
-    // transportador solo lee + firma. `PackageCheckIcon` (nuevo en este
-    // grupo) refleja "descargue verificado/cerrado", sin repetir semántica
-    // con `FileSignatureIcon` (Manifiestos de Cargue) ni `PackageSearchIcon`
-    // (Solicitudes de Descargue).
-    {
-      title: "Manifiestos de Descargue",
-      url: "/admin/manifest-unloads",
-      icon: <PackageCheckIcon />,
-      permission: "manifest_unloads.read",
-    },
-    // "Modalidad 3" -- gestión de `gestor_carrier_authorizations` (revisión
-    // especialista-seguridad). Ruta PROPIA (NO anidada bajo Organizaciones,
-    // ver docblock de `GestorCarrierAuthorizationsListScreen.tsx`: el backend
-    // no soporta filtrar por organización, embeberla en el detalle de una
-    // sola organización daría una falsa impresión de estar acotada).
-    {
-      title: "Autorizaciones de Transportador",
-      url: "/admin/gestor-carrier-authorizations",
-      icon: <UserCheckIcon />,
-      permission: "gestor_carrier_authorizations.read",
-    },
-    // Cadena Generador -> Subgestor -> Gestor (confirmado por stakeholders
-    // reales, 2026-08-09) -- gestión de `generator_subgestor_relationships`.
-    // Ruta PROPIA, mismo motivo que "Autorizaciones de Transportador" (el
-    // backend no soporta filtrar por organización).
-    {
-      title: "Generadores por Subgestor",
-      url: "/admin/generator-subgestor-relationships",
-      icon: <NetworkIcon />,
-      permission: "generator_subgestor_relationships.read",
-    },
-    // Vínculo comercial DIRECTO Generador -> Gestor (Carga Masiva de
-    // Generadores, confirmado por el usuario 2026-08-11) -- gemela de
-    // "Generadores por Subgestor" de arriba, mismo motivo de ruta propia.
-    {
-      title: "Generadores por Gestor",
-      url: "/admin/generator-gestor-relationships",
-      icon: <NetworkIcon />,
-      permission: "generator_gestor_relationships.read",
-    },
-    // Vínculo Subgestor -> Gestor (Fase 2 del ciclo de vida del residuo,
-    // 2026-08-15). Acota a qué Gestores se les puede registrar una evaluación
-    // resuelta fuera de la plataforma.
-    {
-      title: "Gestores Vinculados",
-      url: "/admin/subgestor-gestor-relationships",
-      icon: <NetworkIcon />,
-      permission: "subgestor_gestor_relationships.read",
-    },
-    // Carga Masiva de Generadores (CSV) -- autoservicio de Subgestor/Gestor
-    // confirmado por el usuario, 2026-08-11. Visible con CUALQUIERA de los
-    // dos permisos `.create` (OR), ver `hasRequiredPermission()` arriba.
-    {
-      title: "Carga Masiva de Generadores",
-      url: "/admin/generators/bulk-import",
-      icon: <UploadCloudIcon />,
-      permission: ["generator_subgestor_relationships.create", "generator_gestor_relationships.create"],
-    },
-    {
-      title: "Corrientes Y/A",
-      url: "/admin/waste-streams",
-      icon: <RecycleIcon />,
-      permission: "waste_streams.read",
-    },
-    {
-      title: "Códigos UN",
-      url: "/admin/un-codes",
-      icon: <TruckIcon />,
-      permission: "un_codes.read",
-    },
-  ],
-  // Batch 1/3 de Catálogos Maestros (geografía en cascada D-P01 + Tipos de
-  // Sede, backend cerrado -- ver CountryController/DepartmentController/
-  // MunicipalityController/LocalityController/BranchTypeController): mismo
-  // mecanismo de filtrado por permiso que navAdmin/navResiduos. `geography.read`
-  // cubre los 4 catálogos geográficos (todos gateados por la misma Policy,
-  // ver docblock de cada controller); `branch_types.read` es propio del
-  // catálogo de Tipos de Sede (CRUD completo, a diferencia de los 4
-  // geográficos que son de solo lectura). Deja espacio para que el grupo
-  // crezca en próximos lotes (RESPEL, Embalaje) -- no agregar items sin
-  // pantalla real construida.
-  navCatalogs: [
-    {
-      title: "Países",
-      url: "/admin/catalogs/countries",
-      icon: <GlobeIcon />,
-      permission: "geography.read",
-    },
-    {
-      title: "Departamentos",
-      url: "/admin/catalogs/departments",
-      icon: <MapIcon />,
-      permission: "geography.read",
-    },
-    {
-      title: "Municipios",
-      url: "/admin/catalogs/municipalities",
-      icon: <MapPinIcon />,
-      permission: "geography.read",
-    },
-    {
-      title: "Localidades",
-      url: "/admin/catalogs/localities",
-      icon: <LandPlotIcon />,
-      permission: "geography.read",
-    },
-    {
-      title: "Tipos de Sucursal",
-      url: "/admin/catalogs/branch-types",
-      icon: <Building2Icon />,
-      permission: "branch_types.read",
-    },
-    // Distinto de los 5 catálogos hermanos de arriba: NO es global, cada
-    // área pertenece a una organización concreta (ver
-    // OrganizationalAreaController). `organizational_areas.read`
-    // (PermissionSeeder, gap ya cerrado en este lote).
-    {
-      title: "Áreas Organizacionales",
-      url: "/admin/catalogs/organizational-areas",
-      icon: <NetworkIcon />,
-      permission: "organizational_areas.read",
-    },
-    // Batch 2/3 de Catálogos Maestros (RESPEL, backend cerrado -- 506 tests
-    // Pest, ver HazardCharacteristicController/WasteCategoryController/
-    // PhysicalStateController): mismo mecanismo de filtrado por permiso que
-    // el resto del grupo. Los 3 son catálogos globales con CRUD completo,
-    // mismo criterio que "Tipos de Sede" -- cada uno con su propio permiso
-    // `.read` (nunca comparten uno solo entre sí, a diferencia de los 4
-    // catálogos geográficos que sí comparten `geography.read`).
-    {
-      title: "Características de Peligrosidad",
-      url: "/admin/catalogs/hazard-characteristics",
-      icon: <AlertTriangleIcon />,
-      permission: "hazard_characteristics.read",
-    },
-    {
-      title: "Categoría de Residuo",
-      url: "/admin/catalogs/waste-categories",
-      icon: <LayersIcon />,
-      permission: "waste_categories.read",
-    },
-    {
-      title: "Estado Físico",
-      url: "/admin/catalogs/physical-states",
-      icon: <DropletsIcon />,
-      permission: "physical_states.read",
-    },
-    // Batch 3/3 (último) de Catálogos Maestros (backend cerrado -- 581
-    // tests Pest, ver PackagingTypeController/PackagingConditionController/
-    // VehicleTypeController): mismo mecanismo de filtrado por permiso que
-    // el resto del grupo. "Tipos de Embalaje" tiene datos REALES
-    // confirmados; "Estados del Embalaje" y "Tipos de Vehículo" son
-    // PROVISIONALES (ver ProvisionalDataNotice en sus pantallas) -- ese
-    // aviso vive en la pantalla, no en el ítem del menú.
-    {
-      title: "Tipos de Embalaje",
-      url: "/admin/catalogs/packaging-types",
-      icon: <PackageIcon />,
-      permission: "packaging_types.read",
-    },
-    {
-      title: "Estados del Embalaje",
-      url: "/admin/catalogs/packaging-conditions",
-      icon: <ShieldAlertIcon />,
-      permission: "packaging_conditions.read",
-    },
-    {
-      title: "Tipos de Vehículo",
-      url: "/admin/catalogs/vehicle-types",
-      icon: <TruckIcon />,
-      permission: "vehicle_types.read",
-    },
-    // Módulo Tratamiento (RN-063/D-R02, backend cerrado -- 762 tests, ver
-    // TreatmentController): catálogo GLOBAL de tipos de tratamiento
-    // ambiental. Gestionado EXCLUSIVAMENTE por platform staff (la lectura sí
-    // está disponible para cualquier actor con `treatments.read` -- los
-    // Gestores lo necesitan para configurar sus `branch_treatments`, ver
-    // "Tratamientos de Sucursal" en navAdmin). El ítem del sidebar se
-    // muestra igual para cualquiera con el permiso -- la pantalla misma
-    // oculta los controles de escritura si `!user.is_platform_staff`.
-    {
-      title: "Tratamientos",
-      url: "/admin/catalogs/treatments",
-      icon: <FlaskConicalIcon />,
-      permission: "treatments.read",
-    },
-  ],
-  // Plan "CRUD de Organizaciones vs. Figma (solo Organizaciones)" -- pantalla
-  // EXCLUSIVA de platform staff (staff de EcoLink gestionando TODAS las
-  // organizaciones cliente, ver OrganizationController::`isPlatformStaff()`
-  // -- NO una Policy de modelo ni un permiso RBAC). A diferencia de
-  // navAdmin/navResiduos/navCatalogs de arriba, este grupo NO se filtra
-  // contra `user.permissions` (no tiene ningún `permission` asociado) --
-  // se filtra en `AppSidebar` directamente contra `user.is_platform_staff`
-  // (ver `visiblePlatformItems` abajo), mismo campo ya expuesto por
-  // `AuthController::me()`/`useRequireAuth(undefined, {
-  // requirePlatformStaff: true })` en OrganizationsListScreen.tsx.
-  navPlatform: [
-    {
-      title: "Organizaciones",
-      url: "/admin/organizations",
-      icon: <BuildingIcon />,
-    },
-  ],
-  // "Buscar" y "Configuración" son placeholders inertes (url: "#") a
-  // propósito -- esas pantallas todavía no existen.
-  navSecondary: [
-    {
-      title: "Configuración",
-      url: "#",
-      icon: <Settings2Icon />,
-    },
-    {
-      title: "Buscar",
-      url: "#",
-      icon: <SearchIcon />,
-    },
-  ],
-}
+// "Buscar" y "Configuración" son placeholders inertes (url: "#") a
+// propósito -- esas pantallas todavía no existen. Fuera del mecanismo de
+// grupos por módulo, sin cambios respecto a la versión anterior.
+const navSecondary = [
+  {
+    title: "Configuración",
+    url: "#",
+    icon: <Settings2Icon />,
+  },
+  {
+    title: "Buscar",
+    url: "#",
+    icon: <SearchIcon />,
+  },
+]
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // Mismo patrón anti-parpadeo de hidratación que features/auth/AuthLayout.tsx
@@ -536,24 +53,67 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const iconSrc = !mounted ? null : resolvedTheme === "dark" ? "/icon-mark-dark.png" : "/icon-mark-light.png"
 
   // Mientras la sesión carga, user es null -- se trata igual que "sin
-  // permisos" a propósito, para no mostrar el grupo y ocultarlo un
-  // instante después (parpadeo).
+  // permisos"/"sin módulos habilitados" a propósito, para no mostrar ningún
+  // grupo y ocultarlo un instante después (parpadeo).
   const { user } = useAuth()
   const userPermissions = user?.permissions ?? []
   // `permission` acepta un solo código o una lista (OR) -- necesario para
   // ítems accesibles por más de un permiso distinto (ej. "Carga Masiva de
   // Generadores", que un Subgestor ve con `generator_subgestor_relationships.create`
   // y un Gestor con `generator_gestor_relationships.create`).
-  const hasRequiredPermission = (permission: string | string[]) =>
-    Array.isArray(permission)
+  const hasRequiredPermission = (permission?: string | string[]) => {
+    if (!permission) return true
+    return Array.isArray(permission)
       ? permission.some((code) => userPermissions.includes(code))
       : userPermissions.includes(permission)
-  const visibleAdminItems = data.navAdmin.filter((item) => hasRequiredPermission(item.permission))
-  const visibleResiduosItems = data.navResiduos.filter((item) => hasRequiredPermission(item.permission))
-  const visibleCatalogsItems = data.navCatalogs.filter((item) => hasRequiredPermission(item.permission))
+  }
+
+  // Filtrado de DOS capas (reorganización del sidebar en 7 grupos temáticos,
+  // 2026-09-28): (a) la organización del usuario debe tener el módulo
+  // habilitado (`organization_enabled_sidebar_modules`, dato nuevo del
+  // backend en GET /api/user) Y (b) el usuario debe tener al menos uno de
+  // los permisos de algún ítem del grupo (mecanismo de permiso YA existente,
+  // sin cambios de lógica). `is_platform_staff` bypasa SOLO la capa (a) --
+  // staff de plataforma administra cualquier organización, así que el
+  // "módulo habilitado" de una organización ajena no debería esconderle
+  // nada; la capa (b) de permisos sigue aplicando igual.
+  const enabledModules = new Set(user?.organization_enabled_sidebar_modules ?? [])
+  const isModuleEnabledForUser = (code: SidebarModuleCode) => Boolean(user?.is_platform_staff) || enabledModules.has(code)
+
+  const visibleGroups = sidebarModuleGroups
+    .map((group) => ({
+      ...group,
+      items: isModuleEnabledForUser(group.code) ? group.items.filter((item) => hasRequiredPermission(item.permission)) : [],
+    }))
+    .filter((group) => group.items.length > 0)
+
   // Criterio de visibilidad DISTINTO al resto de grupos -- `is_platform_staff`,
-  // no `user.permissions` (ver comentario en `data.navPlatform` arriba).
-  const visiblePlatformItems = user?.is_platform_staff ? data.navPlatform : []
+  // no `user.permissions` ni el mecanismo de módulos (ver `navPlatformItems`
+  // en config/sidebar-nav.tsx).
+  const visiblePlatformItems = user?.is_platform_staff ? navPlatformItems : []
+
+  // Comportamiento tipo "acordeón" (pedido explícito, 2026-09-30): al abrir
+  // una sección, la que estuviera abierta se cierra -- por eso "cuál está
+  // abierta" es UN solo valor compartido entre todos los grupos, no un
+  // estado independiente por grupo (que es como vivía antes, dentro de cada
+  // `NavMain`). Incluye "Plataforma" (clave sintética, no tiene `code` de
+  // módulo); "Inicio" queda fuera, no tiene label ni mecanismo de plegado.
+  const pathname = usePathname()
+  const accordionSections = [
+    ...visibleGroups.map((group) => ({ key: group.code as string, items: group.items })),
+    ...(visiblePlatformItems.length > 0 ? [{ key: "PLATAFORMA", items: visiblePlatformItems }] : []),
+  ]
+  const activeSectionKey = accordionSections.find((section) => findActiveItem(section.items, pathname))?.key ?? null
+
+  // Misma sección auto-desplegada al navegar a ella (ver nav-main.tsx),
+  // ahora a nivel global: ajuste de estado durante el render, no en un
+  // efecto.
+  const [openSection, setOpenSection] = React.useState<string | null>(activeSectionKey)
+  const [lastActiveSectionKey, setLastActiveSectionKey] = React.useState(activeSectionKey)
+  if (activeSectionKey !== lastActiveSectionKey) {
+    setLastActiveSectionKey(activeSectionKey)
+    if (activeSectionKey) setOpenSection(activeSectionKey)
+  }
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -562,7 +122,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <SidebarMenuItem>
             <SidebarMenuButton
               className="data-[slot=sidebar-menu-button]:p-1.5!"
-              render={<a href="/" />}
+              render={<Link href="/" />}
             >
               {iconSrc && <Image src={iconSrc} alt="" width={28} height={18} priority unoptimized />}
               <span className="text-base font-semibold">EcoLink</span>
@@ -571,12 +131,26 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
-        {visibleResiduosItems.length > 0 && <NavMain items={visibleResiduosItems} label="Residuos" />}
-        {visibleCatalogsItems.length > 0 && <NavMain items={visibleCatalogsItems} label="Catálogos" />}
-        {visibleAdminItems.length > 0 && <NavMain items={visibleAdminItems} label="Administración" />}
-        {visiblePlatformItems.length > 0 && <NavMain items={visiblePlatformItems} label="Plataforma" />}
-        <NavSecondary items={data.navSecondary} className="mt-auto" />
+        <NavMain items={navHomeItems} />
+        {visibleGroups.map((group) => (
+          <NavMain
+            key={group.code}
+            items={group.items}
+            label={group.label}
+            colorVar={group.colorVar}
+            isOpen={openSection === group.code}
+            onOpenChange={(open) => setOpenSection(open ? group.code : null)}
+          />
+        ))}
+        {visiblePlatformItems.length > 0 && (
+          <NavMain
+            items={visiblePlatformItems}
+            label="Plataforma"
+            isOpen={openSection === "PLATAFORMA"}
+            onOpenChange={(open) => setOpenSection(open ? "PLATAFORMA" : null)}
+          />
+        )}
+        <NavSecondary items={navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
         <NavUser />
