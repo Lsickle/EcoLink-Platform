@@ -63,6 +63,7 @@ import {
   resetUserPassword,
   revokePermissionFromRole,
   revokeRoleFromUser,
+  setPrimaryBusinessRoleForOrganization,
   updateBranchType,
   updatePreapprovedWaste,
   updateRole,
@@ -1059,6 +1060,43 @@ describe('admin api client', () => {
     await fetchRespelStatuses({ activeOnly: true })
 
     expect(fetchMock.mock.calls[1]![0]).toBe('http://localhost/api/admin/respel-statuses?active_only=true')
+  })
+
+  // Tipo de Organización Primario (2026-09-28) -- POST .../business-roles/
+  // {businessRoleId}/set-primary, mismo patrón EXACTO que assign/revoke de
+  // business-roles (sin body).
+  test('setPrimaryBusinessRoleForOrganization POSTs to the set-primary endpoint with no body', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({})).mockResolvedValueOnce(
+      jsonResponse({ message: 'Tipo de organización primario actualizado.' })
+    )
+
+    const result = await setPrimaryBusinessRoleForOrganization(7, 2)
+
+    const [url, options] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/organizations/7/business-roles/2/set-primary')
+    expect(options.method).toBe('POST')
+    expect(options.body).toBeUndefined()
+    expect(result.message).toBe('Tipo de organización primario actualizado.')
+  })
+
+  // Si el business role no está activo para la organización, el backend
+  // responde 422 -- se propaga tal cual como ApiValidationError, sin
+  // reinterpretar el mensaje (en la práctica no debería ocurrir desde la UI,
+  // ver OrganizationDetailScreen.tsx).
+  test('setPrimaryBusinessRoleForOrganization surfaces the "not assigned" guard as ApiValidationError', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({})).mockResolvedValueOnce(
+      jsonResponse(
+        { message: 'x', errors: { business_role_id: ['Esta organización no tiene ese tipo asignado.'] } },
+        422
+      )
+    )
+
+    const error = await setPrimaryBusinessRoleForOrganization(7, 2).catch((e) => e)
+
+    expect(error).toBeInstanceOf(ApiValidationError)
+    expect((error as ApiValidationError).firstError('business_role_id')).toBe(
+      'Esta organización no tiene ese tipo asignado.'
+    )
   })
 
   // Descarga de archivos (bug real, 2026-09-28): el binario NUNCA pasa por
