@@ -52,6 +52,7 @@ import type {
   AdminTransportRouteDetail,
   AdminTransportSchedule,
   AdminTransportScheduleDetail,
+  AdminTransportScheduleLocalitySummary,
   AdminTreatment,
   AdminTreatmentApproval,
   AdminTreatmentApprovalDetail,
@@ -2738,6 +2739,12 @@ export async function rejectServiceRequestItem(
 // con el GAP DE CONTRATO explícito de `TransportPersonnelController`/
 // `TransportRouteController`, ninguno de los dos existe todavía).
 
+// `date`/`localityId` (vista "Programación por Localidad", mapa de Bogotá):
+// extensión del endpoint ya existente, mismo shape paginado -- `date`
+// acota `scheduled_pickup_at` por el día de calendario en America/Bogota
+// (el backend resuelve el rango UTC explícito, ver docblock de
+// `TransportScheduleController::index()`), `localityId` filtra por la
+// localidad de la sede de origen (`source_branch.locality_id`).
 export async function fetchTransportSchedules(
   params: {
     page?: number
@@ -2745,6 +2752,8 @@ export async function fetchTransportSchedules(
     search?: string
     organizationId?: number | string
     status?: string
+    date?: string
+    localityId?: number | string
   } = {}
 ): Promise<Paginated<AdminTransportSchedule>> {
   const query = buildQuery({
@@ -2753,8 +2762,25 @@ export async function fetchTransportSchedules(
     search: params.search,
     organization_id: params.organizationId,
     status: params.status,
+    date: params.date,
+    locality_id: params.localityId,
   })
   return apiFetch(`/api/admin/transport-schedules${query}`)
+}
+
+// GET /api/admin/transport-schedules/locality-summary -- endpoint nuevo de
+// la vista "Programación por Localidad" (mapa de Bogotá). Devuelve el
+// conteo de programaciones por localidad para una fecha dada, usado para
+// el relleno (choropleth) del mapa -- ver
+// `TransportScheduleController::localitySummary()`. `organizationId`
+// opcional, mismo criterio que el resto de filtros de plataforma (solo
+// platform staff lo usa).
+export async function fetchTransportScheduleLocalitySummary(params: {
+  date: string
+  organizationId?: number | string
+}): Promise<{ data: AdminTransportScheduleLocalitySummary[] }> {
+  const query = buildQuery({ date: params.date, organization_id: params.organizationId })
+  return apiFetch(`/api/admin/transport-schedules/locality-summary${query}`)
 }
 
 export async function fetchTransportSchedule(

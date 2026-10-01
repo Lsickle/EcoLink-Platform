@@ -22,6 +22,7 @@ use App\Services\TransportScheduleWorkflowService;
 use App\Services\UnloadRequestAutomationService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -110,10 +111,24 @@ class TransportScheduleController extends Controller
 {
     use LogsSecurityEvents;
 
+    /**
+     * Vista "Programación por Localidad" (mapa de Bogotá): filtros opcionales
+     * `date` (`Y-m-d`, día calendario en America/Bogota -- ver
+     * `bogotaDayRangeUtc()`) y `locality_id` (vía `sourceBranch.locality_id`,
+     * la sede de recolección -- NUNCA `destinationBranch`, que es la planta
+     * receptora del Gestor). Una sede sin `locality_id` (Medellín/Cali en los
+     * datos demo, ver `DemoOrganizationsSeeder`) simplemente nunca calza con
+     * ningún `locality_id` filtrado -- vacío, no error.
+     */
     public function index(Request $request)
     {
         $actor = $request->user();
         abort_unless((new TransportSchedulePolicy)->viewAny($actor), 403, 'No tiene permiso para consultar programaciones de transporte.');
+
+        $filters = $request->validate([
+            'date' => ['sometimes', 'date_format:Y-m-d'],
+            'locality_id' => ['sometimes', 'integer', 'exists:localities,id'],
+        ]);
 
         $organizationId = $request->input('organization_id');
         $search = $request->input('search');
@@ -126,11 +141,82 @@ class TransportScheduleController extends Controller
             ->when($statusCode, function ($query) use ($statusCode) {
                 $query->whereHas('transportStatus', fn ($query) => $query->where('code', $statusCode));
             })
+            ->when($filters['date'] ?? null, function ($query, $date) {
+                [$start, $end] = $this->bogotaDayRangeUtc($date);
+                $query->where('scheduled_pickup_at', '>=', $start)->where('scheduled_pickup_at', '<', $end);
+            })
+            ->when($filters['locality_id'] ?? null, function ($query, $localityId) {
+                $query->whereHas('sourceBranch', fn ($query) => $query->where('locality_id', $localityId));
+            })
             ->with(['organization:id,legal_name', 'wasteServiceRequest:id,request_code', 'transportStatus', 'vehicle:id,plate_number', 'sourceBranch:id,name', 'destinationBranch:id,name'])
             ->orderByDesc('created_at')
             ->paginate($request->integer('per_page', 15));
 
         return response()->json($schedules);
+    }
+
+    /**
+     * Vista "Programación por Localidad": `GET
+     * /api/admin/transport-schedules/locality-summary?date=YYYY-MM-DD[&organization_id=]`.
+     * Devuelve `{"data": [{"locality_id": N, "count": N}]}` -- conteo de
+     * `transport_schedules` por `locality_id` de la sede de origen, para UN
+     * día calendario en America/Bogota. Incluye TODOS los estados (CANC/FIN
+     * incluidos, ver docblock de la clase) -- el panel derecho del mapa las
+     * distingue con badge, no las oculta. Mismo scoping tenant-vs-platform-
+     * staff que `index()`.
+     *
+     * `join` (no `whereHas`) porque necesita `GROUP BY` sobre una columna de
+     * la tabla relacionada (`branches.locality_id`) -- `whereHas` no expone
+     * eso limpiamente. Todas las referencias de columna se califican con el
+     * nombre de tabla (`transport_schedules.organization_id`, no
+     * `organization_id` a secas) porque `branches` también tiene una columna
+     * `organization_id` propia -- sin calificar, Postgres la rechaza como
+     * ambigua.
+     */
+    public function localitySummary(Request $request)
+    {
+        $actor = $request->user();
+        abort_unless((new TransportSchedulePolicy)->viewAny($actor), 403, 'No tiene permiso para consultar programaciones de transporte.');
+
+        $data = $request->validate([
+            'date' => ['required', 'date_format:Y-m-d'],
+            'organization_id' => ['sometimes', 'integer', 'exists:organizations,id'],
+        ]);
+
+        [$start, $end] = $this->bogotaDayRangeUtc($data['date']);
+        $organizationId = $data['organization_id'] ?? null;
+
+        $rows = TransportSchedule::query()
+            ->join('branches', 'branches.id', '=', 'transport_schedules.source_branch_id')
+            ->whereNotNull('branches.locality_id')
+            ->when($actor->isPlatformStaff(), fn ($query) => $query->when($organizationId, fn ($query) => $query->where('transport_schedules.organization_id', $organizationId)))
+            ->when(! $actor->isPlatformStaff(), fn ($query) => $query->where('transport_schedules.organization_id', $actor->tenant_organization_id))
+            ->where('transport_schedules.scheduled_pickup_at', '>=', $start)
+            ->where('transport_schedules.scheduled_pickup_at', '<', $end)
+            ->groupBy('branches.locality_id')
+            ->selectRaw('branches.locality_id as locality_id, count(*) as count')
+            ->get()
+            ->map(fn ($row) => ['locality_id' => (int) $row->locality_id, 'count' => (int) $row->count])
+            ->values();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    /**
+     * Convierte un día calendario `Y-m-d` interpretado en America/Bogota a su
+     * rango `[inicio, fin)` en UTC -- riesgo real de correctitud (no
+     * hipotético): un Carbon con tz Bogotá serializado hacia Postgres SIN
+     * `->utc()` explícito desfasa 5 horas contra `scheduled_pickup_at`
+     * (TIMESTAMPTZ). Compartido por `index()`/`localitySummary()`.
+     *
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function bogotaDayRangeUtc(string $date): array
+    {
+        $start = Carbon::createFromFormat('Y-m-d', $date, 'America/Bogota')->startOfDay();
+        $end = (clone $start)->addDay();
+
+        return [$start->utc(), $end->utc()];
     }
 
     public function show(Request $request, TransportSchedule $schedule)

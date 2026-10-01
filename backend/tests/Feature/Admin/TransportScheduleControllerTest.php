@@ -3,6 +3,7 @@
 use App\Models\Branch;
 use App\Models\BusinessRole;
 use App\Models\GestorCarrierAuthorization;
+use App\Models\Locality;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
 use App\Models\Role;
@@ -33,6 +34,8 @@ use Database\Seeders\ServiceStatusSeeder;
 use Database\Seeders\TransportScheduleWorkflowSeeder;
 use Database\Seeders\TransportStatusSeeder;
 use Database\Seeders\UnloadRequestStatusSeeder;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 // Módulo Programación Logística, Fase 2a (D-PRG-01 a D-PRG-14) --
 // TransportScheduleController + TransportScheduleWorkflowService. Mismo
@@ -217,6 +220,39 @@ function tsStorePayload(WasteServiceRequest $serviceRequest, WasteServiceRequest
             ['waste_service_request_item_id' => $item->id, 'scheduled_quantity' => 50],
         ],
     ];
+}
+
+/**
+ * Crea una `TransportSchedule` directamente en BD (sin pasar por el
+ * endpoint `store()`) -- building block reutilizado por los tests de
+ * filtros `date`/`locality_id` e `localitySummary()`, donde lo relevante
+ * es `source_branch_id`/`scheduled_pickup_at`/estado, no el ciclo completo
+ * de validación de `store()` (ya cubierto por los tests de arriba).
+ * `$statusCode` por defecto `BOR` (estado inicial real de `store()`).
+ */
+function tsCreateSchedule(Organization $gestor, Branch $sourceBranch, Branch $destinationBranch, WasteServiceRequestItem $item, Carbon $scheduledPickupAt, string $statusCode = 'BOR'): TransportSchedule
+{
+    $vehicle = Vehicle::factory()->create(['organization_id' => $gestor->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $statusId = TransportStatus::query()->where('code', $statusCode)->value('id');
+
+    $schedule = new TransportSchedule;
+    $schedule->fill([
+        'tenant_organization_id' => $gestor->id,
+        'organization_id' => $gestor->id,
+        'waste_service_request_id' => $item->service_request_id,
+        'schedule_number' => 'PRG-TEST-'.Str::upper(Str::random(10)),
+        'source_branch_id' => $sourceBranch->id,
+        'destination_branch_id' => $destinationBranch->id,
+        'vehicle_id' => $vehicle->id,
+        'transport_personnel_id' => $personnel->id,
+        'scheduled_pickup_at' => $scheduledPickupAt,
+        'is_active' => true,
+    ]);
+    $schedule->forceFill(['transport_status_id' => $statusId]);
+    $schedule->save();
+
+    return $schedule;
 }
 
 // ---- store(): creación válida + anti-IDOR + doble-programación ----
@@ -1104,4 +1140,264 @@ test('un actor con SOLO el rol LOGÍSTICA real (sembrado por RolePermissionSeede
     $this->actingAs($actor)->postJson("/api/admin/transport-schedules/{$schedule->id}/cancel")
         ->assertOk()
         ->assertJsonPath('transport_schedule.transport_status.code', 'CANC');
+});
+
+// ---- Vista "Programación por Localidad": index() filtros date/locality_id + localitySummary() ----
+
+/**
+ * Regresión de timezone explícita (el riesgo de correctitud más alto de
+ * este lote): 23:30 hora Bogotá del 15 de marzo == 04:30 UTC del 16 de
+ * marzo (Bogotá es UTC-5 fijo, sin horario de verano). Filtrar por
+ * `date=2026-03-15` (día calendario en Bogotá) DEBE incluir esta
+ * programación; filtrar por `date=2026-03-16` (el día en que cae en UTC)
+ * NO debe incluirla -- si `bogotaDayRangeUtc()` comparara sin convertir a
+ * UTC explícitamente, este test fallaría al revés.
+ */
+test('index() filtra por date usando el día calendario en America/Bogota (23:30 Bogota = 04:30 UTC del día siguiente)', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $locality = Locality::factory()->create();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id, 'locality_id' => $locality->id]);
+    $destination = Branch::factory()->create(['organization_id' => $gestor->id]);
+    [, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $scheduledAt = Carbon::parse('2026-03-15 23:30:00', 'America/Bogota');
+    $schedule = tsCreateSchedule($gestor, $branch, $destination, $item, $scheduledAt);
+
+    $actor = tsActor(['transport_schedules.read'], $gestor->id);
+
+    $sameDay = $this->actingAs($actor)->getJson('/api/admin/transport-schedules?date=2026-03-15')->assertOk();
+    expect(collect($sameDay->json('data'))->pluck('id'))->toContain($schedule->id);
+
+    $nextDayUtc = $this->actingAs($actor)->getJson('/api/admin/transport-schedules?date=2026-03-16')->assertOk();
+    expect(collect($nextDayUtc->json('data'))->pluck('id'))->not->toContain($schedule->id);
+});
+
+test('index() filtra por locality_id vía la localidad de la sede de origen (source_branch_id -> locality_id)', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $localityA = Locality::factory()->create();
+    $localityB = Locality::factory()->create();
+    $branchA = Branch::factory()->create(['organization_id' => $generator->id, 'locality_id' => $localityA->id]);
+    $branchB = Branch::factory()->create(['organization_id' => $generator->id, 'locality_id' => $localityB->id]);
+    $destination = Branch::factory()->create(['organization_id' => $gestor->id]);
+
+    [, $itemA] = tsAcceptedItemFixture($generator, $gestor, $branchA);
+    [, $itemB] = tsAcceptedItemFixture($generator, $gestor, $branchB);
+
+    $scheduleA = tsCreateSchedule($gestor, $branchA, $destination, $itemA, now());
+    $scheduleB = tsCreateSchedule($gestor, $branchB, $destination, $itemB, now());
+
+    $actor = tsActor(['transport_schedules.read'], $gestor->id);
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/transport-schedules?locality_id={$localityA->id}")->assertOk();
+    $ids = collect($response->json('data'))->pluck('id');
+
+    expect($ids)->toContain($scheduleA->id)->not->toContain($scheduleB->id);
+});
+
+test('index() combina date + locality_id (intersección, no unión)', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $localityA = Locality::factory()->create();
+    $localityB = Locality::factory()->create();
+    $branchA = Branch::factory()->create(['organization_id' => $generator->id, 'locality_id' => $localityA->id]);
+    $branchB = Branch::factory()->create(['organization_id' => $generator->id, 'locality_id' => $localityB->id]);
+    $destination = Branch::factory()->create(['organization_id' => $gestor->id]);
+
+    [, $itemMatch] = tsAcceptedItemFixture($generator, $gestor, $branchA);
+    [, $itemWrongLocality] = tsAcceptedItemFixture($generator, $gestor, $branchB);
+    [, $itemWrongDate] = tsAcceptedItemFixture($generator, $gestor, $branchA);
+
+    $targetDate = Carbon::parse('2026-05-10 09:00:00', 'America/Bogota');
+    $otherDate = Carbon::parse('2026-05-11 09:00:00', 'America/Bogota');
+
+    $match = tsCreateSchedule($gestor, $branchA, $destination, $itemMatch, $targetDate);
+    $wrongLocality = tsCreateSchedule($gestor, $branchB, $destination, $itemWrongLocality, $targetDate);
+    $wrongDate = tsCreateSchedule($gestor, $branchA, $destination, $itemWrongDate, $otherDate);
+
+    $actor = tsActor(['transport_schedules.read'], $gestor->id);
+
+    $response = $this->actingAs($actor)
+        ->getJson("/api/admin/transport-schedules?date=2026-05-10&locality_id={$localityA->id}")
+        ->assertOk();
+
+    $ids = collect($response->json('data'))->pluck('id');
+
+    expect($ids)->toContain($match->id)
+        ->not->toContain($wrongLocality->id)
+        ->not->toContain($wrongDate->id);
+});
+
+test('index() con locality_id retorna vacío sin error cuando la sede de origen no tiene locality_id (p. ej. Medellín/Cali)', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $branchWithoutLocality = Branch::factory()->create(['organization_id' => $generator->id, 'locality_id' => null]);
+    $destination = Branch::factory()->create(['organization_id' => $gestor->id]);
+    [, $item] = tsAcceptedItemFixture($generator, $gestor, $branchWithoutLocality);
+
+    tsCreateSchedule($gestor, $branchWithoutLocality, $destination, $item, now());
+
+    $unrelatedLocality = Locality::factory()->create();
+    $actor = tsActor(['transport_schedules.read'], $gestor->id);
+
+    $response = $this->actingAs($actor)
+        ->getJson("/api/admin/transport-schedules?locality_id={$unrelatedLocality->id}")
+        ->assertOk();
+
+    expect($response->json('total'))->toBe(0);
+});
+
+test('index() con date/locality_id preserva el aislamiento tenant-vs-platform-staff', function () {
+    $generatorA = tsGeneratorOrganization();
+    $gestorA = tsGestorOrganization();
+    $locality = Locality::factory()->create();
+    $branchA = Branch::factory()->create(['organization_id' => $generatorA->id, 'locality_id' => $locality->id]);
+    $destinationA = Branch::factory()->create(['organization_id' => $gestorA->id]);
+    [, $itemA] = tsAcceptedItemFixture($generatorA, $gestorA, $branchA);
+
+    $generatorB = tsGeneratorOrganization();
+    $gestorB = tsGestorOrganization();
+    $branchB = Branch::factory()->create(['organization_id' => $generatorB->id, 'locality_id' => $locality->id]);
+    $destinationB = Branch::factory()->create(['organization_id' => $gestorB->id]);
+    [, $itemB] = tsAcceptedItemFixture($generatorB, $gestorB, $branchB);
+
+    $date = Carbon::parse('2026-05-10 09:00:00', 'America/Bogota');
+    $scheduleA = tsCreateSchedule($gestorA, $branchA, $destinationA, $itemA, $date);
+    tsCreateSchedule($gestorB, $branchB, $destinationB, $itemB, $date);
+
+    $actorA = tsActor(['transport_schedules.read'], $gestorA->id);
+
+    $response = $this->actingAs($actorA)
+        ->getJson("/api/admin/transport-schedules?date=2026-05-10&locality_id={$locality->id}")
+        ->assertOk();
+
+    expect($response->json('total'))->toBe(1)
+        ->and(collect($response->json('data'))->pluck('id'))->toContain($scheduleA->id);
+});
+
+// ---- localitySummary(): conteo agrupado por locality_id ----
+
+test('localitySummary() agrupa conteos por locality_id para la fecha dada (incluye CANC/FIN)', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $localityA = Locality::factory()->create();
+    $localityB = Locality::factory()->create();
+    $branchA = Branch::factory()->create(['organization_id' => $generator->id, 'locality_id' => $localityA->id]);
+    $branchB = Branch::factory()->create(['organization_id' => $generator->id, 'locality_id' => $localityB->id]);
+    $destination = Branch::factory()->create(['organization_id' => $gestor->id]);
+
+    [, $item1] = tsAcceptedItemFixture($generator, $gestor, $branchA);
+    [, $item2] = tsAcceptedItemFixture($generator, $gestor, $branchA);
+    [, $item3] = tsAcceptedItemFixture($generator, $gestor, $branchB);
+
+    $date = Carbon::parse('2026-05-10 10:00:00', 'America/Bogota');
+    tsCreateSchedule($gestor, $branchA, $destination, $item1, $date);
+    tsCreateSchedule($gestor, $branchA, $destination, $item2, $date, 'CANC');
+    tsCreateSchedule($gestor, $branchB, $destination, $item3, $date);
+
+    $actor = tsActor(['transport_schedules.read'], $gestor->id);
+
+    $response = $this->actingAs($actor)
+        ->getJson('/api/admin/transport-schedules/locality-summary?date=2026-05-10')
+        ->assertOk();
+
+    $data = collect($response->json('data'))->keyBy('locality_id');
+
+    expect($data[$localityA->id]['count'])->toBe(2)
+        ->and($data[$localityB->id]['count'])->toBe(1);
+});
+
+test('localitySummary() respeta el aislamiento tenant; platform staff ve todas y puede filtrar por organization_id', function () {
+    $generatorA = tsGeneratorOrganization();
+    $gestorA = tsGestorOrganization();
+    $locality = Locality::factory()->create();
+    $branchA = Branch::factory()->create(['organization_id' => $generatorA->id, 'locality_id' => $locality->id]);
+    $destinationA = Branch::factory()->create(['organization_id' => $gestorA->id]);
+    [, $itemA] = tsAcceptedItemFixture($generatorA, $gestorA, $branchA);
+
+    $generatorB = tsGeneratorOrganization();
+    $gestorB = tsGestorOrganization();
+    $branchB = Branch::factory()->create(['organization_id' => $generatorB->id, 'locality_id' => $locality->id]);
+    $destinationB = Branch::factory()->create(['organization_id' => $gestorB->id]);
+    [, $itemB] = tsAcceptedItemFixture($generatorB, $gestorB, $branchB);
+
+    $date = Carbon::parse('2026-05-10 10:00:00', 'America/Bogota');
+    tsCreateSchedule($gestorA, $branchA, $destinationA, $itemA, $date);
+    tsCreateSchedule($gestorB, $branchB, $destinationB, $itemB, $date);
+
+    $actorA = tsActor(['transport_schedules.read'], $gestorA->id);
+    $onlyA = $this->actingAs($actorA)->getJson('/api/admin/transport-schedules/locality-summary?date=2026-05-10')->assertOk();
+    expect(collect($onlyA->json('data'))->keyBy('locality_id')[$locality->id]['count'])->toBe(1);
+
+    $platformActor = tsPlatformStaffActor(['transport_schedules.read']);
+    $allView = $this->actingAs($platformActor)->getJson('/api/admin/transport-schedules/locality-summary?date=2026-05-10')->assertOk();
+    expect(collect($allView->json('data'))->keyBy('locality_id')[$locality->id]['count'])->toBe(2);
+
+    $filteredView = $this->actingAs($platformActor)
+        ->getJson("/api/admin/transport-schedules/locality-summary?date=2026-05-10&organization_id={$gestorA->id}")
+        ->assertOk();
+    expect(collect($filteredView->json('data'))->keyBy('locality_id')[$locality->id]['count'])->toBe(1);
+});
+
+test('localitySummary() rechaza (403) sin el permiso transport_schedules.read', function () {
+    $actor = tsActor();
+
+    $this->actingAs($actor)
+        ->getJson('/api/admin/transport-schedules/locality-summary?date=2026-05-10')
+        ->assertForbidden();
+});
+
+test('localitySummary() exige date en formato Y-m-d (422 sin date o con formato inválido)', function () {
+    $gestor = tsGestorOrganization();
+    $actor = tsActor(['transport_schedules.read'], $gestor->id);
+
+    $this->actingAs($actor)
+        ->getJson('/api/admin/transport-schedules/locality-summary')
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('date');
+
+    $this->actingAs($actor)
+        ->getJson('/api/admin/transport-schedules/locality-summary?date=15-03-2026')
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('date');
+});
+
+test('localitySummary() ignora programaciones cuya sede de origen no tiene locality_id (no contamina el resumen)', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $branchWithoutLocality = Branch::factory()->create(['organization_id' => $generator->id, 'locality_id' => null]);
+    $destination = Branch::factory()->create(['organization_id' => $gestor->id]);
+    [, $item] = tsAcceptedItemFixture($generator, $gestor, $branchWithoutLocality);
+
+    $date = Carbon::parse('2026-05-10 10:00:00', 'America/Bogota');
+    tsCreateSchedule($gestor, $branchWithoutLocality, $destination, $item, $date);
+
+    $actor = tsActor(['transport_schedules.read'], $gestor->id);
+
+    $response = $this->actingAs($actor)
+        ->getJson('/api/admin/transport-schedules/locality-summary?date=2026-05-10')
+        ->assertOk();
+
+    expect($response->json('data'))->toBe([]);
+});
+
+/**
+ * Verificación explícita de orden de rutas (D-PRG, ver `routes/api.php`):
+ * `GET transport-schedules/locality-summary` debe resolver a
+ * `localitySummary()`, NO ser capturada por el route-model-binding de
+ * `GET transport-schedules/{schedule}` -- si lo fuera, Laravel intentaría
+ * resolver un `TransportSchedule` con id/uuid literal `"locality-summary"`
+ * y esta respuesta sería un 404 (`ModelNotFoundException`) o un 500, nunca
+ * un 200 con la forma `{"data": [...]}`.
+ */
+test('GET transport-schedules/locality-summary no es capturada por el route-model-binding de {schedule}', function () {
+    $gestor = tsGestorOrganization();
+    $actor = tsActor(['transport_schedules.read'], $gestor->id);
+
+    $response = $this->actingAs($actor)
+        ->getJson('/api/admin/transport-schedules/locality-summary?date=2026-05-10')
+        ->assertOk();
+
+    expect($response->json())->toHaveKey('data');
 });

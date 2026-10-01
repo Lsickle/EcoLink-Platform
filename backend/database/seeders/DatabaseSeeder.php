@@ -166,6 +166,15 @@ class DatabaseSeeder extends Seeder
         $this->call(TransportStatusSeeder::class);
         $this->call(TransportScheduleWorkflowSeeder::class);
 
+        // Vista "Programación por Localidad" (mapa de Bogotá): datos demo de
+        // `transport_schedules` repartidos en 6 localidades (Chapinero + 5
+        // sedes nuevas de Immetal) -- debe correr DESPUÉS de
+        // DemoOrganizationsSeeder, DemoVehiclesSeeder,
+        // DemoBranchTreatmentsSeeder, LocalitySeeder (todos ya sembrados
+        // arriba) y TransportStatusSeeder/TransportScheduleWorkflowSeeder
+        // (recién sembrados). Ver docblock de DemoTransportSchedulesSeeder.
+        $this->call(DemoTransportSchedulesSeeder::class);
+
         // Módulo Manifiesto de Cargue, Fase 3: catálogo BASE
         // "manifest_statuses" (8 filas, bajo la organización PLATAFORMA --
         // debe correr DESPUÉS de PlatformOrganizationSeeder, ya sembrado

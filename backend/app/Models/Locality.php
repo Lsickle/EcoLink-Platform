@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 // esquema-bd (D-P01, geografía en cascada): localities. Solo aplica a
 // Bogotá D.C. en la práctica. Catálogo de solo lectura -- sin SoftDeletes
@@ -28,5 +29,16 @@ class Locality extends Model
     public function municipality(): BelongsTo
     {
         return $this->belongsTo(Municipality::class);
+    }
+
+    /**
+     * Relación inversa que faltaba (gap documentado en esquema-bd) --
+     * `branches.locality_id`, mismo patrón que `Municipality`/`Department`.
+     * Usada por la Vista "Programación por Localidad" (mapa de Bogotá) para
+     * resolver, a partir de una localidad, sus sedes registradas.
+     */
+    public function branches(): HasMany
+    {
+        return $this->hasMany(Branch::class);
     }
 }

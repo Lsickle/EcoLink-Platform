@@ -43,6 +43,8 @@ import {
   fetchInvitationRequests,
   fetchLocalities,
   fetchMunicipalities,
+  fetchTransportSchedules,
+  fetchTransportScheduleLocalitySummary,
   fetchPermission,
   fetchPermissionActivity,
   fetchPermissionMatrixByModule,
@@ -756,6 +758,32 @@ describe('admin api client', () => {
 
     const [url] = fetchMock.mock.calls[1]!
     expect(url).toBe('http://localhost/api/admin/localities?municipality_id=11001')
+  })
+
+  // Vista "Programación por Localidad" (mapa de Bogotá) -- extensión de
+  // fetchTransportSchedules() con `date`/`locality_id` (mismo endpoint ya
+  // existente) + el nuevo endpoint `locality-summary`.
+  test('fetchTransportSchedules forwards date and localityId as date/locality_id query params', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ data: [], current_page: 1, last_page: 1, total: 0, per_page: 15 }))
+
+    await fetchTransportSchedules({ date: '2026-09-30', localityId: 3 })
+
+    const [url] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/transport-schedules?date=2026-09-30&locality_id=3')
+  })
+
+  test('fetchTransportScheduleLocalitySummary requests the locality-summary endpoint with date and optional organizationId', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ locality_id: 2, count: 4 }] }))
+
+    const result = await fetchTransportScheduleLocalitySummary({ date: '2026-09-30', organizationId: 7 })
+
+    const [url] = fetchMock.mock.calls[1]!
+    expect(url).toBe('http://localhost/api/admin/transport-schedules/locality-summary?date=2026-09-30&organization_id=7')
+    expect(result).toEqual({ data: [{ locality_id: 2, count: 4 }] })
   })
 
   test('activateLocality/deactivateLocality POST to their respective endpoints', async () => {

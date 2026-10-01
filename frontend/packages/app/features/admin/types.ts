@@ -551,10 +551,21 @@ export type AdminMunicipality = {
 // Solo Bogotá D.C. tiene localidades pobladas hoy (ver LocalitySeeder) --
 // el catálogo/filtro sigue siendo genérico por `municipality_id`, no
 // hardcodeado a Bogotá.
+//
+// `code` (columna real -- ver migración `2026_07_14_000006_create_localities_table`
+// y `App\Models\Locality`, NO reflejada en el esquema-bd DRAFT, que quedó
+// desactualizado en este punto): string sin cero a la izquierda ("1".."20",
+// ver `LocalitySeeder`/`data_localities.json`), NULLABLE en la columna.
+// Consumido por "Programación por Localidad" (mapa de Bogotá) para mapear
+// contra `LocCodigo` del GeoJSON oficial ("01".."20", CON cero a la
+// izquierda) -- comparar siempre por `Number(code) === Number(LocCodigo)`,
+// nunca por string ni por nombre (tildes/mayúsculas inconsistentes entre
+// fuentes).
 export type AdminLocality = {
   id: number
   uuid: string
   municipality_id: number
+  code: string | null
   name: string
   is_active: boolean
   created_at: string
@@ -2975,6 +2986,16 @@ export type AdminTransportSchedule = {
   vehicle?: { id: number; plate_number: string }
   source_branch?: { id: number; name: string }
   destination_branch?: { id: number; name: string }
+}
+
+// Fila de `GET /api/admin/transport-schedules/locality-summary` -- vista
+// "Programación por Localidad" (mapa de Bogotá). Incluye TODAS las
+// programaciones del día (canceladas incluidas, ver docblock del
+// controller) -- el panel derecho las distingue con badge de estado, no
+// las oculta del conteo.
+export type AdminTransportScheduleLocalitySummary = {
+  locality_id: number
+  count: number
 }
 
 // Ítem de la programación (`transport_schedule_items`) -- ver migración
