@@ -138,38 +138,54 @@ describe('WasteWizard', () => {
     vi.clearAllMocks()
   })
 
-  test('creates the waste on "Siguiente" from Step 1 and advances to Step 2', async () => {
+  test('creates the waste on "Siguiente" from Paso 1 and advances to Paso 2', async () => {
     createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
     render(<WasteWizard />)
 
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
     fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
     fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
 
     await vi.waitFor(() => {
       expect(createWasteMock).toHaveBeenCalledWith(expect.objectContaining({ name: 'Aceite Lubricante Usado' }))
     })
-    await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
+    await screen.findByRole('heading', { name: 'Paso 2 de 3 — Información de Generación' })
   })
 
   test('"Residuo Existente" and "Residuo Preaprobado" cards are disabled with a "Próximamente" hint', async () => {
     render(<WasteWizard />)
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
 
     expect(screen.getByRole('radio', { name: /Residuo Existente/ })).toBeDisabled()
     expect(screen.getByRole('radio', { name: /Residuo Preaprobado/ })).toBeDisabled()
   })
 
-  test('Step 2: adding a Y stream chip and syncing on "Siguiente"', async () => {
+  // Paso 1 fusionado (Identificación + Caracterización, RN transversal de
+  // este lote de UI): Corrientes Regulatorias y Características de
+  // Peligrosidad ya no viven en un paso aparte -- se muestran junto al resto
+  // de la identificación del residuo, sin necesitar un "Siguiente" previo.
+  test('Paso 1 fusionado: muestra Corrientes Regulatorias y Características de Peligrosidad sin navegación previa', async () => {
+    render(<WasteWizard />)
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
+
+    expect(screen.getByText('CORRIENTES REGULATORIAS')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '+ Agregar Y' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '+ Agregar A' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '+ Agregar UN' })).toBeInTheDocument()
+    expect(screen.getByText('CARACTERÍSTICAS DE PELIGROSIDAD')).toBeInTheDocument()
+    expect(await screen.findByText('Tóxico')).toBeInTheDocument()
+  })
+
+  // Corrientes/Peligrosidad ya no requieren un "Siguiente" previo -- se
+  // interactúa directo sobre el Paso 1 fusionado.
+  test('Paso 1: agregar una corriente Y sincroniza al hacer click en "Siguiente"', async () => {
     createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
     syncWasteWasteStreamsMock.mockResolvedValue({ waste: { id: 50, waste_hazard_characteristics: [], waste_danger: null } })
     updateWasteMock.mockResolvedValue({ waste: { id: 50 } })
     render(<WasteWizard />)
 
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
     fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
-    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
-    await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
 
     fireEvent.click(screen.getByRole('combobox', { name: '+ Agregar Y' }))
     const option = await screen.findByRole('option', { name: /Y8/ })
@@ -180,26 +196,26 @@ describe('WasteWizard', () => {
     await vi.waitFor(() => {
       expect(syncWasteWasteStreamsMock).toHaveBeenCalledWith(50, [1])
     })
-    await screen.findByRole('heading', { name: 'Paso 3 de 5 — Información de Generación' })
+    await screen.findByRole('heading', { name: 'Paso 2 de 3 — Información de Generación' })
   })
 
-  // Cambio 2 (declaración de residuos): en el Paso 3 solo se pide cantidad
+  // Cambio 2 (declaración de residuos): en el Paso 2 solo se pide cantidad
   // estimada + unidad + frecuencia de generación -- "Fecha de Generación" y
   // "Peso Promedio" no tienen sentido en el acto de DECLARAR el residuo (no
   // se ha generado todavía), y ambas columnas son nullable en el backend.
-  test('Step 3: no longer asks for "Fecha de Generación" or "Peso Promedio"', async () => {
+  // Sede se movió al Paso 1 (junto a Organización) -- ya no vive aquí.
+  test('Paso 2: ya no pide "Fecha de Generación" ni "Peso Promedio", y Sede ya no está aquí', async () => {
     createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
     render(<WasteWizard />)
 
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
     fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
     fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
-    await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
-    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
-    await screen.findByRole('heading', { name: 'Paso 3 de 5 — Información de Generación' })
+    await screen.findByRole('heading', { name: 'Paso 2 de 3 — Información de Generación' })
 
     expect(screen.queryByLabelText(/Fecha de Generación/)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/Peso Promedio/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Sede Generadora *')).not.toBeInTheDocument()
     expect(screen.getByLabelText(/Referencia Interna/)).toBeInTheDocument()
 
     await vi.waitFor(() => {
@@ -236,16 +252,14 @@ describe('WasteWizard', () => {
     }
   }
 
-  test('Step 2: adding the first stream auto-saves the draft and checks for preapproved matches', async () => {
+  test('Paso 1: agregar la primera corriente auto-guarda el borrador y revisa tratamientos preaprobados', async () => {
     createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
     syncWasteWasteStreamsMock.mockResolvedValue({ waste: { id: 50, waste_hazard_characteristics: [], waste_danger: null } })
     fetchWastePreapprovedMatchesMock.mockResolvedValue({ matches: [preapprovedMatch()] })
 
     render(<WasteWizard />)
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
     fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
-    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
-    await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
 
     fireEvent.click(screen.getByRole('combobox', { name: '+ Agregar Y' }))
     const option = await screen.findByRole('option', { name: /Y8/ })
@@ -258,13 +272,11 @@ describe('WasteWizard', () => {
     expect(screen.getByText(/Reciclaje/)).toBeInTheDocument()
   })
 
-  test('Step 2: does not show a card when there are no preapproved matches', async () => {
+  test('Paso 1: no muestra la tarjeta cuando no hay tratamientos preaprobados', async () => {
     createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
     render(<WasteWizard />)
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
     fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
-    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
-    await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
 
     fireEvent.click(screen.getByRole('combobox', { name: '+ Agregar Y' }))
     const option = await screen.findByRole('option', { name: /Y8/ })
@@ -276,16 +288,14 @@ describe('WasteWizard', () => {
     expect(screen.queryByText('Tratamiento Preaprobado Detectado')).not.toBeInTheDocument()
   })
 
-  test('Step 2: "Usar este tratamiento" calls usePreapprovedTreatmentMatch and shows the pending-confirmation message', async () => {
+  test('Paso 1: "Usar este tratamiento" calls usePreapprovedTreatmentMatch and shows the pending-confirmation message', async () => {
     createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
     fetchWastePreapprovedMatchesMock.mockResolvedValue({ matches: [preapprovedMatch()] })
     usePreapprovedTreatmentMatchMock.mockResolvedValue({ treatment_approval: { id: 100 } })
 
     render(<WasteWizard />)
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
     fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
-    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
-    await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
 
     fireEvent.click(screen.getByRole('combobox', { name: '+ Agregar Y' }))
     const option = await screen.findByRole('option', { name: /Y8/ })
@@ -298,6 +308,41 @@ describe('WasteWizard', () => {
       expect(usePreapprovedTreatmentMatchMock).toHaveBeenCalledWith(50, 42)
     })
     expect(await screen.findByText(/debe confirmarla/i)).toBeInTheDocument()
+  })
+
+  // Riesgo menor cubierto en la fusión del Paso 1: Corrientes/Peligrosidad y
+  // Organización conviven ahora en la misma página, sin orden forzado. Si un
+  // platform staff agrega una corriente ANTES de elegir organización, el
+  // efecto de "Tratamiento Preaprobado Detectado" debe esperar a que la
+  // organización esté resuelta antes de marcar el chequeo como "gastado"
+  // (`preapprovedCheckedRef`) -- de lo contrario, el chequeo quedaría
+  // consumido para siempre en esa sesión aunque el usuario elija la
+  // organización después.
+  test('Paso 1 (platform staff): agregar una corriente antes de elegir Organización no deja "gastado" el chequeo de preaprobados', async () => {
+    currentUser = { id: 1, is_platform_staff: true, permissions: ['wastes.create', 'wastes.update'] }
+    createWasteMock.mockResolvedValue({ waste: { id: 50, name: '' } })
+    syncWasteWasteStreamsMock.mockResolvedValue({ waste: { id: 50, waste_hazard_characteristics: [], waste_danger: null } })
+    fetchWastePreapprovedMatchesMock.mockResolvedValue({ matches: [preapprovedMatch()] })
+
+    render(<WasteWizard />)
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
+
+    fireEvent.click(screen.getByRole('combobox', { name: '+ Agregar Y' }))
+    const option = await screen.findByRole('option', { name: /Y8/ })
+    fireEvent.click(option)
+
+    // Sin organización todavía: el guard debe impedir que `persistCore()` se
+    // dispare (y por lo tanto que el chequeo se marque como hecho).
+    expect(createWasteMock).not.toHaveBeenCalled()
+
+    const input = screen.getByLabelText('Organización')
+    fireEvent.focus(input)
+    fireEvent.click(await screen.findByText(/Hospital San José/))
+
+    await vi.waitFor(() => {
+      expect(fetchWastePreapprovedMatchesMock).toHaveBeenCalledWith(50)
+    })
+    expect(await screen.findByText('Tratamiento Preaprobado Detectado')).toBeInTheDocument()
   })
 
   test('resumes an existing draft: loads the waste and prefills Step 1 fields', async () => {
@@ -351,26 +396,144 @@ describe('WasteWizard', () => {
     expect(await screen.findByDisplayValue('Solvente Usado')).toBeInTheDocument()
   })
 
+  // Preselección de Categoría de Residuo/Estado Físico (agiliza la captura,
+  // sin RN de negocio asociada -- pedido explícito de UX). Códigos
+  // verificados contra los seeders reales (`WasteCategorySeeder`/
+  // `PhysicalStateSeeder`): 'APROVECHABLE' y 'SOLIDO' (sin tilde).
+  test('Paso 1: preselecciona la Categoría "Aprovechable" al crear un residuo nuevo', async () => {
+    fetchWasteCategoriesMock.mockResolvedValue({
+      ...emptyPage,
+      data: [
+        catalogItem({ id: 1, uuid: 'wc-1', code: 'INDUSTRIAL', name: 'Industrial' }),
+        catalogItem({ id: 2, uuid: 'wc-2', code: 'APROVECHABLE', name: 'Aprovechable' }),
+      ],
+    })
+    render(<WasteWizard />)
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
+
+    expect(await screen.findByRole('combobox', { name: 'Categoría de Residuo *' })).toHaveTextContent('Aprovechable')
+  })
+
+  test('Paso 1: preselecciona el Estado Físico "Sólido" al crear un residuo nuevo', async () => {
+    fetchPhysicalStatesMock.mockResolvedValue({
+      ...emptyPage,
+      data: [
+        { id: 1, uuid: 'ps-1', code: 'LIQUID', name: 'Líquido', is_system: true, is_active: true, created_at: '', updated_at: '' },
+        { id: 2, uuid: 'ps-2', code: 'SOLIDO', name: 'Sólido', is_system: true, is_active: true, created_at: '', updated_at: '' },
+      ],
+    })
+    render(<WasteWizard />)
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
+
+    expect(await screen.findByRole('combobox', { name: 'Estado Físico' })).toHaveTextContent('Sólido')
+  })
+
+  test('al reanudar un borrador con Categoría/Estado Físico ya asignados, no se sobreescriben con los defaults', async () => {
+    fetchWasteCategoriesMock.mockResolvedValue({
+      ...emptyPage,
+      data: [
+        catalogItem({ id: 1, uuid: 'wc-1', code: 'INDUSTRIAL', name: 'Industrial' }),
+        catalogItem({ id: 2, uuid: 'wc-2', code: 'APROVECHABLE', name: 'Aprovechable' }),
+      ],
+    })
+    fetchPhysicalStatesMock.mockResolvedValue({
+      ...emptyPage,
+      data: [
+        { id: 1, uuid: 'ps-1', code: 'LIQUID', name: 'Líquido', is_system: true, is_active: true, created_at: '', updated_at: '' },
+        { id: 2, uuid: 'ps-2', code: 'SOLIDO', name: 'Sólido', is_system: true, is_active: true, created_at: '', updated_at: '' },
+      ],
+    })
+    fetchWasteMock.mockResolvedValue({
+      waste: {
+        id: 77,
+        organization_id: 1,
+        branch_id: null,
+        waste_category_id: 1,
+        code: 'RES-0077',
+        name: 'Solvente Usado',
+        description: 'Solvente de limpieza',
+        status: 'BR',
+        waste_danger: null,
+        waste_type_id: 1,
+        physical_state_id: 1,
+        measurement_unit_id: 1,
+        average_weight: null,
+        generation_frequency_id: null,
+        requires_special_transport: false,
+        requires_special_ppe: false,
+        requires_sds: false,
+        requires_characterization: false,
+        quantity: null,
+        generation_date: null,
+        internal_reference: null,
+        operational_notes: null,
+        is_active: true,
+        organization: { id: 1, legal_name: 'Hospital San José' },
+        branch: null,
+        waste_category: catalogItem({ id: 1, uuid: 'wc-1', code: 'INDUSTRIAL', name: 'Industrial' }),
+        waste_type: catalogItem({ id: 1, uuid: 'wt-1', code: 'OPERATIONAL', name: 'Operacional' }),
+        physical_state: { id: 1, uuid: 'ps-1', code: 'LIQUID', name: 'Líquido', is_system: true, is_active: true, created_at: '', updated_at: '' },
+        measurement_unit: { id: 1, uuid: 'mu-1', code: 'KG', name: 'Kilogramo', is_system: true, is_active: true, created_at: '', updated_at: '' },
+        generation_frequency: null,
+        operational_status: catalogItem({ id: 1, uuid: 'os-1', code: 'ACTIVE', name: 'Activo' }),
+        waste_stream_assignments: [],
+        waste_un_codes: [],
+        waste_hazard_characteristics: [],
+        created_by: { id: 1, username: 'admin' },
+        updated_by: { id: 1, username: 'admin' },
+      },
+    })
+    fetchWasteFilesMock.mockResolvedValue({ files: {} })
+
+    render(<WasteWizard wasteId={77} />)
+
+    expect(await screen.findByDisplayValue('Solvente Usado')).toBeInTheDocument()
+    expect(await screen.findByRole('combobox', { name: 'Categoría de Residuo *' })).toHaveTextContent('Industrial')
+    expect(screen.getByRole('combobox', { name: 'Estado Físico' })).toHaveTextContent('Líquido')
+  })
+
   test('"Guardar Borrador" persists without advancing the step', async () => {
     createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
     render(<WasteWizard />)
 
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
     fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar Borrador' }))
 
     await vi.waitFor(() => {
       expect(createWasteMock).toHaveBeenCalled()
     })
-    expect(screen.getByRole('heading', { name: 'Paso 1 de 5 — Identificación' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })).toBeInTheDocument()
   })
 
   test('shows the "Organización" selector only for platform staff', async () => {
     currentUser = { id: 1, is_platform_staff: true, permissions: ['wastes.create', 'wastes.update'] }
     render(<WasteWizard />)
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
 
     expect(screen.getByLabelText('Organización')).toBeInTheDocument()
+  })
+
+  // Sede se mueve al Paso 1, justo después de Organización (decisión
+  // explícita del usuario -- ver plan de este lote): Organización nunca sale
+  // del Paso 1 porque el wizard exige elegirla antes de poder avanzar
+  // (gate en `persistCore()`).
+  test('Paso 1 (platform staff): Sede Generadora aparece inmediatamente después de Organización', async () => {
+    currentUser = { id: 1, is_platform_staff: true, permissions: ['wastes.create', 'wastes.update'] }
+    const { container } = render(<WasteWizard />)
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
+
+    expect(screen.getByLabelText('Organización')).toBeInTheDocument()
+    expect(screen.getByLabelText('Sede Generadora *')).toBeInTheDocument()
+
+    const html = container.innerHTML
+    const organizacionIndex = html.indexOf('Organización')
+    const sedeIndex = html.indexOf('Sede Generadora')
+    const codigoInternoIndex = html.indexOf('Código Interno')
+
+    expect(organizacionIndex).toBeGreaterThan(-1)
+    expect(sedeIndex).toBeGreaterThan(organizacionIndex)
+    expect(codigoInternoIndex).toBeGreaterThan(sedeIndex)
   })
 
   // La organización de un residuo es INMUTABLE tras declararlo: el update
@@ -419,7 +582,7 @@ describe('WasteWizard', () => {
   test('al CREAR, la organización sigue siendo editable (con "Quitar")', async () => {
     currentUser = { id: 1, is_platform_staff: true, permissions: ['wastes.create', 'wastes.update'] }
     render(<WasteWizard />)
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
 
     const input = screen.getByLabelText('Organización')
     fireEvent.focus(input)
@@ -431,7 +594,7 @@ describe('WasteWizard', () => {
 
   test('hides the "Organización" selector for a tenant actor', async () => {
     render(<WasteWizard />)
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
 
     expect(screen.queryByLabelText('Organización')).not.toBeInTheDocument()
   })
@@ -443,7 +606,7 @@ describe('WasteWizard', () => {
   test('"Organización" (platform staff): loads the catalog once and filters in memory without extra network calls', async () => {
     currentUser = { id: 1, is_platform_staff: true, permissions: ['wastes.create', 'wastes.update'] }
     render(<WasteWizard />)
-    await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
 
     await vi.waitFor(() => expect(searchOrganizationsMock).toHaveBeenCalledTimes(1))
     expect(searchOrganizationsMock).toHaveBeenCalledWith(expect.objectContaining({ perPage: 50 }))
@@ -466,33 +629,92 @@ describe('WasteWizard', () => {
     expect(screen.getByLabelText('Organización')).toHaveValue('')
   })
 
+  // El Paso 5 (viejo "Confirmación y Envío") desaparece como paso de
+  // navegación -- su checklist "VALIDACIÓN FINAL" y el texto legal exacto
+  // (Decreto 1076 de 2015) migran al final del nuevo Paso 3 (Evidencias y
+  // Documentos), antes de la botonera.
+  test('Paso 3: muestra "VALIDACIÓN FINAL" y el texto legal antes del botón de envío', async () => {
+    createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
+    const { container } = render(<WasteWizard />)
+
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
+    fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
+    await screen.findByRole('heading', { name: 'Paso 2 de 3 — Información de Generación' })
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
+    await screen.findByRole('heading', { name: 'Paso 3 de 3 — Evidencias y Documentos' })
+
+    expect(screen.getByText('VALIDACIÓN FINAL')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Declaro bajo juramento que la información consignada en este formulario es verídica y completa/)
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Decreto 1076 de 2015/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Enviar Declaración/ })).toBeInTheDocument()
+
+    const html = container.innerHTML
+    const validacionIndex = html.indexOf('VALIDACIÓN FINAL')
+    const legalIndex = html.indexOf('Decreto 1076 de 2015')
+    const submitIndex = html.indexOf('Enviar Declaración')
+
+    expect(validacionIndex).toBeGreaterThan(-1)
+    expect(legalIndex).toBeGreaterThan(validacionIndex)
+    expect(submitIndex).toBeGreaterThan(legalIndex)
+  })
+
+  // El grid de resumen del viejo Paso 5 (Categoría/Sede/Frecuencia) se
+  // integra al panel lateral "Resumen de Declaración", visible en todos los
+  // pasos.
+  test('Panel lateral: muestra Categoría/Sede/Frecuencia una vez llenados', async () => {
+    createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
+    render(<WasteWizard />)
+    await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Categoría de Residuo *' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Industrial' }))
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Sede Generadora *' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Sede Principal' }))
+
+    fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
+    await screen.findByRole('heading', { name: 'Paso 2 de 3 — Información de Generación' })
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Frecuencia de Generación *' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Mensual' }))
+
+    const panel = screen.getByText('INFORMACIÓN DEL RESIDUO').closest('div') as HTMLElement
+    expect(panel).toHaveTextContent('Categoría')
+    expect(panel).toHaveTextContent('Industrial')
+    expect(panel).toHaveTextContent('Sede')
+    expect(panel).toHaveTextContent('Sede Principal')
+    expect(panel).toHaveTextContent('Frecuencia')
+    expect(panel).toHaveTextContent('Mensual')
+  })
+
   // Bug de staging (NOTAS-PRUEBAS-STAGING.md, "Residuos / Residuos
-  // Preaprobados"): las 3 zonas de carga del Paso 4 invitaban a
+  // Preaprobados"): las 3 zonas de carga del Paso 3 invitaban a
   // arrastrar-soltar pero no tenían handlers de drag-and-drop -- al soltar
   // un archivo el navegador ejecutaba su acción por defecto (abrirlo en una
   // pestaña nueva) en vez de adjuntarlo.
-  describe('Paso 4: arrastrar y soltar archivos (drag-and-drop)', () => {
-    // La zona de la SDS ya no depende de ninguna casilla del Paso 2: desde
+  describe('Paso 3: arrastrar y soltar archivos (drag-and-drop)', () => {
+    // La zona de la SDS ya no depende de ninguna casilla del Paso 1: desde
     // 2026-08-13 está siempre visible y es opcional (el requisito lo marca el
     // Gestor al evaluar, después de la declaración).
-    async function goToStep4() {
+    async function goToStep3() {
       createWasteMock.mockResolvedValue({ waste: { id: 50, name: 'Aceite Lubricante Usado' } })
       render(<WasteWizard />)
 
-      await screen.findByRole('heading', { name: 'Paso 1 de 5 — Identificación' })
+      await screen.findByRole('heading', { name: 'Paso 1 de 3 — Identificación y Caracterización' })
       fireEvent.change(screen.getByLabelText('Nombre del Residuo *'), { target: { value: 'Aceite Lubricante Usado' } })
       fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
-      await screen.findByRole('heading', { name: 'Paso 2 de 5 — Caracterización' })
+      await screen.findByRole('heading', { name: 'Paso 2 de 3 — Información de Generación' })
 
       fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
-      await screen.findByRole('heading', { name: 'Paso 3 de 5 — Información de Generación' })
-
-      fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
-      await screen.findByRole('heading', { name: 'Paso 4 de 5 — Evidencias y Documentos' })
+      await screen.findByRole('heading', { name: 'Paso 3 de 3 — Evidencias y Documentos' })
     }
 
     test('soltar una foto sobre la zona de fotos la sube (en vez de dejar que el navegador la abra)', async () => {
-      await goToStep4()
+      await goToStep3()
       uploadFileMock.mockResolvedValue({ file: { id: 1, original_filename: 'foto.jpg' } })
 
       const input = screen.getByLabelText('Seleccionar fotos')
@@ -511,7 +733,7 @@ describe('WasteWizard', () => {
     })
 
     test('soltar un PDF sobre la zona de Ficha de Seguridad (SDS) lo sube', async () => {
-      await goToStep4()
+      await goToStep3()
       uploadFileMock.mockResolvedValue({ file: { id: 2, original_filename: 'sds.pdf' } })
 
       const input = screen.getByLabelText('Adjuntar Ficha de Seguridad')
@@ -530,7 +752,7 @@ describe('WasteWizard', () => {
     })
 
     test('soltar un documento adicional sobre su zona lo sube', async () => {
-      await goToStep4()
+      await goToStep3()
       uploadFileMock.mockResolvedValue({ file: { id: 3, original_filename: 'manifiesto.pdf' } })
 
       const input = screen.getByLabelText('Adjuntar documento adicional')
@@ -549,7 +771,7 @@ describe('WasteWizard', () => {
     })
 
     test('soltar más fotos de las permitidas respeta MAX_PHOTOS (5)', async () => {
-      await goToStep4()
+      await goToStep3()
       uploadFileMock.mockImplementation(({ file }: { file: File }) =>
         Promise.resolve({ file: { id: Math.random(), original_filename: file.name } })
       )

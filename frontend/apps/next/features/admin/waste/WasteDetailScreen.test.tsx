@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { WasteDetailScreen } from './WasteDetailScreen'
 
@@ -17,6 +17,8 @@ const createDelegatedTreatmentApprovalMock = vi.fn()
 const fetchBranchTreatmentsMock = vi.fn()
 const createWasteTreatmentApprovalRequestMock = vi.fn()
 const usePreapprovedTreatmentMatchMock = vi.fn()
+const downloadFileMock = vi.fn()
+const fetchFileObjectUrlMock = vi.fn()
 const pushMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
@@ -38,6 +40,8 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     fetchBranchTreatments: (...args: unknown[]) => fetchBranchTreatmentsMock(...args),
     createWasteTreatmentApprovalRequest: (...args: unknown[]) => createWasteTreatmentApprovalRequestMock(...args),
     usePreapprovedTreatmentMatch: (...args: unknown[]) => usePreapprovedTreatmentMatchMock(...args),
+    downloadFile: (...args: unknown[]) => downloadFileMock(...args),
+    fetchFileObjectUrl: (...args: unknown[]) => fetchFileObjectUrlMock(...args),
   }
 })
 
@@ -233,9 +237,36 @@ describe('WasteDetailScreen', () => {
             updated_at: '2026-07-01T00:00:00Z',
           },
         ],
+        SDS: [
+          {
+            id: 200,
+            uuid: 'file-200',
+            tenant_organization_id: 1,
+            entity_type: 'WASTE',
+            entity_id: 20,
+            file_category: 'SDS',
+            original_filename: 'ficha-seguridad.pdf',
+            stored_filename: 'uuid.pdf',
+            file_extension: 'pdf',
+            mime_type: 'application/pdf',
+            file_size_bytes: 204800,
+            file_hash_sha256: null,
+            storage_provider: 'local',
+            storage_path: 'files/waste/20/sds/uuid.pdf',
+            visibility_level: 'INTERNAL',
+            description: null,
+            uploaded_by_user_id: 1,
+            uploaded_at: '2026-07-01T00:00:00Z',
+            is_active: true,
+            created_at: '2026-07-01T00:00:00Z',
+            updated_at: '2026-07-01T00:00:00Z',
+          },
+        ],
       },
     })
     fetchWasteActivityMock.mockResolvedValue({ data: [], current_page: 1, last_page: 1, total: 0, per_page: 15 })
+    fetchFileObjectUrlMock.mockResolvedValue('blob:mock-thumb-url')
+    downloadFileMock.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -251,6 +282,8 @@ describe('WasteDetailScreen', () => {
     fetchBranchTreatmentsMock.mockReset()
     createWasteTreatmentApprovalRequestMock.mockReset()
     usePreapprovedTreatmentMatchMock.mockReset()
+    downloadFileMock.mockReset()
+    fetchFileObjectUrlMock.mockReset()
     pushMock.mockReset()
   })
 
@@ -317,14 +350,68 @@ describe('WasteDetailScreen', () => {
     expect(pushMock).toHaveBeenCalledWith('/admin/wastes/20/edit')
   })
 
-  test('Evidencias tab lists uploaded files grouped by category with a download link', async () => {
+  // Bug real corregido (2026-09-28): antes era un `<a href>` -- navegación
+  // plana de navegador hacia un endpoint `auth:sanctum`, sin manejo de error
+  // propio. Ahora es un botón que dispara `downloadFile()` (fetch
+  // autenticado + blob).
+  test('Evidencias tab: SDS/documentos (no imagen) muestran nombre + botón "Descargar" que dispara la descarga autenticada', async () => {
     render(<WasteDetailScreen wasteId={20} />)
     await screen.findByText('Aceite Lubricante Usado')
 
     fireEvent.click(screen.getByRole('tab', { name: 'Evidencias' }))
 
-    expect(await screen.findByText('foto1.jpg')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /descargar/i })).toBeInTheDocument()
+    expect(await screen.findByText('ficha-seguridad.pdf')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /descargar/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar' }))
+
+    await vi.waitFor(() => {
+      expect(downloadFileMock).toHaveBeenCalledWith(200, 'ficha-seguridad.pdf')
+    })
+  })
+
+  test('Evidencias tab: muestra un mensaje de error visible si la descarga falla', async () => {
+    downloadFileMock.mockRejectedValueOnce(new Error('Tu sesión expiró. Vuelve a iniciar sesión.'))
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Evidencias' }))
+    await screen.findByText('ficha-seguridad.pdf')
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Tu sesión expiró. Vuelve a iniciar sesión.')
+  })
+
+  // Mejora de UX (2026-09-28, ver resumen del agente frontend-web): las
+  // fotos (WASTE_PHOTO / mime_type image/*) se distinguen visualmente de los
+  // documentos -- thumbnail real en vez de solo nombre+"Descargar".
+  test('Evidencias tab: las fotos se muestran como thumbnail clicable, no como nombre+"Descargar"', async () => {
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Evidencias' }))
+    await screen.findByText('ficha-seguridad.pdf')
+
+    const thumbnailTrigger = await screen.findByRole('button', { name: /ver imagen foto1\.jpg/i })
+    expect(thumbnailTrigger).toBeInTheDocument()
+    await vi.waitFor(() => expect(fetchFileObjectUrlMock).toHaveBeenCalledWith(100))
+    expect(within(thumbnailTrigger).getByRole('img', { name: 'foto1.jpg' })).toHaveAttribute('src', 'blob:mock-thumb-url')
+  })
+
+  test('Evidencias tab: click en el thumbnail abre un lightbox con la imagen grande y un botón de Descargar', async () => {
+    render(<WasteDetailScreen wasteId={20} />)
+    await screen.findByText('Aceite Lubricante Usado')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Evidencias' }))
+    const thumbnailTrigger = await screen.findByRole('button', { name: /ver imagen foto1\.jpg/i })
+    fireEvent.click(thumbnailTrigger)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('foto1.jpg')).toBeInTheDocument()
+    expect(within(dialog).getByRole('img', { name: 'foto1.jpg' })).toHaveAttribute('src', 'blob:mock-thumb-url')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Descargar' }))
+    await vi.waitFor(() => expect(downloadFileMock).toHaveBeenCalledWith(100, 'foto1.jpg'))
   })
 
   test('Tratamientos tab lists existing evaluations with status badges and price', async () => {

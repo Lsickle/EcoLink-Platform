@@ -49,8 +49,9 @@ import { useAuth, useRequireAuth } from 'app/provider/auth'
 import { MultiChipPicker } from './MultiChipPicker'
 import { HazardRiskLevelInfo } from '../HazardRiskLevelInfo'
 import { OrganizationQuickSelect } from '../OrganizationQuickSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
-const TOTAL_STEPS = 5
+const TOTAL_STEPS = 3
 const MAX_PHOTOS = 5
 
 function errorMessage(error: unknown, key: string): string {
@@ -138,17 +139,33 @@ function ChecklistList({ items }: { items: ChecklistItem[] }) {
   )
 }
 
-// Núcleo del Módulo Residuos -- WIZARD de 5 pasos (Figma fileKey
-// pX6vqXxnJ66YSIYpE7v9pV, nodeId 777:9186). Ajustes deliberados vs. el mock
-// (documentados en el encargo de este lote, NO reabrir):
+// Núcleo del Módulo Residuos -- WIZARD de 3 pasos (Figma fileKey
+// pX6vqXxnJ66YSIYpE7v9pV, nodeId 777:9186 -- referencia original de 5 pasos,
+// reestructurado a 3 por pedido explícito de UX del usuario, 2026-09-28: el
+// viejo Paso 2 "Caracterización" se fusionó al Paso 1 y el viejo Paso 5
+// "Confirmación y Envío" desapareció como paso de navegación, ver detalle
+// abajo). Ajustes deliberados vs. el mock (documentados en el encargo de
+// este lote, NO reabrir):
 //   1. El select simple "Peligrosidad" del Paso 1 se elimina -- reemplazado
-//      por el multi-select real de Características de Peligrosidad en el
-//      Paso 2 (`waste_hazard_characteristics`), con `waste_danger` derivado
-//      de solo lectura.
+//      por el multi-select real de Características de Peligrosidad, ahora
+//      en el mismo Paso 1 fusionado (`waste_hazard_characteristics`), con
+//      `waste_danger` derivado de solo lectura.
 //   2. El select "Tipo de Residuo: RESPEL" del Paso 1 se reemplaza por el
 //      selector real de Categoría de Residuo (`waste_category_id`). El
-//      banner "RESPEL detectado" pasa a ser dinámico en el Paso 2 (según si
-//      ya hay alguna corriente Y/A o código UN asignado), no en el Paso 1.
+//      banner "RESPEL detectado" pasa a ser dinámico según si ya hay
+//      alguna corriente Y/A o código UN asignado.
+//   3. Organización + Sede Generadora se ubican juntas al inicio del Paso 1
+//      (Organización solo para platform staff, Sede siempre visible) --
+//      Organización NUNCA sale del Paso 1: el wizard exige elegirla antes
+//      de poder avanzar (gate en `persistCore()`), así que moverla a otro
+//      paso la dejaría pidiéndose a sí misma en un paso al que no se podría
+//      llegar sin ella.
+//   4. El viejo Paso 5 (solo un resumen de lo ya ingresado) desaparece como
+//      paso de navegación: su grid de resumen (Categoría/Sede/Frecuencia)
+//      se integró al panel lateral "Resumen de Declaración" (ya visible en
+//      todos los pasos), y su checklist "VALIDACIÓN FINAL" + el texto legal
+//      exacto (Decreto 1076 de 2015) migraron al final del nuevo Paso 3
+//      (Evidencias y Documentos), justo antes de la botonera.
 //
 // Funciona tanto para crear un residuo nuevo (sin `wasteId`) como para
 // retomar un Borrador existente (`wasteId` -- navegación
@@ -291,6 +308,26 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
     }
   }, [isAuthorized, initialWasteId])
 
+  // Preselección de Categoría de Residuo/Estado Físico (pedido de UX,
+  // agiliza la captura -- sin RN de negocio asociada). Códigos verificados
+  // contra los seeders reales del backend (`WasteCategorySeeder.php`/
+  // `PhysicalStateSeeder.php`): 'APROVECHABLE' y 'SOLIDO' (sin tilde).
+  // Condicionado a `!isLoadingDraft` y a que el campo siga `null` para no
+  // pisar un valor ya guardado al reanudar un borrador en paralelo. Ambos
+  // campos siguen siendo editables por el usuario a cualquier otro valor
+  // del catálogo.
+  useEffect(() => {
+    if (!isAuthorized || isLoadingDraft || state.wasteCategoryId != null) return
+    const aprovechable = wasteCategories.find((c) => c.code === 'APROVECHABLE')
+    if (aprovechable) setState({ wasteCategoryId: aprovechable.id })
+  }, [isAuthorized, isLoadingDraft, wasteCategories, state.wasteCategoryId])
+
+  useEffect(() => {
+    if (!isAuthorized || isLoadingDraft || state.physicalStateId != null) return
+    const solido = physicalStates.find((p) => p.code === 'SOLIDO')
+    if (solido) setState({ physicalStateId: solido.id })
+  }, [isAuthorized, isLoadingDraft, physicalStates, state.physicalStateId])
+
   function buildPayload() {
     return {
       waste_category_id: state.wasteCategoryId ?? undefined,
@@ -367,8 +404,21 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
   // -- que consulta la clasificación YA guardada en el servidor -- pueda
   // encontrar matches reales. Se revisa una única vez por sesión de wizard
   // (`preapprovedChecked`).
+  //
+  // Guard de Organización (riesgo menor introducido al fusionar Corrientes/
+  // Peligrosidad con Organización en el mismo Paso 1, sin orden forzado
+  // entre ambos campos): si un platform staff agrega una corriente ANTES de
+  // elegir organización, `persistCore()` fallaría por su propio gate
+  // (`organizationId` requerido) -- pero `preapprovedCheckedRef.current` ya
+  // se habría marcado `true` ANTES de esa llamada, dejando el chequeo
+  // "gastado" para siempre en esa sesión aunque el usuario elija la
+  // organización después. Se espera explícitamente a que la organización
+  // esté resuelta antes de marcar el chequeo como hecho. Para tenants el
+  // comportamiento es idéntico a antes (Organización nunca se muestra, la
+  // condición nunca bloquea).
   useEffect(() => {
-    if (!isAuthorized || step !== 2 || preapprovedCheckedRef.current || !hasClassification) return
+    if (!isAuthorized || step !== 1 || preapprovedCheckedRef.current || !hasClassification) return
+    if (isPlatformStaff && !state.organizationId) return
     preapprovedCheckedRef.current = true
     let cancelled = false
     ;(async () => {
@@ -386,7 +436,7 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthorized, step, hasClassification])
+  }, [isAuthorized, step, hasClassification, isPlatformStaff, state.organizationId])
 
   // POST .../preapproved-matches/{id}/use -- SIEMPRE nace PENDING/DRAFT
   // (nunca auto-aprobada), el mensaje de confirmación lo deja explícito
@@ -410,7 +460,7 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
   async function handleSaveDraft() {
     const id = await persist()
     if (!id) return
-    if (step === 2) {
+    if (step === 1) {
       await persistClassification(id).catch((error) => setSaveError(errorMessage(error, 'waste_stream_ids')))
     }
     setSaveMessage('Borrador guardado.')
@@ -420,7 +470,7 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
     setSaveMessage(null)
     const id = await persist()
     if (!id) return
-    if (step === 2) {
+    if (step === 1) {
       try {
         await persistClassification(id)
       } catch (error) {
@@ -526,36 +576,30 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
         { label: 'Descripción técnica', complete: state.description.trim().length > 0 },
         { label: 'Categoría de Residuo', complete: state.wasteCategoryId != null },
         { label: 'Estado físico', complete: state.physicalStateId != null },
-      ]
-    }
-    if (step === 2) {
-      return [
+        // Sede generadora se completa en este mismo paso (ver fusión de
+        // Organización+Sede al inicio del Paso 1) -- el item se mueve aquí
+        // desde el viejo checklist del Paso 3.
+        { label: 'Sede generadora', complete: state.branchId != null },
         { label: 'Corrientes/UN asignados', complete: hasClassification },
         { label: 'Características de Peligrosidad', complete: state.hazardCharacteristicIds.length > 0 },
       ]
     }
-    if (step === 3) {
+    if (step === 2) {
       return [
-        { label: 'Sede generadora', complete: state.branchId != null },
         { label: 'Cantidad y unidad', complete: state.quantity.trim().length > 0 && state.measurementUnitId != null },
         { label: 'Frecuencia de generación', complete: state.generationFrequencyId != null },
       ]
     }
-    if (step === 4) {
-      return [
-        { label: 'Fotografías (mín. 1)', complete: photos.length > 0 },
-        // Opcional: se marca si ya se adjuntó, pero no bloquea el envío.
-        { label: 'Ficha de seguridad SDS (opcional)', complete: sdsFile != null },
-      ]
-    }
-    return finalChecklist
-  }, [step, state, hasClassification, photos.length, sdsFile, finalChecklist])
+    return [
+      { label: 'Fotografías (mín. 1)', complete: photos.length > 0 },
+      // Opcional: se marca si ya se adjuntó, pero no bloquea el envío.
+      { label: 'Ficha de seguridad SDS (opcional)', complete: sdsFile != null },
+    ]
+  }, [step, state, hasClassification, photos.length, sdsFile])
 
   if (!isAuthorized || isLoadingDraft) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -572,11 +616,9 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
   const unCodeItems = unCodes.map((c) => ({ id: c.id, label: c.code, sublabel: c.name }))
 
   const stepTitles: Record<number, string> = {
-    1: 'Identificación',
-    2: 'Caracterización',
-    3: 'Información de Generación',
-    4: 'Evidencias y Documentos',
-    5: 'Confirmación y Envío',
+    1: 'Identificación y Caracterización',
+    2: 'Información de Generación',
+    3: 'Evidencias y Documentos',
   }
 
   return (
@@ -587,7 +629,7 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
             <h2 className="text-sm font-semibold">
               Paso {step} de {TOTAL_STEPS} — {stepTitles[step]}
             </h2>
-            <Badge variant="outline">{step}/5</Badge>
+            <Badge variant="outline">{step}/{TOTAL_STEPS}</Badge>
           </div>
 
           {step === 1 && (
@@ -657,6 +699,31 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
                     )}
                   </>
                 )}
+                {/* Sede Generadora -- se movió aquí (pedido explícito de UX,
+                    2026-09-28), justo después de Organización: para platform
+                    staff la carga de sedes ya depende de `state.organizationId`
+                    (ver efecto correspondiente, sin cambios); para el resto de
+                    organizaciones (tenant), Sede queda sola en este lugar,
+                    precargada con las sedes de su propia organización. */}
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="branchId">Sede Generadora *</Label>
+                  <Select
+                    items={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+                    value={state.branchId !== null ? String(state.branchId) : null}
+                    onValueChange={(value) => setState({ branchId: value !== null ? Number(value) : null })}
+                  >
+                    <SelectTrigger id="branchId">
+                      <SelectValue placeholder="Selecciona una sede" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map((branch) => (
+                        <SelectItem key={branch.id} value={String(branch.id)}>
+                          {branch.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="wasteCode">Código Interno</Label>
@@ -717,85 +784,90 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
                   </div>
                 </div>
               </div>
-            </div>
-          )}
 
-          {step === 2 && (
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-3 border-b border-border pb-4">
-                <span className="text-xs font-semibold text-muted-foreground">CORRIENTES REGULATORIAS</span>
-                <MultiChipPicker
-                  label="Corrientes Y"
-                  addLabel="+ Agregar Y"
-                  items={streamYItems}
-                  selectedIds={state.streamYIds}
-                  onChange={(ids) => setState({ streamYIds: ids })}
-                />
-                <MultiChipPicker
-                  label="Corrientes A"
-                  addLabel="+ Agregar A"
-                  items={streamAItems}
-                  selectedIds={state.streamAIds}
-                  onChange={(ids) => setState({ streamAIds: ids })}
-                />
-                <MultiChipPicker
-                  label="Códigos UN"
-                  addLabel="+ Agregar UN"
-                  items={unCodeItems}
-                  selectedIds={state.unCodeIds}
-                  onChange={(ids) => setState({ unCodeIds: ids })}
-                />
-                {isRespelDetected && (
-                  <div className="rounded-lg border border-blue-300 bg-blue-50 p-2 text-xs text-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
-                    ℹ Residuo RESPEL detectado · Se requerirán documentos técnicos en el Paso 4
-                  </div>
-                )}
-              </div>
-
-              {/* El bloque "CARACTERÍSTICAS ESPECIALES" (SDS, caracterización
-                  química, transporte especial y EPP) se retiró de aquí el
-                  2026-08-13 por corrección del modelo de negocio: no las
-                  diligencia el Generador al declarar, las marca el GESTOR al
-                  evaluar el residuo para asignarle un tratamiento -- son
-                  exigencias de ESE tratamiento, no propiedades del residuo.
-                  Viven ahora en la pantalla de evaluación, ver
-                  TreatmentApprovalDetailScreen. */}
-
-              <div className="flex flex-col gap-3 border-b border-border pb-4">
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                  CARACTERÍSTICAS DE PELIGROSIDAD
-                  <HazardRiskLevelInfo />
-                </span>
-                <div className="flex flex-col gap-2">
-                  {hazardCharacteristics.map((characteristic) => {
-                    const checked = state.hazardCharacteristicIds.includes(characteristic.id)
-                    const level = hazardRiskLevel(characteristic.risk_level)
-                    return (
-                      <label key={characteristic.id} className="flex items-center justify-between gap-2 rounded-lg border border-border p-2">
-                        <span className="flex items-center gap-2 text-sm">
-                          <Checkbox
-                            checked={checked}
-                            onCheckedChange={(next) => {
-                              const ids = next === true
-                                ? [...state.hazardCharacteristicIds, characteristic.id]
-                                : state.hazardCharacteristicIds.filter((id) => id !== characteristic.id)
-                              setState({ hazardCharacteristicIds: ids })
-                            }}
-                          />
-                          {characteristic.name}
-                        </span>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${HAZARD_RISK_LEVEL_CLASSES[level]}`}>
-                          {HAZARD_RISK_LEVEL_LABELS[level]}
-                        </span>
-                      </label>
-                    )
-                  })}
+              {/* Caracterización (viejo Paso 2, fusionado aquí, 2026-09-28):
+                  Corrientes Regulatorias + Características de Peligrosidad en
+                  un grid de 2 columnas (colapsa a 1 en móvil) -- su contenido
+                  compacto (chips + checkboxes) dejaba mucho espacio en blanco
+                  apilado en una sola columna angosta (reporte de UX del
+                  usuario). Mismo estilo simple sin divisores verticales que ya
+                  usa el resto del proyecto (ver CreateOrganizationForm.tsx). */}
+              <div className="grid grid-cols-1 gap-4 border-b border-border pb-4 lg:grid-cols-2 lg:gap-6">
+                <div className="flex flex-col gap-3">
+                  <span className="text-xs font-semibold text-muted-foreground">CORRIENTES REGULATORIAS</span>
+                  <MultiChipPicker
+                    label="Corrientes Y"
+                    addLabel="+ Agregar Y"
+                    items={streamYItems}
+                    selectedIds={state.streamYIds}
+                    onChange={(ids) => setState({ streamYIds: ids })}
+                  />
+                  <MultiChipPicker
+                    label="Corrientes A"
+                    addLabel="+ Agregar A"
+                    items={streamAItems}
+                    selectedIds={state.streamAIds}
+                    onChange={(ids) => setState({ streamAIds: ids })}
+                  />
+                  <MultiChipPicker
+                    label="Códigos UN"
+                    addLabel="+ Agregar UN"
+                    items={unCodeItems}
+                    selectedIds={state.unCodeIds}
+                    onChange={(ids) => setState({ unCodeIds: ids })}
+                  />
+                  {isRespelDetected && (
+                    <div className="rounded-lg border border-blue-300 bg-blue-50 p-2 text-xs text-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+                      ℹ Residuo RESPEL detectado · Se requerirán documentos técnicos en el Paso 3
+                    </div>
+                  )}
                 </div>
-                {wasteDanger && (
-                  <p className="text-xs text-muted-foreground">
-                    Peligrosidad derivada: <Badge variant="destructive">{wasteDanger}</Badge>
-                  </p>
-                )}
+
+                {/* El bloque "CARACTERÍSTICAS ESPECIALES" (SDS, caracterización
+                    química, transporte especial y EPP) se retiró de aquí el
+                    2026-08-13 por corrección del modelo de negocio: no las
+                    diligencia el Generador al declarar, las marca el GESTOR al
+                    evaluar el residuo para asignarle un tratamiento -- son
+                    exigencias de ESE tratamiento, no propiedades del residuo.
+                    Viven ahora en la pantalla de evaluación, ver
+                    TreatmentApprovalDetailScreen. */}
+
+                <div className="flex flex-col gap-3">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                    CARACTERÍSTICAS DE PELIGROSIDAD
+                    <HazardRiskLevelInfo />
+                  </span>
+                  <div className="flex flex-col gap-2">
+                    {hazardCharacteristics.map((characteristic) => {
+                      const checked = state.hazardCharacteristicIds.includes(characteristic.id)
+                      const level = hazardRiskLevel(characteristic.risk_level)
+                      return (
+                        <label key={characteristic.id} className="flex items-center justify-between gap-2 rounded-lg border border-border p-2">
+                          <span className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(next) => {
+                                const ids = next === true
+                                  ? [...state.hazardCharacteristicIds, characteristic.id]
+                                  : state.hazardCharacteristicIds.filter((id) => id !== characteristic.id)
+                                setState({ hazardCharacteristicIds: ids })
+                              }}
+                            />
+                            {characteristic.name}
+                          </span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${HAZARD_RISK_LEVEL_CLASSES[level]}`}>
+                            {HAZARD_RISK_LEVEL_LABELS[level]}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  {wasteDanger && (
+                    <p className="text-xs text-muted-foreground">
+                      Peligrosidad derivada: <Badge variant="destructive">{wasteDanger}</Badge>
+                    </p>
+                  )}
+                </div>
               </div>
 
               {preapprovedMatches.length > 0 && (
@@ -840,28 +912,10 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
             </div>
           )}
 
-          {step === 3 && (
+          {step === 2 && (
             <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5 border-b border-border pb-4">
-                <Label htmlFor="branchId">Sede Generadora *</Label>
-                <Select
-                  items={branches.map((b) => ({ value: String(b.id), label: b.name }))}
-                  value={state.branchId !== null ? String(state.branchId) : null}
-                  onValueChange={(value) => setState({ branchId: value !== null ? Number(value) : null })}
-                >
-                  <SelectTrigger id="branchId">
-                    <SelectValue placeholder="Selecciona una sede" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {branches.map((branch) => (
-                      <SelectItem key={branch.id} value={String(branch.id)}>
-                        {branch.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
+              {/* Sede Generadora se movió al Paso 1 (junto a Organización,
+                  pedido explícito de UX, 2026-09-28) -- ya no vive aquí. */}
               <div className="grid grid-cols-1 gap-4 border-b border-border pb-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="generationFrequencyId">Frecuencia de Generación *</Label>
@@ -934,7 +988,7 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
             </div>
           )}
 
-          {step === 4 && (
+          {step === 3 && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-2 border-b border-border pb-4">
                 <span className="text-xs font-semibold text-muted-foreground">FOTOGRAFÍAS DEL RESIDUO</span>
@@ -982,10 +1036,11 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
               </div>
 
               {/* Siempre visible y OPCIONAL desde 2026-08-13: antes solo
-                  aparecía si el Generador marcaba "Requiere SDS" en el Paso 2.
-                  Al pasar ese requisito al Gestor (que evalúa DESPUÉS de la
-                  declaración), condicionarla habría hecho desaparecer la zona
-                  de carga sin que nadie pudiera adjuntar la ficha. */}
+                  aparecía si el Generador marcaba "Requiere SDS" en el paso de
+                  Caracterización. Al pasar ese requisito al Gestor (que evalúa
+                  DESPUÉS de la declaración), condicionarla habría hecho
+                  desaparecer la zona de carga sin que nadie pudiera adjuntar
+                  la ficha. */}
               <div className="flex flex-col gap-2 border-b border-border pb-4">
                 <span className="text-xs font-semibold text-muted-foreground">FICHA DE SEGURIDAD (SDS)</span>
                 <p className="text-xs text-muted-foreground">
@@ -1070,65 +1125,18 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
               <div className="rounded-lg border border-blue-300 bg-blue-50 p-2 text-xs text-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
                 📁 {photos.length + (sdsFile ? 1 : 0) + additionalDocuments.length} archivos adjuntos
               </div>
-            </div>
-          )}
 
-          {step === 5 && (
-            <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-1 gap-2 border-b border-border pb-4 text-sm sm:grid-cols-2">
-                <p>
-                  <span className="text-muted-foreground">Residuo: </span>
-                  <span className="font-medium">{state.name}</span>
-                </p>
-                <p>
-                  <span className="text-muted-foreground">Categoría: </span>
-                  <span className="font-medium">
-                    {wasteCategories.find((c) => c.id === state.wasteCategoryId)?.name ?? '—'}
-                  </span>
-                </p>
-                <p>
-                  <span className="text-muted-foreground">Sede: </span>
-                  <span className="font-medium">{branches.find((b) => b.id === state.branchId)?.name ?? '—'}</span>
-                </p>
-                <p>
-                  <span className="text-muted-foreground">Cantidad: </span>
-                  <span className="font-medium">
-                    {state.quantity || '—'} {measurementUnits.find((u) => u.id === state.measurementUnitId)?.code ?? ''}
-                  </span>
-                </p>
-                <p>
-                  <span className="text-muted-foreground">Frecuencia: </span>
-                  <span className="font-medium">
-                    {generationFrequencies.find((f) => f.id === state.generationFrequencyId)?.name ?? '—'}
-                  </span>
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-2 border-b border-border pb-4">
-                <span className="text-xs font-semibold text-muted-foreground">CORRIENTES REGULATORIAS</span>
-                <div className="flex flex-wrap gap-2">
-                  {[...streamYItems.filter((i) => state.streamYIds.includes(i.id)), ...streamAItems.filter((i) => state.streamAIds.includes(i.id)), ...unCodeItems.filter((i) => state.unCodeIds.includes(i.id))].map((item) => (
-                    <Badge key={item.label} variant="outline">
-                      {item.label} · {item.sublabel}
-                    </Badge>
-                  ))}
-                  {!hasClassification && <span className="text-sm text-muted-foreground">Sin corrientes asignadas.</span>}
-                </div>
-                {wasteDanger && (
-                  <p className="text-xs text-muted-foreground">
-                    Peligrosidad: <Badge variant="destructive">{wasteDanger}</Badge>
-                  </p>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-2 border-b border-border pb-4">
-                <span className="text-xs font-semibold text-muted-foreground">DOCUMENTOS Y TRATAMIENTO</span>
-                <p className="text-sm text-muted-foreground">
-                  {photos.length + (sdsFile ? 1 : 0) + additionalDocuments.length} archivos adjuntos
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-2 border-b border-border pb-4">
+              {/* Viejo Paso 5 ("Confirmación y Envío"), 2026-09-28: dejó de
+                  ser un paso de navegación aparte -- era solo un resumen de
+                  información ya ingresada, que obligaba a un click adicional
+                  sin aportar nada nuevo salvo esta checklist y el texto legal.
+                  Su grid de resumen (Categoría/Sede/Frecuencia) se integró al
+                  panel lateral "Resumen de Declaración" (ya visible en todos
+                  los pasos); los badges de corrientes y el conteo de
+                  "Documentos y Tratamiento" se descartaron sin pérdida real
+                  (el panel lateral ya resume "Corrientes: N asignadas" y
+                  "Archivos: N cargados" al mismo nivel de detalle). */}
+              <div className="flex flex-col gap-2 border-t border-border pt-4">
                 <span className="text-xs font-semibold text-muted-foreground">VALIDACIÓN FINAL</span>
                 <ChecklistList items={finalChecklist} />
               </div>
@@ -1218,6 +1226,21 @@ export function WasteWizard({ wasteId: initialWasteId }: { wasteId?: number | st
             <div className="flex justify-between">
               <span className="text-muted-foreground">Cantidad</span>
               <span className="font-medium">{state.quantity ? `${state.quantity}` : 'Por ingresar'}</span>
+            </div>
+            {/* Del viejo grid de resumen del Paso 5 (ver docblock del
+                bloque de VALIDACIÓN FINAL en el Paso 3) -- se integra aquí
+                porque este panel ya es visible en todos los pasos. */}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Categoría</span>
+              <span className="font-medium">{wasteCategories.find((c) => c.id === state.wasteCategoryId)?.name ?? '—'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Sede</span>
+              <span className="font-medium">{branches.find((b) => b.id === state.branchId)?.name ?? '—'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Frecuencia</span>
+              <span className="font-medium">{generationFrequencies.find((f) => f.id === state.generationFrequencyId)?.name ?? '—'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Archivos</span>

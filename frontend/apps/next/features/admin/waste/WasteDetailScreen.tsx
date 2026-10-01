@@ -25,19 +25,21 @@ import {
   createDelegatedTreatmentApproval,
   createWasteTreatmentApprovalRequest,
   deactivateWaste,
+  downloadFile,
   fetchAvailableBranchTreatments,
   fetchBranchTreatments,
+  fetchFileObjectUrl,
   fetchWaste,
   fetchWasteActivity,
   fetchWasteFiles,
   fetchWastePreapprovedMatches,
   fetchWasteTreatmentApprovals,
-  getFileDownloadUrl,
   reactivateWaste,
   rejectWaste,
   startReviewWaste,
   suspendWaste,
   usePreapprovedTreatmentMatch,
+  type AdminFile,
   type AdminTreatmentApprovalForWaste,
   type AdminWasteDetail,
   type AvailableBranchTreatment,
@@ -50,6 +52,7 @@ import {
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
 import { HAZARD_RISK_LEVEL_LABELS, hazardRiskLevel } from 'app/features/admin/hazardRiskLevel'
+import { FileDownloadButton } from '../FileDownloadButton'
 import { HazardRiskLevelInfo } from '../HazardRiskLevelInfo'
 import {
   isWasteEditableByOwner,
@@ -57,6 +60,7 @@ import {
   WASTE_STATUS_LABELS,
 } from 'app/features/admin/wasteStatus'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const FILE_CATEGORY_LABELS: Record<string, string> = {
   WASTE_PHOTO: 'Fotografías',
@@ -116,6 +120,112 @@ function InfoField({ label, children }: { label: string; children: React.ReactNo
       <span className="text-sm font-medium">{label}</span>
       <div className="text-sm text-muted-foreground">{children}</div>
     </div>
+  )
+}
+
+// Distingue fotos de documentos en la pestaña Evidencias (mejora de UX,
+// 2026-09-28 -- ver resumen del agente frontend-web): NO se limita a
+// `file_category === 'WASTE_PHOTO'` porque el backend no impide subir una
+// imagen como documento adicional -- `mime_type`/`file_extension` ya
+// alcanzan sin pedir nada nuevo al backend.
+function isImageFile(file: AdminFile): boolean {
+  const extension = file.file_extension.toLowerCase()
+  return file.file_category === 'WASTE_PHOTO' || file.mime_type.startsWith('image/') || ['jpg', 'jpeg', 'png'].includes(extension)
+}
+
+// Galería/lightbox de evidencias fotográficas (mejora de UX, 2026-09-28):
+// el mock textual no distinguía fotos de documentos, pero mostrar solo
+// nombre+"Descargar" para una foto no comunica que es una IMAGEN -- se
+// agrega un thumbnail real (fetch autenticado a blob, igual que la
+// descarga) y un lightbox con `Dialog` de shadcn/ui (YA en uso en este
+// mismo archivo para `TreatmentApprovalRequestDialog`/
+// `DelegatedTreatmentApprovalDialog`, sin instalar ninguna librería de
+// galería nueva). El object URL se revoca al desmontar para no filtrar
+// memoria.
+function ImageEvidenceThumbnail({ file }: { file: AdminFile }) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    let createdUrl: string | null = null
+    fetchFileObjectUrl(file.id)
+      .then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        createdUrl = url
+        setObjectUrl(url)
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Error inesperado.')
+      })
+    return () => {
+      cancelled = true
+      if (createdUrl) URL.revokeObjectURL(createdUrl)
+    }
+  }, [file.id])
+
+  async function handleDownload() {
+    setDownloadError(null)
+    setIsDownloading(true)
+    try {
+      await downloadFile(file.id, file.original_filename)
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Error inesperado.')
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setIsLightboxOpen(true)}
+        aria-label={`Ver imagen ${file.original_filename}`}
+        className="flex w-24 flex-col items-center gap-1 rounded-lg border border-border p-1.5 text-left hover:bg-muted"
+      >
+        {objectUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- imagen autenticada vía blob, no un asset estático de Next.
+          <img src={objectUrl} alt={file.original_filename} className="h-16 w-16 rounded object-cover" />
+        ) : (
+          <div className="flex h-16 w-16 items-center justify-center rounded bg-muted text-[10px] text-muted-foreground">
+            {loadError ? 'Error' : 'Cargando…'}
+          </div>
+        )}
+        <span className="w-full truncate text-center text-xs text-muted-foreground">{file.original_filename}</span>
+      </button>
+
+      <Dialog open={isLightboxOpen} onOpenChange={setIsLightboxOpen}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{file.original_filename}</DialogTitle>
+          </DialogHeader>
+          {objectUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={objectUrl} alt={file.original_filename} className="max-h-[70vh] w-full rounded object-contain" />
+          )}
+          {downloadError && (
+            <p className="text-sm text-destructive" role="alert">
+              {downloadError}
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsLightboxOpen(false)}>
+              Cerrar
+            </Button>
+            <Button disabled={isDownloading} onClick={handleDownload}>
+              {isDownloading ? 'Descargando…' : 'Descargar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
@@ -262,9 +372,7 @@ function TreatmentApprovalRequestDialog({
           <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
         {isLoading ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            Cargando…
-          </p>
+          <EcoLinkSpinner />
         ) : options.length === 0 ? (
           <p className="text-sm text-muted-foreground">No hay tratamientos de sede disponibles.</p>
         ) : (
@@ -387,9 +495,7 @@ function DelegatedTreatmentApprovalDialog({
         </DialogHeader>
 
         {isLoading ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            Cargando tratamientos…
-          </p>
+          <EcoLinkSpinner label='Cargando tratamientos…' />
         ) : options.length === 0 ? (
           <p className="text-sm text-muted-foreground" role="status">
             No hay Gestores de referencia vinculados con un tratamiento registrado.
@@ -451,8 +557,9 @@ function DelegatedTreatmentApprovalDialog({
 // header con badges + acciones, tabs (General/Evidencias/Tratamientos/
 // Actividad). DECISIÓN PROPIA de este lote: la edición de los campos del
 // residuo mientras `status` es BR NO se duplica aquí como un formulario
-// inline -- se reutiliza el mismo wizard de 5 pasos (`/admin/wastes/{id}/edit`,
-// WasteWizard.tsx) que ya sabe retomar un Borrador, evitando dos superficies
+// inline -- se reutiliza el mismo wizard (`/admin/wastes/{id}/edit`,
+// WasteWizard.tsx, 3 pasos desde 2026-09-28) que ya sabe retomar un
+// Borrador, evitando dos superficies
 // de edición divergentes para el mismo conjunto de campos.
 //
 // Tab "Tratamientos" ("Evaluación del Gestor", waste_treatment_approvals) --
@@ -735,9 +842,7 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -1022,32 +1127,37 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
                 </p>
               )}
               {filesLoading && !filesLoaded ? (
-                <p className="text-sm text-muted-foreground" role="status">
-                  Cargando…
-                </p>
+                <EcoLinkSpinner />
               ) : Object.keys(files).length === 0 ? (
                 <p className="text-sm text-muted-foreground">Sin archivos adjuntos.</p>
               ) : (
-                Object.entries(files).map(([category, categoryFiles]) => (
-                  <div key={category} className="flex flex-col gap-2">
-                    <span className="text-sm font-semibold">{FILE_CATEGORY_LABELS[category] ?? category}</span>
-                    <ul className="flex flex-col gap-1">
-                      {(categoryFiles ?? []).map((file) => (
-                        <li key={file.id} className="flex items-center justify-between rounded-lg border border-border p-2 text-sm">
-                          <span>{file.original_filename}</span>
-                          <a
-                            href={getFileDownloadUrl(file.id)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-primary hover:underline"
-                          >
-                            Descargar
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))
+                Object.entries(files).map(([category, categoryFiles]) => {
+                  const allFiles = categoryFiles ?? []
+                  const imageFiles = allFiles.filter(isImageFile)
+                  const documentFiles = allFiles.filter((file) => !isImageFile(file))
+                  return (
+                    <div key={category} className="flex flex-col gap-2">
+                      <span className="text-sm font-semibold">{FILE_CATEGORY_LABELS[category] ?? category}</span>
+                      {imageFiles.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {imageFiles.map((file) => (
+                            <ImageEvidenceThumbnail key={file.id} file={file} />
+                          ))}
+                        </div>
+                      )}
+                      {documentFiles.length > 0 && (
+                        <ul className="flex flex-col gap-1">
+                          {documentFiles.map((file) => (
+                            <li key={file.id} className="flex items-center justify-between rounded-lg border border-border p-2 text-sm">
+                              <span>{file.original_filename}</span>
+                              <FileDownloadButton file={file} />
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )
+                })
               )}
             </TabsContent>
 
@@ -1126,9 +1236,7 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
                   )}
 
                   {approvalsLoading && !approvalsLoaded ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : treatmentApprovals.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin evaluaciones de tratamiento para este residuo.</p>
                   ) : (
@@ -1208,9 +1316,7 @@ export function WasteDetailScreen({ wasteId }: { wasteId: number | string }) {
                 </p>
               )}
               {activityLoading && activityEvents.length === 0 && !activityLoaded ? (
-                <p className="text-sm text-muted-foreground" role="status">
-                  Cargando…
-                </p>
+                <EcoLinkSpinner />
               ) : activityEvents.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Sin actividad registrada.</p>
               ) : (
