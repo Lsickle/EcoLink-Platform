@@ -184,7 +184,7 @@ class Organization extends Model
     {
         return $this->belongsToMany(BusinessRole::class, 'organization_business_roles')
             ->using(OrganizationBusinessRole::class)
-            ->withPivot(['assigned_by', 'assigned_at', 'is_active', 'operates_in_platform'])
+            ->withPivot(['assigned_by', 'assigned_at', 'is_active', 'is_primary_role', 'operates_in_platform'])
             ->withTimestamps();
     }
 
@@ -332,4 +332,53 @@ class Organization extends Model
             ->pluck('business_roles.code')
             ->all();
     }
+
+    /**
+     * El tipo de negocio "primario" de la organización, para que el frontend
+     * lo combine con el rol de sistema del usuario en la UI (ej.
+     * "Administrador - Generador"). Entre los business_roles ACTIVOS (pivote
+     * y catálogo), gana el marcado `is_primary_role=true`; si ninguno está
+     * marcado (fila fresca sin backfill, o dato inconsistente), cae al de
+     * menor `sort_order` -- mismo criterio de desempate que el backfill de la
+     * migración `add_is_primary_role_to_organization_business_roles_table`.
+     * `null` si la organización no tiene ningún business_role activo (caso
+     * organización de plataforma/staff EcoLink, ver `User::isPlatformStaff()`).
+     */
+    public function primaryBusinessRole(): ?BusinessRole
+    {
+        // Cuando `businessRoles` ya viene eager-cargada (ej.
+        // `transformOrganization()` en `OrganizationController::index()`/
+        // `show()`, que YA filtra `wherePivot('is_active', true)` al
+        // cargarla) se resuelve SOBRE LA RELACIÓN YA CARGADA -- mismo
+        // criterio que `gestorOperatingMode()` -- para no convertir un
+        // listado paginado en un N+1 (una query de más por fila). Si no
+        // está cargada (ej. llamado suelto desde AuthController/
+        // UserManagementController sobre un solo `Organization`), cae a la
+        // query original.
+        if ($this->relationLoaded('businessRoles')) {
+            $activeRoles = $this->businessRoles
+                ->filter(fn (BusinessRole $role) => $role->is_active && (bool) $role->pivot->is_active)
+                ->values();
+
+            if ($activeRoles->isEmpty()) {
+                return null;
+            }
+
+            return $activeRoles
+                ->sort(function (BusinessRole $a, BusinessRole $b) {
+                    $primaryComparison = (int) (bool) $b->pivot->is_primary_role <=> (int) (bool) $a->pivot->is_primary_role;
+
+                    return $primaryComparison !== 0 ? $primaryComparison : $a->sort_order <=> $b->sort_order;
+                })
+                ->first();
+        }
+
+        return $this->businessRoles()
+            ->wherePivot('is_active', true)
+            ->where('business_roles.is_active', true)
+            ->orderByDesc('organization_business_roles.is_primary_role')
+            ->orderBy('business_roles.sort_order')
+            ->first();
+    }
+
 }

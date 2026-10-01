@@ -203,6 +203,13 @@ class AuthController extends Controller
                 // de dónde sacarlo. Array vacío si el usuario no tiene
                 // organización asociada.
                 'organization_business_roles' => $user->organization?->activeBusinessRoleCodes() ?? [],
+                // Tipo de negocio PRIMARIO de la organización (2026-09-28):
+                // el frontend lo combina con el rol de sistema del usuario en
+                // la UI (ej. "Administrador - Generador"). `null` si no hay
+                // organización o si esta no tiene ningún business_role activo
+                // (caso staff de la organización plataforma). Ver
+                // Organization::primaryBusinessRole().
+                'organization_primary_business_role' => $user->organization?->primaryBusinessRole()?->name,
             ],
         ]);
     }

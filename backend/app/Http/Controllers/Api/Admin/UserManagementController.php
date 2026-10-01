@@ -260,6 +260,15 @@ class UserManagementController extends Controller
         // lógica en el frontend.
         if ($user->organization) {
             $user->organization->setAttribute('type', $user->organization->businessRoles->pluck('name')->values()->all());
+            // Tipo de negocio PRIMARIO de la organización (2026-09-28): el
+            // frontend lo combina con el rol de sistema del usuario en la UI
+            // (ej. "Administrador - Generador"). `null` si la organización no
+            // tiene ningún business_role activo. Ver
+            // Organization::primaryBusinessRole().
+            $user->organization->setAttribute(
+                'primary_business_role',
+                $user->organization->primaryBusinessRole()?->name,
+            );
             // `makeHidden` filtra por la clave de la relación tal como está
             // cargada ('businessRoles', camelCase) -- no por su nombre
             // snake_case de salida ('business_roles').

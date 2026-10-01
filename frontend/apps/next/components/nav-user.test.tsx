@@ -34,6 +34,7 @@ let mockUser:
       email: string
       person?: { full_name: string }
       roles?: MockAuthRole[]
+      organization_primary_business_role?: string | null
     }
   | null = null
 
@@ -145,5 +146,49 @@ describe('NavUser', () => {
     renderNavUser()
 
     expect(screen.queryByText('Logística')).not.toBeInTheDocument()
+  })
+
+  // Dos ejes de rol independientes combinados en un solo label (2026-09-28):
+  // rol de sistema/RBAC (Administrador) + tipo de negocio de la organización
+  // (Generador) -- ver composeRoleOrganizationLabel en
+  // packages/app/features/auth/roleLabel.ts.
+  test('combines the primary role with the organization business role type ("Rol - Tipo") in the trigger and the dropdown', async () => {
+    mockUser = {
+      username: 'ana.gomez',
+      email: 'ana@example.com',
+      person: { full_name: 'Ana Gómez' },
+      roles: [{ id: 2, name: 'Administrador', priority_level: 1, pivot: { is_active: true } }],
+      organization_primary_business_role: 'Generador',
+    }
+    renderNavUser()
+
+    expect(screen.getAllByText('Administrador - Generador')).toHaveLength(1)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /ana gómez/i }))
+    })
+
+    expect(await screen.findAllByText('Administrador - Generador')).toHaveLength(2)
+  })
+
+  test('shows only the role name, without a dangling dash, when organization_primary_business_role is null/undefined', async () => {
+    mockUser = {
+      username: 'ana.gomez',
+      email: 'ana@example.com',
+      person: { full_name: 'Ana Gómez' },
+      roles: [{ id: 2, name: 'Administrador', priority_level: 1, pivot: { is_active: true } }],
+      organization_primary_business_role: null,
+    }
+    renderNavUser()
+
+    expect(screen.getAllByText('Administrador')).toHaveLength(1)
+    expect(screen.queryByText(/Administrador -/)).not.toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /ana gómez/i }))
+    })
+
+    expect(await screen.findAllByText('Administrador')).toHaveLength(2)
+    expect(screen.queryByText(/Administrador -/)).not.toBeInTheDocument()
   })
 })

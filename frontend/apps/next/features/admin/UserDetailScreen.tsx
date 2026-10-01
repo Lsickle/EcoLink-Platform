@@ -43,9 +43,11 @@ import {
   type UserActivityEvent,
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
+import { composeRoleOrganizationLabel, getPrimaryRole } from 'app/features/auth/roleLabel'
 import { moduleLabel } from 'app/features/admin/moduleLabels'
 import { userStatusBadgeClasses } from 'app/features/admin/userStatus'
 import { useRequireAuth } from 'app/provider/auth'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 // El backend NUNCA borra una asignación user_roles al revocar un rol (RN-027,
 // UserManagementController::revokeRole()) -- solo desactiva el pivote
@@ -440,7 +442,10 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
     setAssignRoleMessage(null)
     try {
       await assignRoleToUser(role.id, { user_id: user.id })
-      const updatedRoles = [...user.roles, { id: role.id, code: role.code, name: role.name }]
+      const updatedRoles = [
+        ...user.roles,
+        { id: role.id, code: role.code, name: role.name, priority_level: role.priority_level },
+      ]
       setUser((current) => (current ? { ...current, roles: updatedRoles } : current))
       setSelectedRoleId(null)
       setAssignRoleMessage('Rol asignado correctamente.')
@@ -490,9 +495,7 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -506,6 +509,17 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
 
   const isActive = user.status.code === 'ACTIVE'
   const registeredDays = user.created_at ? daysSince(user.created_at) : null
+
+  // Label combinado "Rol - Tipo de organización" (2026-09-28), mismo
+  // criterio que el sidebar (NavUser) -- ver getPrimaryRole/
+  // composeRoleOrganizationLabel en packages/app/features/auth/roleLabel.ts.
+  // Deliberadamente NO reusa `activeRoles` (que filtra con
+  // `pivot?.is_active !== false`, ver isActiveRoleAssignment arriba): este
+  // cálculo puntual usa el criterio `=== true` que trae getPrimaryRole, sin
+  // unificar los dos criterios ya aceptados como distintos entre sidebar y
+  // admin.
+  const primaryRole = getPrimaryRole(user.roles)
+  const roleOrganizationLabel = composeRoleOrganizationLabel(primaryRole?.name, user.organization?.primary_business_role)
 
   return (
     <div className="flex flex-col gap-4">
@@ -794,9 +808,7 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
                     </p>
                   )}
                   {activityLoading && activityEvents.length === 0 ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : activityEvents.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin actividad registrada.</p>
                   ) : (
@@ -827,28 +839,27 @@ export function UserDetailScreen({ userId }: { userId: number | string }) {
         </div>
 
         <div className="flex flex-col gap-4">
+          {/* Fusión de "Organización" + "Resumen del Usuario" (2026-09-28,
+              pedido explícito del usuario): el label combinado "Rol - Tipo de
+              organización" es la primera línea visible, seguido del mismo
+              contenido que ya existía en las dos tarjetas separadas. */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Organización</CardTitle>
+              <CardTitle className="text-base">Organización y Rol</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex flex-col gap-4">
+              {roleOrganizationLabel && <p className="text-sm font-medium">{roleOrganizationLabel}</p>}
               <OrganizationSummary
                 organization={user.organization}
                 onView={router.push}
                 isPlatformStaff={Boolean(actingUser?.is_platform_staff)}
               />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Resumen del Usuario</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-3">
-              <MetricTile label="Roles Asignados" value={String(activeRoles.length)} />
-              <MetricTile label="Permisos Efectivos" value={String(effectivePermissions.length)} />
-              <MetricTile label="Último Acceso" value={user.last_login_at ? formatDate(user.last_login_at) : 'Nunca'} />
-              <MetricTile label="Tiempo en Sistema" value={registeredDays === null ? '—' : `${registeredDays} días`} />
+              <div className="grid grid-cols-2 gap-3">
+                <MetricTile label="Roles Asignados" value={String(activeRoles.length)} />
+                <MetricTile label="Permisos Efectivos" value={String(effectivePermissions.length)} />
+                <MetricTile label="Último Acceso" value={user.last_login_at ? formatDate(user.last_login_at) : 'Nunca'} />
+                <MetricTile label="Tiempo en Sistema" value={registeredDays === null ? '—' : `${registeredDays} días`} />
+              </div>
             </CardContent>
           </Card>
         </div>

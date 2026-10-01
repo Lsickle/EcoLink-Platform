@@ -31,7 +31,14 @@ export type AdminUserRole = {
   id: number
   code: string
   name: string
-  pivot?: Record<string, unknown>
+  // Gap de tipado (2026-09-28, ya lo manda el backend hoy) -- necesario para
+  // calcular el "rol principal" en el admin con el mismo criterio que el
+  // sidebar (menor priority_level entre los roles ACTIVOS, ver `getPrimaryRole`
+  // en `app/features/auth/roleLabel.ts`).
+  priority_level: number
+  // `is_active` tipado explícito (no `Record<string, unknown>`) para que este
+  // tipo satisfaga `RoleWithPriority` (`roleLabel.ts`) sin castear.
+  pivot?: { is_active: boolean }
 }
 
 // GET /api/admin/users/{id} (show() únicamente, ver AVISO de campos
@@ -51,6 +58,11 @@ export type AdminUserOrganization = {
   // organización. El frontend solo LEE este flag para pintar el botón "Ver
   // organización", nunca reimplementa la regla de autorización.
   can_view_organization: boolean
+  // Nombre legible del tipo de negocio PRIMARIO de la organización (mismo
+  // dato/semántica que `AuthUser.organization_primary_business_role`, ver
+  // `roleLabel.ts`) -- `null` si la organización no tiene ningún tipo de
+  // negocio activo (2026-09-28).
+  primary_business_role: string | null
 }
 
 // Subconjunto acotado que devuelve GET /api/admin/organizations/{id} para

@@ -1,6 +1,8 @@
 <?php
 
+use App\Models\BusinessRole;
 use App\Models\Organization;
+use App\Models\OrganizationBusinessRole;
 use App\Models\Role;
 use App\Models\SecurityLog;
 use App\Models\User;
@@ -136,6 +138,50 @@ test('GET /api/user expone is_platform_staff=false para un usuario sin tenant o 
         ->getJson('/api/user')
         ->assertOk()
         ->assertJsonPath('user.is_platform_staff', false);
+});
+
+// Tipo de negocio PRIMARIO de la organización del actor (2026-09-28): el
+// frontend lo combina con el rol de sistema del usuario en la UI (ej.
+// "Administrador - Generador"). Ver Organization::primaryBusinessRole().
+test('GET /api/user expone organization_primary_business_role con el nombre del tipo primario de la organización', function () {
+    $organization = Organization::factory()->create();
+    $businessRole = BusinessRole::factory()->create(['name' => 'Generador', 'sort_order' => 1]);
+
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id,
+        'business_role_id' => $businessRole->id,
+        'assigned_at' => now(),
+        'is_active' => true,
+    ]);
+
+    createActiveUser(['organization_id' => $organization->id]);
+
+    $login = $this->postJson('/api/login', [
+        'login' => 'ana.gomez',
+        'password' => 'Passw0rd123',
+        'device_name' => 'iphone-de-ana',
+    ])->assertOk();
+
+    $this->withHeader('Authorization', "Bearer {$login->json('token')}")
+        ->getJson('/api/user')
+        ->assertOk()
+        ->assertJsonPath('user.organization_primary_business_role', 'Generador');
+});
+
+test('GET /api/user expone organization_primary_business_role=null cuando la organización no tiene ningún tipo de negocio activo', function () {
+    $organization = Organization::factory()->create();
+    createActiveUser(['organization_id' => $organization->id]);
+
+    $login = $this->postJson('/api/login', [
+        'login' => 'ana.gomez',
+        'password' => 'Passw0rd123',
+        'device_name' => 'iphone-de-ana',
+    ])->assertOk();
+
+    $this->withHeader('Authorization', "Bearer {$login->json('token')}")
+        ->getJson('/api/user')
+        ->assertOk()
+        ->assertJsonPath('user.organization_primary_business_role', null);
 });
 
 // RN-181: el email es insensible a mayúsculas en toda la capa de identidad

@@ -273,6 +273,58 @@ describe('UserDetailScreen', () => {
     // can_view_organization=true) va a la pantalla acotada
     // `/admin/generators/{id}` (LinkedGeneratorDetailScreen), NO al detalle
     // completo exclusivo de plataforma.
+    // Dos ejes de rol independientes combinados en un solo label (2026-09-28,
+    // mismo criterio que el sidebar -- ver composeRoleOrganizationLabel/
+    // getPrimaryRole en packages/app/features/auth/roleLabel.ts): la tarjeta
+    // fusionada "Organización y Rol" muestra "Rol - Tipo de organización"
+    // como primera línea.
+    test('muestra el label combinado "Rol - Tipo de organización" en la tarjeta fusionada "Organización y Rol"', async () => {
+      fetchUserMock.mockResolvedValueOnce({
+        user: makeUser({
+          roles: [{ id: 1, code: 'ADMINISTRADOR', name: 'Administrador', priority_level: 1, pivot: { is_active: true } }],
+          organization: {
+            id: 42,
+            legal_name: 'Transportes y Logística Verde S.A.S.',
+            trade_name: 'LogVerde',
+            type: ['Generador'],
+            can_view_organization: false,
+            primary_business_role: 'Generador',
+          },
+        }),
+      })
+
+      render(<UserDetailScreen userId={7} />)
+      await screen.findByDisplayValue('Ana')
+
+      expect(screen.getByText('Organización y Rol')).toBeInTheDocument()
+      expect(screen.getByText('Administrador - Generador')).toBeInTheDocument()
+      // El contenido que ya existía sigue presente en la misma tarjeta.
+      expect(screen.getByText('Transportes y Logística Verde S.A.S.')).toBeInTheDocument()
+      expect(screen.getByText('Roles Asignados')).toBeInTheDocument()
+    })
+
+    test('muestra solo el nombre del rol, sin guion colgante, cuando la organización no tiene tipo primario', async () => {
+      fetchUserMock.mockResolvedValueOnce({
+        user: makeUser({
+          roles: [{ id: 1, code: 'ADMINISTRADOR', name: 'Administrador', priority_level: 1, pivot: { is_active: true } }],
+          organization: {
+            id: 42,
+            legal_name: 'Plataforma EcoLink',
+            trade_name: null,
+            type: [],
+            can_view_organization: false,
+            primary_business_role: null,
+          },
+        }),
+      })
+
+      render(<UserDetailScreen userId={7} />)
+      await screen.findByDisplayValue('Ana')
+
+      expect(screen.getAllByText('Administrador').length).toBeGreaterThanOrEqual(1)
+      expect(screen.queryByText(/Administrador -/)).not.toBeInTheDocument()
+    })
+
     test('el botón "Ver organización" navega a /admin/generators/{id} cuando el actor NO es platform staff pero puede ver la organización', async () => {
       // Escenario real: Subgestor (tenant 99) viendo al usuario de un
       // Generador vinculado (tenant 1, ver makeUser()) -- tenants

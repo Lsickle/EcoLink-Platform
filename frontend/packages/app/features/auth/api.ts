@@ -159,6 +159,15 @@ export type AuthUser = {
   // aplican -- ver `branchFieldVisibility.ts`. La relación es N:N: una
   // organización puede ser Generador Y Gestor a la vez.
   organization_business_roles?: string[]
+  // Nombre legible del tipo de negocio PRIMARIO de la organización del
+  // usuario (ej. "Generador"), para mostrar combinado con el rol en UI (ver
+  // `roleLabel.ts`, `composeRoleOrganizationLabel`) -- distinto de
+  // `organization_business_roles` (códigos, para lógica de formularios,
+  // ej. `branchFieldVisibility.ts`), no lo reemplaza. `null` si el usuario
+  // no tiene organización o su organización no tiene ningún tipo de negocio
+  // activo (caso staff de plataforma EcoLink). Solo lo puebla GET /api/user
+  // (me()), igual que `organization_business_roles`.
+  organization_primary_business_role?: string | null
   person?: AuthPerson
   roles?: AuthRole[]
 }
