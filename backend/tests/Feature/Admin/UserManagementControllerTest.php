@@ -545,6 +545,40 @@ test('show resuelve organization.type a los nombres de business_roles ACTIVOS de
     expect($response->json('user.organization'))->not->toHaveKey('business_roles');
 });
 
+// Tipo de negocio PRIMARIO de la organización del usuario (2026-09-28): el
+// frontend lo combina con el rol de sistema del usuario en la UI (ej.
+// "Administrador - Generador"). Ver Organization::primaryBusinessRole().
+test('show resuelve organization.primary_business_role al nombre del tipo primario de la organización', function () {
+    $organization = Organization::factory()->create();
+    $target = User::factory()->create(['organization_id' => $organization->id]);
+
+    $primaryRole = BusinessRole::factory()->create(['name' => 'Generador', 'sort_order' => 1]);
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id, 'business_role_id' => $primaryRole->id, 'is_active' => true, 'assigned_at' => now(),
+    ]);
+    $secondaryRole = BusinessRole::factory()->create(['name' => 'Transportador', 'sort_order' => 9]);
+    OrganizationBusinessRole::query()->create([
+        'organization_id' => $organization->id, 'business_role_id' => $secondaryRole->id, 'is_active' => true, 'assigned_at' => now(),
+    ]);
+
+    $actor = actingAsWithPermission(['users.read'], $target->tenant_organization_id);
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/users/{$target->id}")->assertOk();
+
+    $response->assertJsonPath('user.organization.primary_business_role', 'Generador');
+});
+
+test('show resuelve organization.primary_business_role a null cuando la organización no tiene ningún business_role activo', function () {
+    $organization = Organization::factory()->create();
+    $target = User::factory()->create(['organization_id' => $organization->id]);
+
+    $actor = actingAsWithPermission(['users.read'], $target->tenant_organization_id);
+
+    $response = $this->actingAs($actor)->getJson("/api/admin/users/{$target->id}")->assertOk();
+
+    $response->assertJsonPath('user.organization.primary_business_role', null);
+});
+
 test('show devuelve organization null cuando el usuario no tiene organización asignada', function () {
     $target = User::factory()->create(['organization_id' => null]);
 
