@@ -28,6 +28,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // Hallazgo Alto (especialista-seguridad, 2026-07-13): alias para el
         // grupo `auth:sanctum` de routes/api.php -- ver EnsureUserIsActive.
         $middleware->alias(['active' => EnsureUserIsActive::class]);
+
+        // Backend API pura -- no existe ninguna ruta 'login' con nombre (routes/web.php
+        // solo tiene la vista welcome). Sin esto, Laravel intenta route('login') por
+        // defecto cuando una petición no autenticada llega sin Accept:application/json
+        // (ej. navegación de navegador plana a un endpoint protegido), y como esa ruta
+        // no existe, crashea con RouteNotFoundException en vez de devolver un 401 limpio.
+        $middleware->redirectGuestsTo(fn () => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
