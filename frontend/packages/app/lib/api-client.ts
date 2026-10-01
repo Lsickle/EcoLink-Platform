@@ -7,12 +7,16 @@
 // agente frontend-web.
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost'
 
-// Descarga de archivos (`GET /admin/files/{id}/download`, FileController::
-// download()) -- el binario NUNCA pasa por `apiFetch()` (que siempre hace
-// `response.json()`, incompatible con un `Storage::download()` de
-// Laravel). El caller abre esta URL directamente (`window.open`/`<a href>`)
-// -- la sesión Sanctum viaja vía cookie de navegador en una navegación
-// normal, sin necesitar el ciclo CSRF de `apiFetch` (GET, no muta estado).
+// Helper genérico para construir URLs absolutas hacia el backend. Usado por
+// endpoints que no pasan por `apiFetch()` -- ej. `downloadFile()`/
+// `fetchFileObjectUrl()` en `features/admin/api.ts`, que hacen su propio
+// `fetch()` porque la respuesta es un binario, no JSON (`apiFetch()` siempre
+// hace `response.json()`). CORRECCIÓN (2026-09-28): esta función solía
+// documentarse como "el caller abre esta URL directamente
+// (`window.open`/`<a href>`)" -- eso era un bug real (RN-181 Sanctum SPA):
+// una navegación de navegador plana no manda `Accept: application/json`
+// (dispara el manejo de "no autenticado" roto del backend) ni puede
+// reaccionar a un error con un mensaje propio. Ver `downloadFile()`.
 export function apiUrl(path: string): string {
   return `${API_URL}${path}`
 }

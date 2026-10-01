@@ -34,6 +34,8 @@ import {
   deactivateRole,
   deactivateUser,
   deleteRole,
+  downloadFile,
+  fetchFileObjectUrl,
   fetchBranchType,
   fetchBranchTypes,
   fetchCountries,
@@ -1057,5 +1059,92 @@ describe('admin api client', () => {
     await fetchRespelStatuses({ activeOnly: true })
 
     expect(fetchMock.mock.calls[1]![0]).toBe('http://localhost/api/admin/respel-statuses?active_only=true')
+  })
+
+  // Descarga de archivos (bug real, 2026-09-28): el binario NUNCA pasa por
+  // `apiFetch()` (que siempre hace `response.json()`) ni por una navegación
+  // plana `<a href>`/`window.open` -- fetch autenticado explícito + blob +
+  // link sintético (mismo patrón mecánico que el CSV de
+  // WasteBulkImportScreen.tsx). Es un GET que no muta estado: NO pasa por
+  // `ensureCsrfCookie()`, de ahí que aquí `fetchMock.mock.calls[0]` sea
+  // directamente la petición de descarga (no la de csrf-cookie).
+  describe('downloadFile', () => {
+    test('fetches the file with credentials + Accept: application/json, then triggers a synthetic download link', async () => {
+      // Body de texto plano a propósito (no `new Blob(...)` de jsdom): el
+      // `Response` real de `fetch` (undici) espera su propia implementación
+      // de Blob al leer el body -- pasarle un Blob de jsdom rompe
+      // `response.blob()` con "object.stream is not a function". El objeto
+      // que SÍ le llega a `createObjectURL()` es el que construye undici
+      // internamente, así que no lo comparamos contra el `Blob` global.
+      fetchMock.mockResolvedValueOnce(
+        new Response('contenido binario', { status: 200, headers: { 'Content-Type': 'application/pdf' } })
+      )
+
+      const createObjectURLMock = vi.fn().mockReturnValue('blob:mock-url')
+      const revokeObjectURLMock = vi.fn()
+      URL.createObjectURL = createObjectURLMock
+      URL.revokeObjectURL = revokeObjectURLMock
+      const createElementSpy = vi.spyOn(document, 'createElement')
+
+      await downloadFile(100, 'ficha-seguridad.pdf')
+
+      const [url, options] = fetchMock.mock.calls[0]!
+      expect(url).toBe('http://localhost/api/admin/files/100/download')
+      expect(options.credentials).toBe('include')
+      expect((options.headers as Record<string, string>).Accept).toBe('application/json')
+
+      expect(createObjectURLMock).toHaveBeenCalledTimes(1)
+
+      const anchorCall = createElementSpy.mock.results.find(
+        (result) => result.value instanceof HTMLAnchorElement
+      )
+      expect(anchorCall).toBeDefined()
+      const anchor = anchorCall!.value as HTMLAnchorElement
+      expect(anchor.download).toBe('ficha-seguridad.pdf')
+      expect(anchor.href).toBe('blob:mock-url')
+
+      // `revokeObjectURL` se difiere un tick (setTimeout) a propósito -- ver
+      // comentario en `downloadFile()` -- así que hay que dejar correr la
+      // cola de macrotasks antes de afirmarlo.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:mock-url')
+      createElementSpy.mockRestore()
+    })
+
+    test('throws a friendly message on 401 instead of surfacing the raw backend JSON', async () => {
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ message: 'Unauthenticated.' }, 401)
+      )
+
+      const error = await downloadFile(100, 'archivo.pdf').catch((e) => e)
+
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toBe('Tu sesión expiró. Vuelve a iniciar sesión.')
+    })
+
+    test('propagates the backend message on other errors (e.g. 404)', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ message: 'Archivo no encontrado.' }, 404))
+
+      const error = await downloadFile(100, 'archivo.pdf').catch((e) => e)
+
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toBe('Archivo no encontrado.')
+    })
+  })
+
+  describe('fetchFileObjectUrl', () => {
+    test('fetches the file blob and returns an object URL, for image thumbnails/lightbox previews', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response('imagen', { status: 200, headers: { 'Content-Type': 'image/jpeg' } })
+      )
+      URL.createObjectURL = vi.fn().mockReturnValue('blob:mock-image-url')
+
+      const objectUrl = await fetchFileObjectUrl(100)
+
+      expect(objectUrl).toBe('blob:mock-image-url')
+      const [url, options] = fetchMock.mock.calls[0]!
+      expect(url).toBe('http://localhost/api/admin/files/100/download')
+      expect(options.credentials).toBe('include')
+    })
   })
 })

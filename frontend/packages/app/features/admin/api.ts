@@ -2244,11 +2244,60 @@ export async function deleteFile(id: number | string): Promise<{ message: string
   return apiFetch(`/api/admin/files/${id}`, { method: 'DELETE' })
 }
 
-// El binario NUNCA se pide vía `apiFetch()` -- el caller abre esta URL
-// directamente (`window.open(getFileDownloadUrl(id), '_blank')`), la cookie
-// de sesión Sanctum viaja igual en una navegación normal del navegador.
-export function getFileDownloadUrl(id: number | string): string {
-  return apiUrl(`/api/admin/files/${id}/download`)
+// Descarga de archivos (`GET /admin/files/{id}/download`, FileController::
+// download()) -- fix de un bug real (2026-09-28): reemplaza el antiguo
+// `getFileDownloadUrl()` + `<a href>`/`window.open` directo a un endpoint
+// `auth:sanctum`. Una navegación de navegador plana no manda
+// `Accept: application/json` (dispara el manejo de "no autenticado" roto
+// del backend) y no puede reaccionar a un error con un mensaje propio -- le
+// muestra al usuario el JSON crudo del backend en vez de un mensaje legible.
+//
+// El binario NUNCA pasa por `apiFetch()` (que siempre hace `response.json()`,
+// incompatible con un binario) -- fetch explícito + manejo de error propio.
+// Es un GET que no muta estado: NO pasa por el ciclo CSRF de `apiFetch`
+// (`ensureCsrfCookie()`), solo necesita la cookie de sesión (`credentials:
+// 'include'`) + el header `Accept` que evita el manejo roto del backend.
+async function fetchFileBlob(id: number | string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/api/admin/files/${id}/download`), {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  })
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    if (response.status === 401) {
+      throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.')
+    }
+    throw new Error(body?.message ?? `Error inesperado (${response.status}).`)
+  }
+
+  return response.blob()
+}
+
+// Blob -> `URL.createObjectURL` -> `<a download>` sintético -> click ->
+// `URL.revokeObjectURL` -- mismo patrón mecánico ya usado para el CSV
+// generado en cliente de `WasteBulkImportScreen.tsx`, aplicado aquí a un
+// archivo remoto autenticado.
+export async function downloadFile(id: number | string, filename: string): Promise<void> {
+  const blob = await fetchFileBlob(id)
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  // Revocar en el siguiente tick, no de forma síncrona -- algunos navegadores
+  // pueden cancelar una descarga grande en curso si el object URL se invalida
+  // antes de que terminen de iniciarla (evidencias/manifiestos con valor legal).
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+// Mismo fetch autenticado que `downloadFile()`, pero devuelve el object URL
+// en vez de disparar la descarga -- para thumbnails/lightbox de imágenes
+// (`WASTE_PHOTO`). El caller es responsable de revocar la URL cuando ya no
+// la necesita (`URL.revokeObjectURL`), típicamente al desmontar/cerrar.
+export async function fetchFileObjectUrl(id: number | string): Promise<string> {
+  const blob = await fetchFileBlob(id)
+  return URL.createObjectURL(blob)
 }
 
 // ---- "Evaluación del Gestor" (waste_treatment_approvals) -------------------
