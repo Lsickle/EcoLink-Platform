@@ -87,7 +87,7 @@ class OrganizationController extends Controller
 
     private const CURRENCIES = ['COP', 'USD', 'EUR'];
 
-    private const BUSINESS_ROLE_EVENTS = ['ORGANIZATION_CREATED', 'ORGANIZATION_UPDATED', 'ORGANIZATION_ACTIVATED', 'ORGANIZATION_DEACTIVATED', 'BUSINESS_ROLE_ASSIGNED', 'BUSINESS_ROLE_REVOKED'];
+    private const BUSINESS_ROLE_EVENTS = ['ORGANIZATION_CREATED', 'ORGANIZATION_UPDATED', 'ORGANIZATION_ACTIVATED', 'ORGANIZATION_DEACTIVATED', 'BUSINESS_ROLE_ASSIGNED', 'BUSINESS_ROLE_REVOKED', 'BUSINESS_ROLE_PRIMARY_CHANGED'];
 
     /**
      * Filtros: `search` (ILIKE legal_name/trade_name/tax_id), `status`
@@ -957,6 +957,11 @@ class OrganizationController extends Controller
             ['assigned_by' => $request->user()->id, 'assigned_at' => now(), 'is_active' => true],
         );
 
+        // esquema-bd (2026-09-28): garantiza la invariante "≥1 activo ⇒
+        // exactamente uno primario" sin intervención manual en BD -- ver
+        // Organization::ensurePrimaryBusinessRole().
+        $organization->ensurePrimaryBusinessRole();
+
         $this->logSecurityEvent(
             $request, 'BUSINESS_ROLE_ASSIGNED', 'SUCCESS',
             "Tipo de organización '{$businessRole->name}' asignado a '{$organization->legal_name}'.", $request->user(),
@@ -1025,10 +1030,20 @@ class OrganizationController extends Controller
     {
         abort_unless($request->user()->isPlatformStaff(), 403, 'Solo el staff de la plataforma puede gestionar organizaciones.');
 
+        // `is_primary_role=false` explícito en la fila que se revoca -- sin
+        // esto quedaría un "primario fantasma" inactivo (is_active=false,
+        // is_primary_role=true) que `ensurePrimaryBusinessRole()`/
+        // `primaryBusinessRole()` ya ignoran (filtran por `is_active=true`),
+        // pero es dato inconsistente que no debe persistir sin necesidad.
         OrganizationBusinessRole::query()
             ->where('organization_id', $organization->id)
             ->where('business_role_id', $businessRole->id)
-            ->update(['is_active' => false]);
+            ->update(['is_active' => false, 'is_primary_role' => false]);
+
+        // Si la fila revocada era la primaria, esto promueve automáticamente
+        // otra activa (la de menor sort_order) -- ver
+        // Organization::ensurePrimaryBusinessRole().
+        $organization->ensurePrimaryBusinessRole();
 
         $this->logSecurityEvent(
             $request, 'BUSINESS_ROLE_REVOKED', 'SUCCESS',
@@ -1037,6 +1052,32 @@ class OrganizationController extends Controller
         );
 
         return response()->json(['message' => 'Tipo de organización revocado.']);
+    }
+
+    /**
+     * Cambio EXPLÍCITO de cuál business_role activo es el "primario" de la
+     * organización -- distinto de la promoción automática de
+     * `ensurePrimaryBusinessRole()` (solo actúa cuando ninguno está
+     * marcado). Usado por el panel admin que administra los tipos de
+     * organización con checkboxes, para una organización con varios tipos
+     * activos a la vez (ej. Generador y Gestor).
+     *
+     * 422 (no 500) si `$businessRole` no está activo para esta organización
+     * -- ver `Organization::setPrimaryBusinessRole()`.
+     */
+    public function setPrimaryBusinessRole(Request $request, Organization $organization, BusinessRole $businessRole)
+    {
+        abort_unless($request->user()->isPlatformStaff(), 403, 'Solo el staff de la plataforma puede gestionar organizaciones.');
+
+        $organization->setPrimaryBusinessRole($businessRole);
+
+        $this->logSecurityEvent(
+            $request, 'BUSINESS_ROLE_PRIMARY_CHANGED', 'SUCCESS',
+            "Tipo de organización primario de '{$organization->legal_name}' cambiado a '{$businessRole->name}'.", $request->user(),
+            ['organization_id' => $organization->id, 'business_role_id' => $businessRole->id],
+        );
+
+        return response()->json(['message' => 'Tipo de organización primario actualizado.']);
     }
 
     /**
@@ -1224,6 +1265,12 @@ class OrganizationController extends Controller
                 $values,
             );
         }
+
+        // esquema-bd (2026-09-28): garantiza la invariante "≥1 activo ⇒
+        // exactamente uno primario" sin intervención manual en BD -- único
+        // punto de entrada que puede asignar VARIOS tipos a la vez (alta con
+        // checkboxes), ver Organization::ensurePrimaryBusinessRole().
+        $organization->ensurePrimaryBusinessRole();
     }
 
     /**
@@ -1239,6 +1286,18 @@ class OrganizationController extends Controller
         unset($data['business_roles'], $data['primary_branch']);
 
         $data['type'] = $organization->businessRoles->pluck('name')->values()->all();
+        // `id` del tipo de negocio primario (2026-09-28) -- para que el panel
+        // admin de tipos de organización (checkboxes) pueda marcar cuál de
+        // los activos es el principal y ofrecer el control de "marcar como
+        // principal" (`setPrimaryBusinessRole()`/endpoint `set-primary`).
+        // Deliberadamente el id y no el nombre: ese ya existe por separado
+        // como `primary_business_role` (nombre) en AuthController/
+        // UserManagementController, para consumo distinto (combinarlo con el
+        // rol de sistema del usuario en la UI); aquí el frontend necesita
+        // matchear contra el catálogo de business_roles ya cargado, no un
+        // string. Se resuelve SOBRE LA RELACIÓN YA CARGADA (ver
+        // `Organization::primaryBusinessRole()`), sin query nueva.
+        $data['primary_business_role_id'] = $organization->primaryBusinessRole()?->id;
         // La marca operativo/referencia solo tiene sentido para roles que
         // tratan residuos: `null` = esta organización no es Gestor, así que la
         // UI no ofrece el interruptor.

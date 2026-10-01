@@ -287,6 +287,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::get('organizations/{organization}/activity', [OrganizationController::class, 'activity'])->name('organizations.activity');
         Route::post('organizations/{organization}/business-roles/{businessRole}/assign', [OrganizationController::class, 'assignBusinessRole'])->name('organizations.business-roles.assign');
         Route::post('organizations/{organization}/business-roles/{businessRole}/revoke', [OrganizationController::class, 'revokeBusinessRole'])->name('organizations.business-roles.revoke');
+        // Cambio explícito de cuál business_role activo es el "primario"
+        // (panel admin, checkboxes de tipos de organización) -- ver
+        // Organization::setPrimaryBusinessRole().
+        Route::post('organizations/{organization}/business-roles/{businessRole}/set-primary', [OrganizationController::class, 'setPrimaryBusinessRole'])->name('organizations.business-roles.set-primary');
         // Fase 2: Gestor operativo (evalua dentro de EcoLink) vs de referencia.
         Route::post('organizations/{organization}/business-roles/{businessRole}/operating-mode', [OrganizationController::class, 'setBusinessRoleOperatingMode'])->name('organizations.business-roles.operating-mode');
 
@@ -513,6 +517,11 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         // pertenecen al futuro módulo de Transporte/Ejecución (CU-035-037),
         // sin endpoint todavía -- ver docblock de TransportScheduleController.
         Route::get('transport-schedules', [TransportScheduleController::class, 'index'])->name('transport-schedules.index');
+        // Vista "Programación por Localidad" (mapa de Bogotá) -- ANTES de la
+        // ruta con {schedule}: si no, Laravel la captura como el
+        // route-model-binding de {schedule} (intenta resolver un
+        // TransportSchedule con id literal "locality-summary").
+        Route::get('transport-schedules/locality-summary', [TransportScheduleController::class, 'localitySummary'])->name('transport-schedules.locality-summary');
         Route::post('transport-schedules', [TransportScheduleController::class, 'store'])->name('transport-schedules.store');
         Route::get('transport-schedules/{schedule}', [TransportScheduleController::class, 'show'])->name('transport-schedules.show');
         Route::put('transport-schedules/{schedule}', [TransportScheduleController::class, 'update'])->name('transport-schedules.update');

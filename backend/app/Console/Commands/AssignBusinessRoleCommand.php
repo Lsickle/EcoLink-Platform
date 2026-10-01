@@ -69,6 +69,11 @@ class AssignBusinessRoleCommand extends Command
             ['assigned_at' => now(), 'is_active' => true],
         );
 
+        // esquema-bd (2026-09-28): garantiza la invariante "≥1 activo ⇒
+        // exactamente uno primario" sin intervención manual en BD -- ver
+        // Organization::ensurePrimaryBusinessRole().
+        $organization->ensurePrimaryBusinessRole();
+
         // Mismo criterio que AssignRoleCommand (RN-038): toda asignación de
         // business_role queda auditada, sin actor autenticado de la app
         // (acción de consola). risk_level es dinámico según las capacidades

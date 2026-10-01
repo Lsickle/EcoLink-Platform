@@ -710,6 +710,139 @@ test('assignBusinessRole/revokeBusinessRole son idempotentes y registran auditor
         ->and(SecurityLog::query()->where('event_type', 'BUSINESS_ROLE_REVOKED')->where('metadata->business_role_id', $businessRole->id)->exists())->toBeTrue();
 });
 
+// ---------------------------------------------------------------------------
+// Invariante "≥1 business_role activo ⇒ exactamente uno primario" (2026-09-28)
+// -- garantizada por Organization::ensurePrimaryBusinessRole(), invocada
+// desde assignBusinessRole()/revokeBusinessRole()/syncBusinessRoles(). Sin
+// intervención manual en BD.
+// ---------------------------------------------------------------------------
+
+test('assignBusinessRole marca is_primary_role=true automáticamente al asignar el primer tipo activo', function () {
+    $actor = organizationTestActor();
+    $organization = Organization::factory()->create();
+    $businessRole = BusinessRole::factory()->create();
+
+    $this->actingAs($actor)->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$businessRole->id}/assign")->assertOk();
+
+    expect(OrganizationBusinessRole::query()
+        ->where('organization_id', $organization->id)
+        ->where('business_role_id', $businessRole->id)
+        ->value('is_primary_role'))->toBeTrue();
+});
+
+test('assignBusinessRole NO cambia el primario existente al asignar un segundo tipo', function () {
+    $actor = organizationTestActor();
+    $organization = Organization::factory()->create();
+    $first = BusinessRole::factory()->create(['sort_order' => 1]);
+    $second = BusinessRole::factory()->create(['sort_order' => 2]);
+
+    $this->actingAs($actor)->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$first->id}/assign")->assertOk();
+    $this->actingAs($actor)->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$second->id}/assign")->assertOk();
+
+    expect(OrganizationBusinessRole::query()->where('organization_id', $organization->id)->where('business_role_id', $first->id)->value('is_primary_role'))->toBeTrue()
+        ->and(OrganizationBusinessRole::query()->where('organization_id', $organization->id)->where('business_role_id', $second->id)->value('is_primary_role'))->toBeFalse();
+});
+
+test('store con business_role_ids deja exactamente uno primario -- el de menor sort_order', function () {
+    $actor = organizationTestActor();
+    $roleA = BusinessRole::factory()->create(['sort_order' => 5]);
+    $roleB = BusinessRole::factory()->create(['sort_order' => 2]);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/organizations', validOrganizationPayload([
+        'business_role_ids' => [$roleA->id, $roleB->id],
+    ]))->assertCreated();
+
+    $organizationId = $response->json('organization.id');
+
+    expect(OrganizationBusinessRole::query()->where('organization_id', $organizationId)->where('is_primary_role', true)->count())->toBe(1)
+        ->and(OrganizationBusinessRole::query()->where('organization_id', $organizationId)->where('business_role_id', $roleB->id)->value('is_primary_role'))->toBeTrue();
+});
+
+test('revokeBusinessRole promueve automáticamente al otro activo cuando revoca al primario', function () {
+    $actor = organizationTestActor();
+    $organization = Organization::factory()->create();
+    $primary = BusinessRole::factory()->create(['sort_order' => 1]);
+    $other = BusinessRole::factory()->create(['sort_order' => 2]);
+
+    OrganizationBusinessRole::query()->create(['organization_id' => $organization->id, 'business_role_id' => $primary->id, 'assigned_at' => now(), 'is_active' => true, 'is_primary_role' => true]);
+    OrganizationBusinessRole::query()->create(['organization_id' => $organization->id, 'business_role_id' => $other->id, 'assigned_at' => now(), 'is_active' => true, 'is_primary_role' => false]);
+
+    $this->actingAs($actor)->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$primary->id}/revoke")->assertOk();
+
+    expect(OrganizationBusinessRole::query()->where('organization_id', $organization->id)->where('business_role_id', $primary->id)->value('is_primary_role'))->toBeFalse()
+        ->and(OrganizationBusinessRole::query()->where('organization_id', $organization->id)->where('business_role_id', $other->id)->value('is_primary_role'))->toBeTrue();
+});
+
+test('revokeBusinessRole sin otro activo restante no deja ningún primario y no falla', function () {
+    $actor = organizationTestActor();
+    $organization = Organization::factory()->create();
+    $businessRole = BusinessRole::factory()->create();
+
+    OrganizationBusinessRole::query()->create(['organization_id' => $organization->id, 'business_role_id' => $businessRole->id, 'assigned_at' => now(), 'is_active' => true, 'is_primary_role' => true]);
+
+    $this->actingAs($actor)->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$businessRole->id}/revoke")->assertOk();
+
+    expect(OrganizationBusinessRole::query()->where('organization_id', $organization->id)->where('is_primary_role', true)->exists())->toBeFalse();
+});
+
+// ---- Endpoint set-primary: cambio explícito del primario ----
+
+test('set-primary cambia el primario de un activo a otro activo', function () {
+    $actor = organizationTestActor();
+    $organization = Organization::factory()->create();
+    $current = BusinessRole::factory()->create();
+    $target = BusinessRole::factory()->create();
+
+    OrganizationBusinessRole::query()->create(['organization_id' => $organization->id, 'business_role_id' => $current->id, 'assigned_at' => now(), 'is_active' => true, 'is_primary_role' => true]);
+    OrganizationBusinessRole::query()->create(['organization_id' => $organization->id, 'business_role_id' => $target->id, 'assigned_at' => now(), 'is_active' => true, 'is_primary_role' => false]);
+
+    $this->actingAs($actor)->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$target->id}/set-primary")->assertOk();
+
+    expect(OrganizationBusinessRole::query()->where('organization_id', $organization->id)->where('business_role_id', $current->id)->value('is_primary_role'))->toBeFalse()
+        ->and(OrganizationBusinessRole::query()->where('organization_id', $organization->id)->where('business_role_id', $target->id)->value('is_primary_role'))->toBeTrue();
+
+    expect(SecurityLog::query()->where('event_type', 'BUSINESS_ROLE_PRIMARY_CHANGED')->where('metadata->business_role_id', $target->id)->exists())->toBeTrue();
+});
+
+test('set-primary devuelve 422 si el business_role no está activo para la organización', function () {
+    $actor = organizationTestActor();
+    $organization = Organization::factory()->create();
+    $businessRole = BusinessRole::factory()->create();
+
+    $this->actingAs($actor)->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$businessRole->id}/set-primary")
+        ->assertUnprocessable()->assertJsonValidationErrors('business_role_id');
+});
+
+test('set-primary devuelve 403 para un actor que no es platform staff', function () {
+    $organization = Organization::factory()->create();
+    $businessRole = BusinessRole::factory()->create();
+    $actor = nonPlatformOrgActor();
+
+    $this->actingAs($actor)->postJson("/api/admin/organizations/{$organization->id}/business-roles/{$businessRole->id}/set-primary")->assertForbidden();
+});
+
+// ---- Contrato de lectura: primary_business_role_id ----
+
+test('show expone primary_business_role_id con el id del tipo de negocio primario', function () {
+    $organization = Organization::factory()->create();
+    $businessRole = BusinessRole::factory()->create();
+    OrganizationBusinessRole::query()->create(['organization_id' => $organization->id, 'business_role_id' => $businessRole->id, 'assigned_at' => now(), 'is_active' => true, 'is_primary_role' => true]);
+
+    $actor = organizationTestActor(['organizations.read'], platformTenantId());
+
+    $this->actingAs($actor)->getJson("/api/admin/organizations/{$organization->id}")
+        ->assertOk()->assertJsonPath('organization.primary_business_role_id', $businessRole->id);
+});
+
+test('index expone primary_business_role_id=null cuando la organización no tiene ningún tipo de negocio activo', function () {
+    Organization::factory()->create();
+    $actor = organizationTestActor();
+
+    $response = $this->actingAs($actor)->getJson('/api/admin/organizations')->assertOk();
+
+    expect(collect($response->json('data'))->pluck('primary_business_role_id')->unique()->all())->toBe([null]);
+});
+
 // ---- search() ----
 
 // La forma de la respuesta se fija a propósito: este endpoint se abre a

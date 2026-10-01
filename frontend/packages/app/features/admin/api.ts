@@ -1496,6 +1496,22 @@ export async function revokeBusinessRoleFromOrganization(
   })
 }
 
+// Marca un tipo de negocio YA ACTIVO como el primario de la organización
+// (2026-09-28) -- mismo patrón EXACTO que assign/revoke de arriba. El
+// backend responde 422 (`errors.business_role_id`) si el tipo no está
+// activo para esta organización; `apiFetch` ya lo traduce a
+// `ApiValidationError` (ver `ApiValidationError.firstError()`), igual que el
+// resto de este archivo -- la UI solo debería llamar esto sobre un tipo ya
+// marcado, así que en la práctica ese 422 no debería ocurrir desde aquí.
+export async function setPrimaryBusinessRoleForOrganization(
+  organizationId: number | string,
+  businessRoleId: number
+): Promise<{ message?: string }> {
+  return apiFetch(`/api/admin/organizations/${organizationId}/business-roles/${businessRoleId}/set-primary`, {
+    method: 'POST',
+  })
+}
+
 // Selector "Organización Matriz" (`parent_organization_id`) -- ver
 // OrganizationController::search(). `excludeId` evita que el formulario de
 // edición se ofrezca a sí mismo como su propia matriz. `capability` filtra

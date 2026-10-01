@@ -984,6 +984,14 @@ export type AdminOrganization = {
   // organizationCatalogs.ts sobre por qué el frontend no puede resolver
   // estos nombres de vuelta a un id sin un endpoint de catálogo nuevo.
   type: string[]
+  // `id` (business_roles.id) del tipo de negocio PRIMARIO activo, o `null`
+  // si la organización no tiene ninguno activo (2026-09-28). A diferencia de
+  // `type` (nombres), este SÍ es un id -- se matchea contra el catálogo de
+  // `fetchBusinessRoles()` para saber cuál checkbox marcar como "Principal"
+  // en OrganizationDetailScreen.tsx. Viaja en index() Y show() (ambos pasan
+  // por `transformOrganization()`, mismo criterio que `type`/`primary_branch`
+  // arriba).
+  primary_business_role_id: number | null
   // `true` = Gestor OPERATIVO (evalúa dentro de EcoLink), `false` = DE
   // REFERENCIA (maneja todo en su propia plataforma, sin usuarios aquí),
   // `null` = no trata residuos, así que la marca no aplica y la UI no ofrece

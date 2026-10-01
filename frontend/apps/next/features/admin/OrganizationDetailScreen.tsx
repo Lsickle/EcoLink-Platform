@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Building2 } from 'lucide-react'
+import { Building2, Star } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -28,6 +28,7 @@ import {
   fetchOrganizationUsers,
   revokeBusinessRoleFromOrganization,
   setOrganizationGestorOperatingMode,
+  setPrimaryBusinessRoleForOrganization,
   updateOrganization,
   type AdminBusinessRole,
   type AdminCountry,
@@ -51,6 +52,7 @@ import { formatDate } from 'app/features/admin/formatDate'
 import { useRequireAuth } from 'app/provider/auth'
 import { OrganizationContactsPanel } from './OrganizationContactsPanel'
 import { OrganizationSearchSelect } from './OrganizationSearchSelect'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 const RISK_LEVEL_ORDER: RiskLevel[] = ['bajo', 'medio', 'alto', 'critico']
 
@@ -183,7 +185,13 @@ function ReferenceGestorSetupChecklist({
 // de las dependencias del efecto, ver comentario ahí).
 export function OrganizationDetailScreen({ organizationId }: { organizationId: number | string }) {
   const router = useRouter()
-  const { isAuthorized } = useRequireAuth(undefined, { requirePlatformStaff: true })
+  // `user` se toma de aquí (useRequireAuth ya envuelve useAuth() y expone el
+  // mismo `AuthUser`) en vez de importar useAuth() aparte -- esta pantalla
+  // ya está gateada por completo a `is_platform_staff` (ver
+  // `requirePlatformStaff: true` abajo), así que el chequeo en el botón de
+  // abajo es en la práctica siempre verdadero; se deja explícito de todos
+  // modos por si ese gate cambiara en el futuro.
+  const { isAuthorized, user } = useRequireAuth(undefined, { requirePlatformStaff: true })
   const [organization, setOrganization] = useState<AdminOrganizationDetail | null>(null)
   const [countries, setCountries] = useState<AdminCountry[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -236,6 +244,12 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
   const [businessRoleError, setBusinessRoleError] = useState<string | null>(null)
   const [isSavingOperatingMode, setIsSavingOperatingMode] = useState(false)
   const [busyBusinessRoleId, setBusyBusinessRoleId] = useState<number | null>(null)
+  // Tipo de Organización Primario (2026-09-28) -- estado propio, separado de
+  // `busyBusinessRoleId`/`businessRoleError` (assign/revoke) porque son dos
+  // acciones distintas que pueden estar en curso sobre filas distintas al
+  // mismo tiempo.
+  const [primaryBusinessRoleError, setPrimaryBusinessRoleError] = useState<string | null>(null)
+  const [busyPrimaryBusinessRoleId, setBusyPrimaryBusinessRoleId] = useState<number | null>(null)
 
   const [activeTab, setActiveTab] = useState<'sedes' | 'contactos' | 'usuarios' | 'auditoria'>('sedes')
 
@@ -529,12 +543,23 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
     setBusinessRoleError(null)
     setBusyBusinessRoleId(role.id)
     const isAssigned = assignedBusinessRoleNames.has(role.name)
+    const wasPrimary = organization.primary_business_role_id === role.id
     try {
       if (isAssigned) {
         await revokeBusinessRoleFromOrganization(organization.id, role.id)
         setOrganization((current) =>
           current ? { ...current, type: current.type.filter((name) => name !== role.name) } : current
         )
+        // Si el tipo revocado era el primario, el backend promueve
+        // automáticamente otro tipo activo a primario -- se refresca desde
+        // el servidor porque el frontend no puede adivinar cuál (criterio de
+        // promoción vive en el backend, ver contrato del lote).
+        if (wasPrimary) {
+          const { organization: refreshed } = await fetchOrganization(organization.id)
+          setOrganization((current) =>
+            current ? { ...current, primary_business_role_id: refreshed.primary_business_role_id } : current
+          )
+        }
       } else {
         await assignBusinessRoleToOrganization(organization.id, role.id)
         setOrganization((current) => (current ? { ...current, type: [...current.type, role.name] } : current))
@@ -543,6 +568,26 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
       setBusinessRoleError(error instanceof Error ? error.message : 'Error inesperado.')
     } finally {
       setBusyBusinessRoleId(null)
+    }
+  }
+
+  // Tipo de Organización Primario (2026-09-28) -- solo se ofrece para un tipo
+  // YA activo que no sea el actual primario (ver render de "Tipos de
+  // Organización" más abajo, que ya filtra eso antes de mostrar el botón).
+  // Optimistic update simple: a diferencia del revoke de arriba, aquí SÍ
+  // sabemos con certeza el nuevo valor tras un 200 (fue justo el que
+  // pedimos), no hace falta refetch.
+  async function handleSetPrimaryBusinessRole(role: AdminBusinessRole) {
+    if (!organization) return
+    setPrimaryBusinessRoleError(null)
+    setBusyPrimaryBusinessRoleId(role.id)
+    try {
+      await setPrimaryBusinessRoleForOrganization(organization.id, role.id)
+      setOrganization((current) => (current ? { ...current, primary_business_role_id: role.id } : current))
+    } catch (error) {
+      setPrimaryBusinessRoleError(error instanceof Error ? error.message : 'Error inesperado.')
+    } finally {
+      setBusyPrimaryBusinessRoleId(null)
     }
   }
 
@@ -572,9 +617,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -621,6 +664,15 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
             >
               Editar
             </Button>
+            {user?.is_platform_staff && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(`/admin/organizations/${organization.id}/sidebar-modules`)}
+              >
+                Gestionar módulos habilitados
+              </Button>
+            )}
             <Button variant="outline" size="sm" disabled={isTogglingActive} onClick={handleToggleActive}>
               {organization.is_active ? 'Inactivar' : 'Activar'}
             </Button>
@@ -952,20 +1004,52 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                   {businessRolesError}
                 </p>
               )}
+              {primaryBusinessRoleError && (
+                <p className="text-sm text-destructive" role="alert">
+                  {primaryBusinessRoleError}
+                </p>
+              )}
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {businessRoles.map((role) => (
-                  <div key={role.id} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`org-business-role-${role.id}`}
-                      checked={assignedBusinessRoleNames.has(role.name)}
-                      disabled={busyBusinessRoleId === role.id}
-                      onCheckedChange={() => handleToggleBusinessRole(role)}
-                    />
-                    <Label htmlFor={`org-business-role-${role.id}`} className="font-normal">
-                      {role.name}
-                    </Label>
-                  </div>
-                ))}
+                {businessRoles.map((role) => {
+                  const isAssigned = assignedBusinessRoleNames.has(role.name)
+                  const isCurrentPrimary = isAssigned && organization.primary_business_role_id === role.id
+                  // Solo tiene sentido "elegir" un primario cuando hay 2+
+                  // tipos activos entre los cuales elegir -- con uno solo el
+                  // backend ya lo garantiza como primario (ver types.ts).
+                  const showPrimaryControl = isAssigned && organization.type.length > 1
+                  return (
+                    <div key={role.id} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`org-business-role-${role.id}`}
+                        checked={isAssigned}
+                        disabled={busyBusinessRoleId === role.id}
+                        onCheckedChange={() => handleToggleBusinessRole(role)}
+                      />
+                      <Label htmlFor={`org-business-role-${role.id}`} className="font-normal">
+                        {role.name}
+                      </Label>
+                      {showPrimaryControl &&
+                        (isCurrentPrimary ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600">
+                            <Star className="size-3.5 fill-current" aria-hidden="true" />
+                            Principal
+                          </span>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                            disabled={busyPrimaryBusinessRoleId === role.id}
+                            onClick={() => handleSetPrimaryBusinessRole(role)}
+                          >
+                            <Star className="size-3.5" aria-hidden="true" />
+                            Marcar como principal
+                          </Button>
+                        ))}
+                    </div>
+                  )
+                })}
               </div>
 
               {/* Fase 2: solo aparece si la organizacion trata residuos --
@@ -1018,9 +1102,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                     </p>
                   )}
                   {branchesLoading && !branchesLoaded ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : (
                     <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
                       <Table>
@@ -1091,9 +1173,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                     </p>
                   )}
                   {usersLoading && !usersLoaded ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : (
                     <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
                       <Table>
@@ -1136,9 +1216,7 @@ export function OrganizationDetailScreen({ organizationId }: { organizationId: n
                     </p>
                   )}
                   {activityLoading && activityEvents.length === 0 && !activityLoaded ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Cargando…
-                    </p>
+                    <EcoLinkSpinner />
                   ) : activityEvents.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin actividad registrada.</p>
                   ) : (

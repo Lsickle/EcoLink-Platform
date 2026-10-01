@@ -13,7 +13,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 // esquema-bd: organizations.
@@ -381,4 +383,85 @@ class Organization extends Model
             ->first();
     }
 
+    /**
+     * Garantiza la invariante "si una organización tiene ≥1 business_role
+     * ACTIVO, exactamente uno tiene `is_primary_role=true`", sin
+     * intervención manual en BD. Se invoca después de CUALQUIER mutación de
+     * `organization_business_roles` (asignar/revocar/sincronizar) -- ver
+     * `AssignBusinessRoleCommand` y `OrganizationController::
+     * assignBusinessRole()/revokeBusinessRole()/syncBusinessRoles()`.
+     *
+     * Es un NO-OP si ya hay un marcado primario entre los activos (no
+     * reemplaza una elección explícita, ver `setPrimaryBusinessRole()`) o si
+     * la organización no tiene ningún business_role activo (nada que
+     * garantizar). Cuando ninguno está marcado, promueve al de menor
+     * `sort_order` -- mismo criterio de desempate que
+     * `primaryBusinessRole()` y el backfill de
+     * `add_is_primary_role_to_organization_business_roles_table`.
+     *
+     * Siempre consulta la BD directamente (no la relación eager-cargada,
+     * a diferencia de `primaryBusinessRole()`): se llama justo después de un
+     * `UPDATE`/`updateOrCreate` sobre esta misma tabla, así que una
+     * colección en memoria podría estar desactualizada.
+     */
+    public function ensurePrimaryBusinessRole(): void
+    {
+        $activeRoles = $this->businessRoles()
+            ->wherePivot('is_active', true)
+            ->where('business_roles.is_active', true)
+            ->orderByDesc('organization_business_roles.is_primary_role')
+            ->orderBy('business_roles.sort_order')
+            ->get();
+
+        if ($activeRoles->isEmpty()) {
+            return;
+        }
+
+        if ($activeRoles->contains(fn (BusinessRole $role) => (bool) $role->pivot->is_primary_role)) {
+            return;
+        }
+
+        OrganizationBusinessRole::query()
+            ->where('organization_id', $this->id)
+            ->where('business_role_id', $activeRoles->first()->id)
+            ->update(['is_primary_role' => true]);
+    }
+
+    /**
+     * Cambio EXPLÍCITO de business_role primario (checkboxes del panel
+     * admin que gestiona los tipos de organización) -- a diferencia de
+     * `ensurePrimaryBusinessRole()` (automático, solo actúa cuando ninguno
+     * está marcado), esto siempre reemplaza al primario vigente por
+     * `$businessRole`.
+     *
+     * @throws ValidationException si `$businessRole` no está ACTIVO para
+     *                              esta organización -- no tiene sentido
+     *                              marcar como primario un tipo que ni
+     *                              siquiera tiene asignado.
+     */
+    public function setPrimaryBusinessRole(BusinessRole $businessRole): void
+    {
+        $isActiveForOrganization = OrganizationBusinessRole::query()
+            ->where('organization_id', $this->id)
+            ->where('business_role_id', $businessRole->id)
+            ->where('is_active', true)
+            ->exists();
+
+        if (! $isActiveForOrganization) {
+            throw ValidationException::withMessages([
+                'business_role_id' => ['Esta organización no tiene ese tipo asignado.'],
+            ]);
+        }
+
+        DB::transaction(function () use ($businessRole) {
+            OrganizationBusinessRole::query()
+                ->where('organization_id', $this->id)
+                ->update(['is_primary_role' => false]);
+
+            OrganizationBusinessRole::query()
+                ->where('organization_id', $this->id)
+                ->where('business_role_id', $businessRole->id)
+                ->update(['is_primary_role' => true]);
+        });
+    }
 }

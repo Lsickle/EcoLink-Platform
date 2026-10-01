@@ -119,6 +119,21 @@ test('organization:assign-business-role registra risk_level LOW cuando el busine
     expect($log->risk_level)->toBe('LOW');
 });
 
+// esquema-bd (2026-09-28): invariante "≥1 activo ⇒ exactamente uno primario"
+// -- ver Organization::ensurePrimaryBusinessRole().
+test('organization:assign-business-role marca is_primary_role=true al asignar el primer business_role activo', function () {
+    $organization = Organization::factory()->create();
+    $businessRole = BusinessRole::factory()->create(['code' => 'GESTOR']);
+
+    $this->artisan('organization:assign-business-role', ['organization_id' => $organization->id, 'code' => 'GESTOR', '--force' => true])
+        ->assertExitCode(0);
+
+    expect(OrganizationBusinessRole::query()
+        ->where('organization_id', $organization->id)
+        ->where('business_role_id', $businessRole->id)
+        ->value('is_primary_role'))->toBeTrue();
+});
+
 test('organization:assign-business-role pide confirmación y no asigna si la respuesta es no', function () {
     $organization = Organization::factory()->create();
     $businessRole = BusinessRole::factory()->create(['code' => 'GESTOR']);

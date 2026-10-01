@@ -25,6 +25,7 @@ const fetchOrganizationUsersMock = vi.fn()
 const fetchOrganizationActivityMock = vi.fn()
 const assignBusinessRoleToOrganizationMock = vi.fn()
 const revokeBusinessRoleFromOrganizationMock = vi.fn()
+const setPrimaryBusinessRoleForOrganizationMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('app/features/admin/api')>()
@@ -47,16 +48,19 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     fetchOrganizationActivity: (...args: unknown[]) => fetchOrganizationActivityMock(...args),
     assignBusinessRoleToOrganization: (...args: unknown[]) => assignBusinessRoleToOrganizationMock(...args),
     revokeBusinessRoleFromOrganization: (...args: unknown[]) => revokeBusinessRoleFromOrganizationMock(...args),
+    setPrimaryBusinessRoleForOrganization: (...args: unknown[]) => setPrimaryBusinessRoleForOrganizationMock(...args),
   }
 })
 
+const defaultUseRequireAuthResult = { user: { id: 1, is_platform_staff: true }, isLoading: false, isAuthorized: true }
+
 const useRequireAuthMock = vi.fn<
   (permission?: string, options?: { requirePlatformStaff?: boolean }) => {
-    user: { id: number } | null
+    user: { id: number; is_platform_staff?: boolean } | null
     isLoading: boolean
     isAuthorized: boolean
   }
->(() => ({ user: { id: 1 }, isLoading: false, isAuthorized: true }))
+>(() => defaultUseRequireAuthResult)
 
 vi.mock('app/provider/auth', () => ({
   useRequireAuth: (permission?: string, options?: { requirePlatformStaff?: boolean }) =>
@@ -117,6 +121,9 @@ function organizationDetail(overrides: Partial<Record<string, unknown>> = {}) {
       is_active: true,
     },
     type: ['Generador'],
+    // Único tipo activo por defecto -- el backend lo garantiza como primario
+    // (ver RN de "Tipo de Organización Primario", 2026-09-28).
+    primary_business_role_id: 1,
     primary_branch: null,
     branches_count: 2,
     contacts_count: 3,
@@ -176,7 +183,13 @@ describe('OrganizationDetailScreen', () => {
     fetchOrganizationActivityMock.mockReset()
     assignBusinessRoleToOrganizationMock.mockReset()
     revokeBusinessRoleFromOrganizationMock.mockReset()
+    setPrimaryBusinessRoleForOrganizationMock.mockReset()
     useRequireAuthMock.mockClear()
+    // `mockClear()` solo limpia el historial de llamadas, no una
+    // implementación ya fijada con `mockReturnValue()` -- se restaura
+    // explícitamente el default aquí para que un override de un test (ej.
+    // "is_platform_staff: false") no se filtre al siguiente test.
+    useRequireAuthMock.mockReturnValue(defaultUseRequireAuthResult)
     pushMock.mockReset()
   })
 
@@ -206,6 +219,40 @@ describe('OrganizationDetailScreen', () => {
     expect(within(summaryCard).getByText('2')).toBeInTheDocument()
     expect(within(summaryCard).getByText('Contactos')).toBeInTheDocument()
     expect(within(summaryCard).getByText('3')).toBeInTheDocument()
+  })
+
+  // Botón de entrada a la pantalla nueva de gestión de módulos del sidebar
+  // (reorganización del sidebar en 7 grupos temáticos, 2026-09-28) --
+  // visible solo si el usuario es platform staff. Esta pantalla YA está
+  // gateada por `requirePlatformStaff: true` (ver test de arriba), así que
+  // en la práctica siempre se cumple -- se implementa igual el chequeo
+  // explícito por consistencia con lo pedido y por si el gate de la pantalla
+  // cambiara en el futuro.
+  test('shows "Gestionar módulos habilitados" and navigates to the new screen when the user is platform staff', async () => {
+    useRequireAuthMock.mockReturnValue({
+      user: { id: 1, is_platform_staff: true },
+      isLoading: false,
+      isAuthorized: true,
+    })
+    render(<OrganizationDetailScreen organizationId={7} />)
+    await screen.findByText('EcoRecicla S.A.S.')
+
+    const button = screen.getByRole('button', { name: 'Gestionar módulos habilitados' })
+    fireEvent.click(button)
+
+    expect(pushMock).toHaveBeenCalledWith('/admin/organizations/7/sidebar-modules')
+  })
+
+  test('hides "Gestionar módulos habilitados" when the user is not platform staff', async () => {
+    useRequireAuthMock.mockReturnValue({
+      user: { id: 1, is_platform_staff: false },
+      isLoading: false,
+      isAuthorized: true,
+    })
+    render(<OrganizationDetailScreen organizationId={7} />)
+    await screen.findByText('EcoRecicla S.A.S.')
+
+    expect(screen.queryByRole('button', { name: 'Gestionar módulos habilitados' })).not.toBeInTheDocument()
   })
 
   test('toggles active state', async () => {
@@ -550,6 +597,55 @@ describe('OrganizationDetailScreen', () => {
       await screen.findByText('Tipos de Organización')
 
       expect(screen.queryByText('Faltan pasos para poder usar este Gestor')).not.toBeInTheDocument()
+    })
+  })
+
+  // Tipo de Organización Primario (2026-09-28) -- cuando una organización
+  // tiene varios tipos ACTIVOS a la vez, uno es el primario
+  // (`primary_business_role_id`, matcheado contra el catálogo de
+  // fetchBusinessRoles()). Usado en el sidebar combinado con el rol del
+  // usuario (ver roleLabel.ts) -- aquí se cierra el gap de que antes no
+  // había forma de verlo ni cambiarlo desde el admin.
+  describe('tipo de organización primario', () => {
+    test('distingue visualmente el tipo primario cuando hay 2+ tipos activos', async () => {
+      fetchOrganizationMock.mockResolvedValue({
+        organization: organizationDetail({ type: ['Generador', 'Gestor'], primary_business_role_id: 2 }),
+      })
+
+      render(<OrganizationDetailScreen organizationId={7} />)
+      await screen.findByText('EcoRecicla S.A.S.')
+
+      const gestorCheckbox = await screen.findByRole('checkbox', { name: 'Gestor' })
+      const gestorRow = gestorCheckbox.closest('div') as HTMLElement
+      expect(within(gestorRow).getByText('Principal')).toBeInTheDocument()
+
+      const generadorCheckbox = screen.getByRole('checkbox', { name: 'Generador' })
+      const generadorRow = generadorCheckbox.closest('div') as HTMLElement
+      expect(within(generadorRow).queryByText('Principal')).not.toBeInTheDocument()
+      expect(within(generadorRow).getByRole('button', { name: 'Marcar como principal' })).toBeInTheDocument()
+    })
+
+    test('marcar como principal un tipo que no es el actual llama a setPrimaryBusinessRoleForOrganization', async () => {
+      setPrimaryBusinessRoleForOrganizationMock.mockResolvedValueOnce({ message: 'ok' })
+      fetchOrganizationMock.mockResolvedValue({
+        organization: organizationDetail({ type: ['Generador', 'Gestor'], primary_business_role_id: 2 }),
+      })
+
+      render(<OrganizationDetailScreen organizationId={7} />)
+      await screen.findByText('EcoRecicla S.A.S.')
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Marcar como principal' }))
+
+      await act(async () => {})
+      expect(setPrimaryBusinessRoleForOrganizationMock).toHaveBeenCalledWith(7, 1)
+    })
+
+    test('no muestra el control de principal cuando solo hay un tipo activo', async () => {
+      render(<OrganizationDetailScreen organizationId={7} />)
+      await screen.findByText('EcoRecicla S.A.S.')
+
+      expect(screen.queryByText('Principal')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Marcar como principal' })).not.toBeInTheDocument()
     })
   })
 })
