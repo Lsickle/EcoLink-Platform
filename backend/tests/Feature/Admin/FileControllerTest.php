@@ -54,8 +54,10 @@ function filePlatformStaffActor(array $codes = []): User
 // tipo -- se construye con `new UploadedFile(...)` (NUNCA
 // `UploadedFile::fake()->createWithContent()`, cuyo `getMimeType()` de
 // prueba deriva del NOMBRE del archivo, no del contenido -- inservible para
-// probar detección real). Contenido único por llamada (comentario aparte)
-// para no colisionar con `files.file_hash_sha256` (UNIQUE, esquema-bd).
+// probar detección real). Contenido aleatorio por llamada solo para que
+// cada test sea independiente de los demás -- el contenido duplicado entre
+// llamadas ya NO está restringido (`files.file_hash_sha256` dejó de ser
+// UNIQUE, ver migración `..._drop_unique_index_from_files_file_hash_sha256`).
 function fakePdf(string $name = 'sds.pdf'): UploadedFile
 {
     $path = tempnam(sys_get_temp_dir(), 'pdf');
@@ -215,6 +217,75 @@ test('store crea el archivo con stored_filename aleatorio (no el original), hash
     Storage::disk(config('filesystems.default'))->assertExists($file->storage_path);
 });
 
+// ---- Contenido duplicado permitido (bug real: SDS/fotos/documentos NO son
+// únicos por contenido -- `files.file_hash_sha256` dejó de ser UNIQUE, ver
+// migración `..._drop_unique_index_from_files_file_hash_sha256`) ----
+
+test('store acepta el mismo contenido de archivo (mismo hash) subido dos veces para el mismo residuo', function () {
+    $organization = Organization::factory()->create();
+    $waste = Waste::factory()->create(['organization_id' => $organization->id]);
+    $actor = fileActor(['wastes.update'], $organization->id);
+
+    $duplicatedContent = "%PDF-1.4\n% contenido-fijo-duplicado\n%%EOF";
+    $firstUpload = new UploadedFile(
+        tap(tempnam(sys_get_temp_dir(), 'pdf'), fn ($path) => file_put_contents($path, $duplicatedContent)),
+        'sds.pdf', 'application/pdf', null, true,
+    );
+    $secondUpload = new UploadedFile(
+        tap(tempnam(sys_get_temp_dir(), 'pdf'), fn ($path) => file_put_contents($path, $duplicatedContent)),
+        'sds.pdf', 'application/pdf', null, true,
+    );
+
+    $this->actingAs($actor)->postJson('/api/admin/files', [
+        'entity_type' => 'WASTE',
+        'entity_id' => $waste->id,
+        'file_category' => 'ADDITIONAL_DOCUMENT',
+        'file' => $firstUpload,
+    ])->assertCreated();
+
+    $this->actingAs($actor)->postJson('/api/admin/files', [
+        'entity_type' => 'WASTE',
+        'entity_id' => $waste->id,
+        'file_category' => 'ADDITIONAL_DOCUMENT',
+        'file' => $secondUpload,
+    ])->assertCreated();
+
+    $files = File::query()->where('entity_id', $waste->id)->where('file_category', 'ADDITIONAL_DOCUMENT')->get();
+    expect($files)->toHaveCount(2)
+        ->and($files[0]->file_hash_sha256)->toBe($files[1]->file_hash_sha256);
+});
+
+test('store acepta el mismo contenido de archivo subido para residuos DISTINTOS', function () {
+    $organization = Organization::factory()->create();
+    $firstWaste = Waste::factory()->create(['organization_id' => $organization->id]);
+    $secondWaste = Waste::factory()->create(['organization_id' => $organization->id]);
+    $actor = fileActor(['wastes.update'], $organization->id);
+
+    $duplicatedContent = "%PDF-1.4\n% contenido-fijo-compartido-entre-residuos\n%%EOF";
+    $firstUpload = new UploadedFile(
+        tap(tempnam(sys_get_temp_dir(), 'pdf'), fn ($path) => file_put_contents($path, $duplicatedContent)),
+        'sds.pdf', 'application/pdf', null, true,
+    );
+    $secondUpload = new UploadedFile(
+        tap(tempnam(sys_get_temp_dir(), 'pdf'), fn ($path) => file_put_contents($path, $duplicatedContent)),
+        'sds.pdf', 'application/pdf', null, true,
+    );
+
+    $this->actingAs($actor)->postJson('/api/admin/files', [
+        'entity_type' => 'WASTE',
+        'entity_id' => $firstWaste->id,
+        'file_category' => 'SDS',
+        'file' => $firstUpload,
+    ])->assertCreated();
+
+    $this->actingAs($actor)->postJson('/api/admin/files', [
+        'entity_type' => 'WASTE',
+        'entity_id' => $secondWaste->id,
+        'file_category' => 'SDS',
+        'file' => $secondUpload,
+    ])->assertCreated();
+});
+
 // ---- Límite de 5 fotos por residuo ----
 
 test('store rechaza una sexta foto WASTE_PHOTO con 422 legible', function () {
@@ -223,9 +294,10 @@ test('store rechaza una sexta foto WASTE_PHOTO con 422 legible', function () {
     $actor = fileActor(['wastes.update'], $organization->id);
 
     for ($i = 0; $i < 5; $i++) {
-        // Ancho distinto por iteración -- el contenido codificado de cada
-        // imagen debe ser distinto para no colisionar con
-        // `files.file_hash_sha256` (UNIQUE, esquema-bd).
+        // Ancho distinto por iteración solo para variar el nombre/tamaño
+        // de cada imagen -- el contenido duplicado entre imágenes ya NO
+        // está restringido (ver migración
+        // `..._drop_unique_index_from_files_file_hash_sha256`).
         $this->actingAs($actor)->postJson('/api/admin/files', [
             'entity_type' => 'WASTE',
             'entity_id' => $waste->id,

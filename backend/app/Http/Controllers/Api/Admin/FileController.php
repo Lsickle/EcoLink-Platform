@@ -202,16 +202,8 @@ class FileController extends Controller
                 'uploaded_at' => now(),
                 'is_active' => true,
             ]);
-        } catch (\Illuminate\Database\UniqueConstraintViolationException $exception) {
-            // Evita huérfanos en disco si la fila no pudo crearse -- caso
-            // real: el mismo contenido (`file_hash_sha256` UNIQUE, ver
-            // esquema-bd) ya está registrado en el sistema.
-            Storage::disk($disk)->delete($storagePath);
-
-            throw ValidationException::withMessages([
-                'file' => ['Ya existe un archivo idéntico registrado en el sistema.'],
-            ]);
         } catch (\Throwable $exception) {
+            // Evita huérfanos en disco si la fila no pudo crearse.
             Storage::disk($disk)->delete($storagePath);
 
             throw $exception;
