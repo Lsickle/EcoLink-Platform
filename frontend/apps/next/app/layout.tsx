@@ -9,7 +9,10 @@ import { AuthProvider } from 'app/provider/auth'
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata = {
-  title: 'EcoLink',
+  title: {
+    template: 'EcoLink - %s',
+    default: 'EcoLink',
+  },
   description: 'Plataforma de gestión de residuos y logística ambiental',
   // Favicon adaptado a preferencia de sistema (prefers-color-scheme), no al
   // toggle de tema in-app -- es el comportamiento correcto para un ícono
