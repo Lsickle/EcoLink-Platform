@@ -182,6 +182,11 @@ export function TransportSchedulesListScreen() {
             </Button>
           )}
           {canCreate && (
+            <Button variant="outline" onClick={() => router.push('/admin/transport-schedules/calendar')}>
+              Calendario
+            </Button>
+          )}
+          {canCreate && (
             <Button onClick={() => router.push('/admin/transport-schedules/new')}>+ Nueva Programación</Button>
           )}
         </div>

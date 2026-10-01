@@ -146,6 +146,7 @@ class TransportScheduleController extends Controller
             'destinationBranch:id,name',
             'vehicle',
             'transportPersonnel.person',
+            'assistantPersonnel.person',
             'responsibleUser:id,username',
             'items.waste:id,name,code',
             'items.measurementUnit',
@@ -196,8 +197,12 @@ class TransportScheduleController extends Controller
         }
 
         $this->assertVehicleBelongsToOrganization((int) $data['vehicle_id'], $organizationId);
-        $this->assertTransportPersonnelBelongsToOrganization((int) $data['transport_personnel_id'], $organizationId);
+        $this->assertTransportPersonnelBelongsToOrganization((int) $data['transport_personnel_id'], $organizationId, 'transport_personnel_id');
         $this->assertBranchBelongsToOrganization((int) $data['destination_branch_id'], $organizationId, 'destination_branch_id');
+
+        if (array_key_exists('assistant_personnel_id', $data) && $data['assistant_personnel_id'] !== null) {
+            $this->assertTransportPersonnelBelongsToOrganization((int) $data['assistant_personnel_id'], $organizationId, 'assistant_personnel_id');
+        }
 
         if (array_key_exists('responsible_user_id', $data) && $data['responsible_user_id'] !== null) {
             $this->assertUserBelongsToOrganization((int) $data['responsible_user_id'], $organizationId);
@@ -268,7 +273,7 @@ class TransportScheduleController extends Controller
             ['transport_schedule_id' => $schedule->id, 'organization_id' => $organizationId],
         );
 
-        return response()->json(['transport_schedule' => $schedule->fresh(['items', 'transportStatus', 'organization:id,legal_name', 'vehicle', 'transportPersonnel'])], 201);
+        return response()->json(['transport_schedule' => $schedule->fresh(['items', 'transportStatus', 'organization:id,legal_name', 'vehicle', 'transportPersonnel', 'assistantPersonnel'])], 201);
     }
 
     /**
@@ -300,7 +305,11 @@ class TransportScheduleController extends Controller
         }
 
         if (array_key_exists('transport_personnel_id', $data)) {
-            $this->assertTransportPersonnelBelongsToOrganization((int) $data['transport_personnel_id'], $schedule->organization_id);
+            $this->assertTransportPersonnelBelongsToOrganization((int) $data['transport_personnel_id'], $schedule->organization_id, 'transport_personnel_id');
+        }
+
+        if (array_key_exists('assistant_personnel_id', $data) && $data['assistant_personnel_id'] !== null) {
+            $this->assertTransportPersonnelBelongsToOrganization((int) $data['assistant_personnel_id'], $schedule->organization_id, 'assistant_personnel_id');
         }
 
         if (array_key_exists('destination_branch_id', $data)) {
@@ -562,13 +571,23 @@ class TransportScheduleController extends Controller
         }
     }
 
-    private function assertTransportPersonnelBelongsToOrganization(int $transportPersonnelId, ?int $organizationId): void
+    /**
+     * Generalizado para reusarse tanto con el conductor
+     * (`transport_personnel_id`) como con el auxiliar
+     * (`assistant_personnel_id`, ver docblock de la migración
+     * `add_assistant_personnel_id_to_transport_schedules_table`) -- mismo
+     * patrón que `assertBranchBelongsToOrganization()`, que ya recibía
+     * `$field` como parámetro.
+     */
+    private function assertTransportPersonnelBelongsToOrganization(int $transportPersonnelId, ?int $organizationId, string $field = 'transport_personnel_id'): void
     {
         $personnel = TransportPersonnel::query()->find($transportPersonnelId);
 
         if (! $personnel || (int) $personnel->organization_id !== (int) $organizationId) {
+            $label = $field === 'assistant_personnel_id' ? 'auxiliar' : 'conductor';
+
             throw ValidationException::withMessages([
-                'transport_personnel_id' => ['El conductor indicado no pertenece a su organización.'],
+                $field => ["El {$label} indicado no pertenece a su organización."],
             ]);
         }
     }
@@ -668,6 +687,7 @@ class TransportScheduleController extends Controller
             'waste_service_request_id' => [$required, 'integer', 'exists:waste_service_requests,id'],
             'vehicle_id' => [$required, 'integer', 'exists:vehicles,id'],
             'transport_personnel_id' => [$required, 'integer', 'exists:transport_personnel,id'],
+            'assistant_personnel_id' => ['sometimes', 'nullable', 'integer', 'exists:transport_personnel,id'],
             'source_branch_id' => [$required, 'integer', 'exists:branches,id'],
             'destination_branch_id' => [$required, 'integer', 'exists:branches,id'],
             'scheduled_pickup_at' => [$required, 'date'],

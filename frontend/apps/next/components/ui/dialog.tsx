@@ -43,12 +43,21 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  container,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  /**
+   * Contenedor del portal (por defecto `document.body`, vía Base UI).
+   * Permite anidar el diálogo dentro de un ancestro con overrides de CSS
+   * variables escopeados (p. ej. `.transport-schedule-calendar`) en vez de
+   * escapar siempre al `body` -- opcional, sin cambio de comportamiento
+   * para el resto de usos existentes de `Dialog`.
+   */
+  container?: DialogPrimitive.Portal.Props['container']
 }) {
   return (
-    <DialogPortal>
+    <DialogPortal container={container}>
       <DialogOverlay />
       <DialogPrimitive.Popup
         data-slot="dialog-content"

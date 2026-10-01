@@ -3061,6 +3061,11 @@ export type CreateTransportSchedulePayload = {
   waste_service_request_id: number
   vehicle_id: number
   transport_personnel_id: number
+  // Auxiliar -- columna `assistant_personnel_id` agregada en paralelo por el
+  // agente de backend (2026-09-30, ver `TransportScheduleCalendarScreen`);
+  // nullable/opcional en el backend, mismo catálogo `transport_personnel`
+  // que `transport_personnel_id` (sin distinción de rol a nivel de tabla).
+  assistant_personnel_id?: number | null
   source_branch_id: number
   destination_branch_id: number
   scheduled_pickup_at: string

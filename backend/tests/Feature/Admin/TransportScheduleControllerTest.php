@@ -933,6 +933,132 @@ test('el índice único parcial permite reprogramar un ítem una vez que la prog
     expect(TransportScheduleItem::query()->where('waste_service_request_item_id', $item->id)->where('is_active', true)->count())->toBe(0);
 });
 
+// ---- assistant_personnel_id: reconexión del modal de asignación del calendario (Conductor/Auxiliar/Vehículo) ----
+
+/**
+ * Columna nueva `assistant_personnel_id` (ver docblock de la migración
+ * `add_assistant_personnel_id_to_transport_schedules_table`) -- cierra el
+ * campo "Auxiliar" del modal de asignación de
+ * `TransportScheduleCalendarScreen.tsx`, que nunca tuvo contraparte real en
+ * el backend. Referencia la MISMA tabla `transport_personnel` que el
+ * conductor.
+ */
+test('store crea la programación con assistant_personnel_id de la MISMA organización', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $vehicle = Vehicle::factory()->create(['organization_id' => $gestor->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $assistant = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $actor = tsActor(['transport_schedules.create'], $gestor->id);
+
+    $payload = tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch);
+    $payload['assistant_personnel_id'] = $assistant->id;
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/transport-schedules', $payload)
+        ->assertCreated();
+
+    $response->assertJsonPath('transport_schedule.assistant_personnel_id', $assistant->id);
+
+    $schedule = TransportSchedule::query()->findOrFail($response->json('transport_schedule.id'));
+    expect($schedule->assistant_personnel_id)->toBe($assistant->id);
+});
+
+/**
+ * Regresión explícita: omitir `assistant_personnel_id` del payload sigue
+ * funcionando exactamente igual que antes de esta columna -- confirma que la
+ * columna es NULLABLE (sin RN que exija auxiliar obligatorio, ver docblock de
+ * la migración) y que no se rompió el caso ya existente sin auxiliar.
+ */
+test('store sigue funcionando SIN assistant_personnel_id (omitido del payload, columna NULLABLE)', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $vehicle = Vehicle::factory()->create(['organization_id' => $gestor->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $actor = tsActor(['transport_schedules.create'], $gestor->id);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/transport-schedules', tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch))
+        ->assertCreated();
+
+    $response->assertJsonPath('transport_schedule.assistant_personnel_id', null);
+
+    $schedule = TransportSchedule::query()->findOrFail($response->json('transport_schedule.id'));
+    expect($schedule->assistant_personnel_id)->toBeNull();
+});
+
+test('store rechaza un assistant_personnel_id que pertenece a OTRA organización', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $otherOrganization = Organization::factory()->create();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $vehicle = Vehicle::factory()->create(['organization_id' => $gestor->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $foreignAssistant = TransportPersonnel::factory()->create(['organization_id' => $otherOrganization->id]);
+    $actor = tsActor(['transport_schedules.create'], $gestor->id);
+
+    $payload = tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch);
+    $payload['assistant_personnel_id'] = $foreignAssistant->id;
+
+    $this->actingAs($actor)->postJson('/api/admin/transport-schedules', $payload)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('assistant_personnel_id');
+
+    expect(TransportSchedule::query()->count())->toBe(0);
+});
+
+test('update() asigna un assistant_personnel_id válido mientras el schedule está en BOR/PEND', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+    $vehicle = Vehicle::factory()->create(['organization_id' => $gestor->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $assistant = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $actor = tsActor(['transport_schedules.create', 'transport_schedules.update'], $gestor->id);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/transport-schedules', tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch))
+        ->assertCreated();
+
+    $schedule = TransportSchedule::query()->findOrFail($response->json('transport_schedule.id'));
+
+    // BOR -> asigna el auxiliar.
+    $this->actingAs($actor)->putJson("/api/admin/transport-schedules/{$schedule->id}", ['assistant_personnel_id' => $assistant->id])
+        ->assertOk()
+        ->assertJsonPath('transport_schedule.assistant_personnel_id', $assistant->id);
+
+    $this->actingAs($actor)->postJson("/api/admin/transport-schedules/{$schedule->id}/submit")->assertOk();
+
+    $otherAssistant = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+
+    // PEND -> sigue permitiendo reasignar el auxiliar.
+    $this->actingAs($actor)->putJson("/api/admin/transport-schedules/{$schedule->id}", ['assistant_personnel_id' => $otherAssistant->id])
+        ->assertOk()
+        ->assertJsonPath('transport_schedule.assistant_personnel_id', $otherAssistant->id);
+
+    expect($schedule->fresh()->assistant_personnel_id)->toBe($otherAssistant->id);
+});
+
+/**
+ * Test de factory/columna: confirma que la migración deja
+ * `assistant_personnel_id` NULLABLE a nivel de esquema -- crear una
+ * `TransportSchedule` directamente vía factory (sin pasar por el
+ * controller) sin especificar `assistant_personnel_id` no falla y persiste
+ * `NULL`.
+ */
+test('la columna assistant_personnel_id es NULLABLE a nivel de esquema (factory sin especificarla)', function () {
+    $schedule = TransportSchedule::factory()->create();
+
+    expect($schedule->assistant_personnel_id)->toBeNull()
+        ->and($schedule->fresh()->assistant_personnel_id)->toBeNull();
+});
+
 // ---- LOGÍSTICA real (RolePermissionSeeder de producción, SIN ADMINISTRADOR) ----
 
 /**

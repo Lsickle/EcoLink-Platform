@@ -24,7 +24,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 #[Fillable([
     'tenant_organization_id', 'organization_id', 'waste_service_request_id',
     'schedule_number', 'source_branch_id', 'destination_branch_id',
-    'vehicle_id', 'transport_personnel_id', 'responsible_user_id',
+    'vehicle_id', 'transport_personnel_id', 'assistant_personnel_id', 'responsible_user_id',
     'scheduled_pickup_at', 'pickup_window_start', 'pickup_window_end',
     'priority', 'estimated_weight_kg', 'estimated_volume_m3',
     'planned_distance_km', 'planned_duration_minutes',
@@ -91,6 +91,17 @@ class TransportSchedule extends Model
     public function transportPersonnel(): BelongsTo
     {
         return $this->belongsTo(TransportPersonnel::class);
+    }
+
+    /**
+     * Auxiliar de transporte (columna nueva, ver docblock de la migración
+     * `add_assistant_personnel_id_to_transport_schedules_table`) -- referencia
+     * la MISMA tabla `transport_personnel` que el conductor, sin distinción de
+     * rol en la tabla; NULLABLE por falta de una RN que la haga obligatoria.
+     */
+    public function assistantPersonnel(): BelongsTo
+    {
+        return $this->belongsTo(TransportPersonnel::class, 'assistant_personnel_id');
     }
 
     public function responsibleUser(): BelongsTo
