@@ -16,7 +16,6 @@ import {
   fetchManifestUnload,
   fetchManifestUnloadFiles,
   generateManifestUnload,
-  getFileDownloadUrl,
   inspectManifestUnloadItems,
   signManifestUnload,
   uploadFile,
@@ -25,6 +24,8 @@ import {
 } from 'app/features/admin/api'
 import { formatDate } from 'app/features/admin/formatDate'
 import { useAuth, useRequireAuth } from 'app/provider/auth'
+import { FileDownloadButton } from '../FileDownloadButton'
+import { EcoLinkSpinner } from '@/components/ecolink-spinner'
 
 function errorMessage(error: unknown, key: string): string {
   if (error instanceof ApiValidationError) {
@@ -320,9 +321,7 @@ export function ManifestUnloadDetailScreen({ manifestUnloadId }: { manifestUnloa
 
   if (!isAuthorized || isLoading) {
     return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Cargando…
-      </p>
+      <EcoLinkSpinner />
     )
   }
 
@@ -604,20 +603,16 @@ export function ManifestUnloadDetailScreen({ manifestUnloadId }: { manifestUnloa
           ) : (
             <ul className="flex flex-col gap-2">
               {files.map((file) => (
-                <li key={file.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
-                  <a
-                    href={getFileDownloadUrl(file.id)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-primary underline-offset-2 hover:underline"
-                  >
-                    {file.original_filename}
-                  </a>
-                  {canManage && (
-                    <Button size="sm" variant="outline" onClick={() => handleDeleteEvidence(file.id)}>
-                      Eliminar
-                    </Button>
-                  )}
+                <li key={file.id} className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                  <span>{file.original_filename}</span>
+                  <div className="flex items-center gap-2">
+                    <FileDownloadButton file={file} />
+                    {canManage && (
+                      <Button size="sm" variant="outline" onClick={() => handleDeleteEvidence(file.id)}>
+                        Eliminar
+                      </Button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

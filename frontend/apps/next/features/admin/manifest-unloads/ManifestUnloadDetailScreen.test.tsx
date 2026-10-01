@@ -11,6 +11,7 @@ const cancelManifestUnloadMock = vi.fn()
 const inspectManifestUnloadItemsMock = vi.fn()
 const uploadFileMock = vi.fn()
 const deleteFileMock = vi.fn()
+const downloadFileMock = vi.fn()
 
 vi.mock('app/features/admin/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('app/features/admin/api')>()
@@ -25,6 +26,7 @@ vi.mock('app/features/admin/api', async (importOriginal) => {
     inspectManifestUnloadItems: (...args: unknown[]) => inspectManifestUnloadItemsMock(...args),
     uploadFile: (...args: unknown[]) => uploadFileMock(...args),
     deleteFile: (...args: unknown[]) => deleteFileMock(...args),
+    downloadFile: (...args: unknown[]) => downloadFileMock(...args),
   }
 })
 
@@ -362,6 +364,30 @@ describe('ManifestUnloadDetailScreen -- Evidencias Fotográficas', () => {
     fetchManifestUnloadFilesMock.mockReset()
     uploadFileMock.mockReset()
     deleteFileMock.mockReset()
+    downloadFileMock.mockReset()
+  })
+
+  // Bug real corregido (2026-09-28): antes era un `<a href={getFileDownloadUrl(id)}>`
+  // -- navegación plana de navegador hacia un endpoint `auth:sanctum`. Ahora
+  // es un botón "Descargar" (`FileDownloadButton`, compartido con
+  // `WasteDetailScreen.tsx`) que dispara `downloadFile()`.
+  test('el botón "Descargar" de una evidencia dispara la descarga autenticada, con error visible si falla', async () => {
+    currentUser = { id: 1, is_platform_staff: false, permissions: ['manifest_unloads.read'], tenant_organization_id: 2 }
+    fetchManifestUnloadFilesMock.mockResolvedValue({
+      files: [{ id: 500, original_filename: 'foto-descargue.jpg' }],
+    })
+    downloadFileMock.mockResolvedValueOnce(undefined)
+
+    render(<ManifestUnloadDetailScreen manifestUnloadId={77} />)
+    await screen.findByText('MUN-2-ABCDEFGH')
+    await screen.findByText('foto-descargue.jpg')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar' }))
+    await waitFor(() => expect(downloadFileMock).toHaveBeenCalledWith(500, 'foto-descargue.jpg'))
+
+    downloadFileMock.mockRejectedValueOnce(new Error('Tu sesión expiró. Vuelve a iniciar sesión.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Tu sesión expiró. Vuelve a iniciar sesión.')
   })
 
   test('lists existing evidence and allows the receiver to upload/delete', async () => {
