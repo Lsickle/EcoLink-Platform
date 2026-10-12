@@ -48,7 +48,16 @@ export function EcoLinkSpinner({
   /** Ancho máximo del ícono en px -- el ancho real es min(40% del contenedor, maxSize). */
   maxSize?: number
 }) {
-  const [variant] = useState<SpinnerVariant>(() => (Math.random() < 0.5 ? 'enlace' : 'pulso'))
+  // No se elige con un inicializador de useState: ese inicializador también
+  // corre en el servidor durante el SSR, y al volver a correr en el cliente
+  // casi siempre elige una variante distinta a la ya renderizada en el HTML
+  // del servidor -> mismatch de hidratación en cada pantalla con spinner.
+  // Por eso se arranca con un valor fijo (igual en servidor y cliente) y se
+  // sortea recién en el useEffect, después del montaje.
+  const [variant, setVariant] = useState<SpinnerVariant>('enlace')
+  useEffect(() => {
+    setVariant(Math.random() < 0.5 ? 'enlace' : 'pulso')
+  }, [])
   const reducedMotion = useReducedMotion()
   const rawId = useId()
   const uid = rawId.replace(/:/g, '')
