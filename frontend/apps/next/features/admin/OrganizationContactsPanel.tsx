@@ -315,17 +315,29 @@ function LinkFields({
   )
 }
 
-function CreateContactDialog({
+// Exportado para reutilizarse desde el listado standalone de Contactos
+// (`ContactsListScreen.tsx`, decisión del usuario 2026-10-01): MISMO
+// formulario, pero ahí la organización no viene fija por contexto -- la elige
+// platform staff con `organizationField` (slot que se pinta arriba del
+// formulario) o queda fijada en la del propio tenant. Por eso
+// `organizationId` admite `null` ("todavía sin elegir"): el submit lo
+// rechaza en cliente, porque el contacto SIEMPRE se crea con organización
+// (`POST /admin/organizations/{organization}/contacts`). Desde
+// `OrganizationContactsPanel` nada cambia: `organizationId` siempre llega
+// definido y `organizationField` no se pasa.
+export function CreateContactDialog({
   open,
   onOpenChange,
   organizationId,
+  organizationField,
   branches,
   lockedBranchId,
   onCreated,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  organizationId: number | string
+  organizationId: number | string | null
+  organizationField?: React.ReactNode
   branches: BranchOption[]
   lockedBranchId?: number
   onCreated: () => void
@@ -342,6 +354,17 @@ function CreateContactDialog({
   const [isPrimary, setIsPrimary] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // La sucursal pertenece a UNA organización (el backend lo valida con
+  // `assertBranchBelongsToOrganization()`): si la organización cambia, la
+  // sucursal ya elegida deja de ser válida y se descarta. Ajuste de estado
+  // durante el render (patrón documentado de React) en vez de un efecto --
+  // así nunca llega a pintarse la sucursal de la organización anterior.
+  const [branchOrganizationId, setBranchOrganizationId] = useState(organizationId)
+  if (branchOrganizationId !== organizationId) {
+    setBranchOrganizationId(organizationId)
+    setBranchId(lockedBranchId ?? null)
+  }
 
   function reset() {
     setDocumentType('CC')
@@ -365,6 +388,10 @@ function CreateContactDialog({
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     setFormError(null)
+    if (organizationId === null) {
+      setFormError('Selecciona una organización.')
+      return
+    }
     if (!documentNumber.trim() || !firstName.trim() || !lastName.trim()) {
       setFormError('Completa documento, nombres y apellidos.')
       return
@@ -400,6 +427,7 @@ function CreateContactDialog({
           <DialogTitle>Crear Contacto</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3" noValidate>
+          {organizationField}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="contact-documentNumber">Número de Documento</Label>
