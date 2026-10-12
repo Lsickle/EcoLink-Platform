@@ -125,9 +125,10 @@ class DatabaseSeeder extends Seeder
         // (dependencia lógica, sin FK directa).
         $this->call(DemoPreapprovedWastesSeeder::class);
 
-        // 12 usuarios de demo (4 por organización, mezcla ADMINISTRADOR/
-        // LOGÍSTICA) -- debe correr DESPUÉS de DemoOrganizationsSeeder y de
-        // RoleSeeder (rol LOGÍSTICA, ya sembrado arriba).
+        // 15 usuarios de demo (5 por organización, mezcla ADMINISTRADOR/
+        // LOGÍSTICA/OPERACIONES) -- debe correr DESPUÉS de
+        // DemoOrganizationsSeeder y de RoleSeeder (roles LOGÍSTICA y
+        // OPERACIONES, ya sembrados arriba).
         $this->call(DemoUsersSeeder::class);
 
         // Vincula a Immetal (Generador) con LogVerde (Subgestor) y EcoTrata

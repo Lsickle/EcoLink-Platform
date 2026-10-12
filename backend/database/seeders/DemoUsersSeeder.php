@@ -11,15 +11,22 @@ use App\Models\UserStatus;
 use Illuminate\Database\Seeder;
 
 /**
- * Datos de demostración (no de catálogo crítico): 4 usuarios reales por
+ * Datos de demostración (no de catálogo crítico): 5 usuarios reales por
  * cada una de las 3 organizaciones demo ya sembradas por
- * `DemoOrganizationsSeeder` (12 en total), con mezcla de roles vía
+ * `DemoOrganizationsSeeder` (15 en total), con mezcla de roles vía
  * `UserRole` -- al menos 1 `ADMINISTRADOR` y al menos 1 `LOGÍSTICA` por
  * organización (necesario para verificar el acceso dual del módulo
  * Vehículos -- y de Sedes/Contactos, que usa el mismo mecanismo -- con una
  * cuenta real de cada tipo). Debe correr DESPUÉS de `DemoOrganizationsSeeder`
- * (necesita las organizaciones) y de `RoleSeeder` (necesita el rol
- * `LOGÍSTICA`).
+ * (necesita las organizaciones) y de `RoleSeeder` (necesita los roles
+ * `LOGÍSTICA` y `OPERACIONES`).
+ *
+ * Reparto por lado (decisión del usuario, 2026-10-12): cada organización
+ * que tiene un usuario `LOGÍSTICA` (lado transportador) recibe además 1
+ * usuario `OPERACIONES` (lado planta receptora, cargo de referencia
+ * "Operador de Planta"). Sin él, en los datos demo nadie podía decidir una
+ * solicitud de descargue ni gestionar el manifiesto de descargue: el motor
+ * de workflow exige el rol de la transición y esos pasaron a `OPERACIONES`.
  *
  * Contraseña de desarrollo predecible: `password` (default de
  * `UserFactory`), documentada en el resumen entregado al hilo principal
@@ -43,6 +50,7 @@ class DemoUsersSeeder extends Seeder
         $activeStatusId = UserStatus::query()->where('code', 'ACTIVE')->value('id');
         $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
         $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
+        $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
 
         $organizationsUsers = [
             // Industrias Metálicas del Norte S.A.S. (Immetal) -- Generador.
@@ -53,6 +61,8 @@ class DemoUsersSeeder extends Seeder
                     ['first' => 'Andrea', 'last' => 'Rojas', 'username' => 'andrea.rojas', 'doc' => '100000002', 'role' => 'LOGÍSTICA'],
                     ['first' => 'Jorge', 'last' => 'Salazar', 'username' => 'jorge.salazar', 'doc' => '100000003', 'role' => 'LOGÍSTICA'],
                     ['first' => 'Paula', 'last' => 'Díaz', 'username' => 'paula.diaz.immetal', 'doc' => '100000004', 'role' => 'LOGÍSTICA'],
+                    // Operadora de Planta.
+                    ['first' => 'Natalia', 'last' => 'Cárdenas', 'username' => 'natalia.cardenas', 'doc' => '100000013', 'role' => 'OPERACIONES'],
                 ],
             ],
             // Gestión Ambiental Integral EcoTrata S.A.S. (EcoTrata) -- Gestor.
@@ -63,6 +73,8 @@ class DemoUsersSeeder extends Seeder
                     ['first' => 'Fernando', 'last' => 'Díaz', 'username' => 'fernando.diaz', 'doc' => '100000006', 'role' => 'LOGÍSTICA'],
                     ['first' => 'Sandra', 'last' => 'Pérez', 'username' => 'sandra.perez', 'doc' => '100000007', 'role' => 'LOGÍSTICA'],
                     ['first' => 'Julián', 'last' => 'Gómez', 'username' => 'julian.gomez', 'doc' => '100000008', 'role' => 'LOGÍSTICA'],
+                    // Operador de Planta.
+                    ['first' => 'Hernán', 'last' => 'Castillo', 'username' => 'hernan.castillo', 'doc' => '100000014', 'role' => 'OPERACIONES'],
                 ],
             ],
             // Transportes y Logística Verde S.A.S. (LogVerde) -- Subgestor.
@@ -73,11 +85,13 @@ class DemoUsersSeeder extends Seeder
                     ['first' => 'Mónica', 'last' => 'Salazar', 'username' => 'monica.salazar', 'doc' => '100000010', 'role' => 'LOGÍSTICA'],
                     ['first' => 'Edwin', 'last' => 'Torres', 'username' => 'edwin.torres', 'doc' => '100000011', 'role' => 'LOGÍSTICA'],
                     ['first' => 'Wilson', 'last' => 'Muñoz', 'username' => 'wilson.munoz', 'doc' => '100000012', 'role' => 'LOGÍSTICA'],
+                    // Operadora de Planta.
+                    ['first' => 'Carolina', 'last' => 'Vargas', 'username' => 'carolina.vargas', 'doc' => '100000015', 'role' => 'OPERACIONES'],
                 ],
             ],
         ];
 
-        $roleByCode = ['ADMINISTRADOR' => $administrador, 'LOGÍSTICA' => $logistica];
+        $roleByCode = ['ADMINISTRADOR' => $administrador, 'LOGÍSTICA' => $logistica, 'OPERACIONES' => $operaciones];
 
         foreach ($organizationsUsers as $taxId => $config) {
             $organization = Organization::query()->where('tax_id', $taxId)->first();
