@@ -10,6 +10,9 @@ use App\Models\RolePermission;
 use App\Models\User;
 use App\Models\UserRole;
 use App\Notifications\GeneratorRelationshipCreatedNotification;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Support\Facades\Notification;
 
 // Vínculo comercial DIRECTO Generador -> Gestor (Carga Masiva de
@@ -412,4 +415,39 @@ test('store(): si el único destinatario resuelto tiene correo placeholder Y la 
     ])->assertCreated();
 
     Notification::assertNothingSent();
+});
+
+// ---- RBAC real (RolePermissionSeeder de producción) ----
+//
+// Decisión del usuario (2026-10-12, hallazgo de seguridad): OPERACIONES ya no
+// trae `generator_gestor_relationships.create`. Con ese permiso + `contacts.read` un usuario
+// OPERACIONES podía autoasignarse una relación con cualquier Generador y leer
+// sus contactos vía `OrganizationController::contacts()`.
+
+test('store rechaza (403) a un usuario con SOLO el rol OPERACIONES sembrado; ADMINISTRADOR de la misma organización sí crea la relación', function () {
+    Notification::fake();
+    $this->seed(PermissionSeeder::class);
+    $this->seed(RoleSeeder::class);
+    $this->seed(RolePermissionSeeder::class);
+
+    $organization = ggrGestorOrganization();
+    $generator = ggrGeneratorOrganization();
+
+    $operaciones = actorWithSeededRoles(['OPERACIONES'], $organization->id);
+
+    expect($operaciones->hasRole('ADMINISTRADOR'))->toBeFalse()
+        ->and($operaciones->hasPermission('generator_gestor_relationships.create'))->toBeFalse()
+        ->and($operaciones->hasPermission('generator_gestor_relationships.read'))->toBeTrue()
+        ->and($operaciones->hasPermission('generator_gestor_relationships.revoke'))->toBeTrue();
+
+    $this->actingAs($operaciones)->postJson('/api/admin/generator-gestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertForbidden();
+
+    expect(GeneratorGestorRelationship::query()->count())->toBe(0);
+
+    // Control: el 403 es por el permiso retirado, no por el fixture.
+    $this->actingAs(actorWithSeededRoles(['ADMINISTRADOR'], $organization->id))->postJson('/api/admin/generator-gestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
 });

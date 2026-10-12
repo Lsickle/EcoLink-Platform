@@ -4,11 +4,11 @@ use App\Models\BusinessRole;
 use App\Models\GeneratorGestorRelationship;
 use App\Models\GeneratorSubgestorRelationship;
 use App\Models\Organization;
-use App\Models\SecurityLog;
 use App\Models\OrganizationBusinessRole;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\RolePermission;
+use App\Models\SecurityLog;
 use App\Models\User;
 use App\Models\UserRole;
 use App\Models\UserStatus;
@@ -17,7 +17,11 @@ use App\Services\GeneratorBulkImportService;
 use Database\Seeders\BranchTypeSeeder;
 use Database\Seeders\BusinessRoleSeeder;
 use Database\Seeders\OrganizationStatusSeeder;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 
 // Carga Masiva de Generadores (CSV) por Subgestor/Gestor -- autoservicio
@@ -147,6 +151,27 @@ test('store rechaza a un actor sin el permiso correspondiente aunque su organiza
     ])->assertForbidden();
 });
 
+// Decisión del usuario (2026-10-12, hallazgo de seguridad): la carga masiva
+// está gateada por los mismos `.create` de relaciones comerciales que se le
+// retiraron a OPERACIONES -- consecuencia aceptada: OPERACIONES pierde también
+// la carga masiva de Generadores.
+test('store rechaza (403) a un usuario con SOLO el rol OPERACIONES sembrado, sea su organización Subgestor o Gestor', function (string $capabilityFlag) {
+    $this->seed(PermissionSeeder::class);
+    $this->seed(RoleSeeder::class);
+    $this->seed(RolePermissionSeeder::class);
+
+    $organization = gbiOrganizationWithBusinessRole($capabilityFlag);
+    $operaciones = actorWithSeededRoles(['OPERACIONES'], $organization->id);
+
+    $this->actingAs($operaciones)->postJson('/api/admin/generators/bulk-import', [
+        'file' => gbiCsvFile(gbiOneNewGeneratorCsv()),
+    ])->assertForbidden();
+
+    expect(Organization::query()->where('tax_id', '900111222')->exists())->toBeFalse()
+        ->and(GeneratorSubgestorRelationship::query()->count())->toBe(0)
+        ->and(GeneratorGestorRelationship::query()->count())->toBe(0);
+})->with(['can_transport_waste', 'can_treat_waste']);
+
 test('store (anti-role-smuggling): un tenant admin NO puede indicar on_behalf_of_organization_id -- siempre actúa desde su propio tenant', function () {
     $subgestor = gbiSubgestorOrganization();
     $otherSubgestor = gbiSubgestorOrganization();
@@ -236,7 +261,7 @@ test('la contraseña temporal nunca se persiste en claro (password_hash queda ha
     $user = $generator->users()->firstOrFail();
 
     expect($user->getRawOriginal('password_hash'))->not->toBe($payload['temporary_password'])
-        ->and(\Illuminate\Support\Facades\Hash::check($payload['temporary_password'], $user->getRawOriginal('password_hash')))->toBeTrue();
+        ->and(Hash::check($payload['temporary_password'], $user->getRawOriginal('password_hash')))->toBeTrue();
 });
 
 // ---- Deduplicación ----

@@ -10,6 +10,9 @@ use App\Models\RolePermission;
 use App\Models\User;
 use App\Models\UserRole;
 use App\Notifications\GeneratorRelationshipCreatedNotification;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Support\Facades\Notification;
 
 // Cadena Generador -> Subgestor -> Gestor en Declaración de Residuos
@@ -365,4 +368,39 @@ test('store() rechazado (par ya vigente) NO reenvía la notificación', function
     ])->assertUnprocessable();
 
     expect(Notification::sent($generatorReader, GeneratorRelationshipCreatedNotification::class))->toHaveCount(1);
+});
+
+// ---- RBAC real (RolePermissionSeeder de producción) ----
+//
+// Decisión del usuario (2026-10-12, hallazgo de seguridad): OPERACIONES ya no
+// trae `generator_subgestor_relationships.create`. Con ese permiso + `contacts.read` un usuario
+// OPERACIONES podía autoasignarse una relación con cualquier Generador y leer
+// sus contactos vía `OrganizationController::contacts()`.
+
+test('store rechaza (403) a un usuario con SOLO el rol OPERACIONES sembrado; ADMINISTRADOR de la misma organización sí crea la relación', function () {
+    Notification::fake();
+    $this->seed(PermissionSeeder::class);
+    $this->seed(RoleSeeder::class);
+    $this->seed(RolePermissionSeeder::class);
+
+    $organization = gsrSubgestorOrganization();
+    $generator = gsrGeneratorOrganization();
+
+    $operaciones = actorWithSeededRoles(['OPERACIONES'], $organization->id);
+
+    expect($operaciones->hasRole('ADMINISTRADOR'))->toBeFalse()
+        ->and($operaciones->hasPermission('generator_subgestor_relationships.create'))->toBeFalse()
+        ->and($operaciones->hasPermission('generator_subgestor_relationships.read'))->toBeTrue()
+        ->and($operaciones->hasPermission('generator_subgestor_relationships.revoke'))->toBeTrue();
+
+    $this->actingAs($operaciones)->postJson('/api/admin/generator-subgestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertForbidden();
+
+    expect(GeneratorSubgestorRelationship::query()->count())->toBe(0);
+
+    // Control: el 403 es por el permiso retirado, no por el fixture.
+    $this->actingAs(actorWithSeededRoles(['ADMINISTRADOR'], $organization->id))->postJson('/api/admin/generator-subgestor-relationships', [
+        'generator_organization_id' => $generator->id,
+    ])->assertCreated();
 });

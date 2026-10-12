@@ -220,13 +220,20 @@ class RolePermissionSeeder extends Seeder
         'treatment_approvals.read', 'treatment_approvals.create',
         // Cadena Generador -> Subgestor -> Gestor (confirmado por
         // stakeholders reales, 2026-08-09): OPERACIONES es el rol
-        // operativo del lado declarante, incluido el Subgestor -- gestiona
-        // qué Generadores son sus clientes (mismo criterio que
-        // `treatment_approvals.create`, universal para cualquier
-        // business_role, la restricción real vive en el controller vía
-        // `assertOrganizationCanTransportWaste()`).
-        'generator_subgestor_relationships.read', 'generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke',
-        'generator_gestor_relationships.read', 'generator_gestor_relationships.create', 'generator_gestor_relationships.revoke',
+        // operativo del lado declarante, incluido el Subgestor -- consulta
+        // qué Generadores son sus clientes y puede revocar el vínculo.
+        //
+        // SIN los dos `.create` (decisión del usuario, 2026-10-12, hallazgo
+        // de seguridad): sumados al `contacts.read` de abajo permitían que un
+        // usuario OPERACIONES se autoasignara una relación con CUALQUIER
+        // Generador y leyera sus contactos vía
+        // `OrganizationController::contacts()`. Crear el vínculo queda en
+        // ADMINISTRADOR. Consecuencia aceptada: OPERACIONES pierde también la
+        // carga masiva de Generadores (`GeneratorBulkImportController`,
+        // gateada por estos mismos `.create`). Ver
+        // `OPERACIONES_RETIRED_PERMISSION_CODES`.
+        'generator_subgestor_relationships.read', 'generator_subgestor_relationships.revoke',
+        'generator_gestor_relationships.read', 'generator_gestor_relationships.revoke',
         // Solicitudes de Servicio (2026-08-19). Hasta hoy los cinco
         // `service_requests.*` estaban SOLO en ADMINISTRADOR, asi que el rol
         // operativo no podia ni crear una solicitud.
@@ -255,6 +262,19 @@ class RolePermissionSeeder extends Seeder
         // ContactSearchSelect -- misma omisión que ya causó un bug en
         // LOGÍSTICA (ver su `contacts.read`).
         'contacts.read',
+    ];
+
+    /**
+     * Códigos que OPERACIONES TUVO hasta la decisión de 2026-10-12 (ver el
+     * comentario de las relaciones comerciales en
+     * `OPERACIONES_PERMISSION_CODES`). Mismo mecanismo y mismas consecuencias
+     * que `LOGISTICA_RETIRED_PERMISSION_CODES`: `run()` los DESACTIVA en una
+     * base ya sembrada, sin borrar la fila, y un `db:seed` posterior vuelve a
+     * retirarlos si alguien los reasigna a OPERACIONES desde la UI.
+     */
+    private const OPERACIONES_RETIRED_PERMISSION_CODES = [
+        'generator_subgestor_relationships.create',
+        'generator_gestor_relationships.create',
     ];
 
     /**
@@ -293,6 +313,7 @@ class RolePermissionSeeder extends Seeder
 
         $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
         $this->assignPermissions($operaciones, self::OPERACIONES_PERMISSION_CODES);
+        $this->retirePermissions($operaciones, self::OPERACIONES_RETIRED_PERMISSION_CODES);
 
         $tecnicoAmbiental = Role::query()->where('code', 'TECNICO_AMBIENTAL')->firstOrFail();
         $this->assignPermissions($tecnicoAmbiental, self::TECNICO_AMBIENTAL_PERMISSION_CODES);

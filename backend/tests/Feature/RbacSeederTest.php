@@ -189,7 +189,7 @@ test('siembra ADMINISTRADOR, LOGÍSTICA, TECNICO_AMBIENTAL y OPERACIONES (los ot
         ->and($operaciones->tenant_organization_id)->toBeNull();
 });
 
-test('OPERACIONES queda con wastes.*/treatment_approvals.read+create/relaciones comerciales/service_requests.* (lado declarante) + el lado PLANTA RECEPTORA de descargue (unload_requests.read+decide/plant_reception_schedules.*/manifest_unloads.*/contacts.read)', function () {
+test('OPERACIONES queda con wastes.*/treatment_approvals.read+create/relaciones comerciales/service_requests.* (lado declarante, relaciones con Generadores SOLO read+revoke) + el lado PLANTA RECEPTORA de descargue (unload_requests.read+decide/plant_reception_schedules.*/manifest_unloads.*/contacts.read)', function () {
     $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
 
     $codes = $operaciones->permissions()->pluck('code')->sort()->values()->all();
@@ -198,8 +198,12 @@ test('OPERACIONES queda con wastes.*/treatment_approvals.read+create/relaciones 
         'wastes.read', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate',
         'wastes.submit', 'wastes.review', 'wastes.classify', 'wastes.reject',
         'treatment_approvals.read', 'treatment_approvals.create',
-        'generator_subgestor_relationships.read', 'generator_subgestor_relationships.create', 'generator_subgestor_relationships.revoke',
-        'generator_gestor_relationships.read', 'generator_gestor_relationships.create', 'generator_gestor_relationships.revoke',
+        // Decisión del usuario (2026-10-12, hallazgo de seguridad): SIN los dos
+        // `.create` -- junto con `contacts.read` permitían autoasignarse una
+        // relación con cualquier Generador y leer sus contactos. Conserva
+        // `.read` y `.revoke`.
+        'generator_subgestor_relationships.read', 'generator_subgestor_relationships.revoke',
+        'generator_gestor_relationships.read', 'generator_gestor_relationships.revoke',
         // Solicitudes de Servicio (2026-08-19): hasta hoy los cinco estaban
         // SOLO en ADMINISTRADOR y el rol operativo no podía ni crear una.
         'service_requests.read', 'service_requests.create', 'service_requests.update', 'service_requests.cancel',
@@ -385,6 +389,68 @@ test('re-ejecutar el seeder sobre una base con el reparto VIEJO desactiva (sin b
         ->and(RolePermission::query()->where('role_id', $logistica->id)->where('is_active', true)->count())->toBe(24);
 });
 
+/**
+ * Decisión del usuario (2026-10-12, hallazgo de seguridad): con `contacts.read`
+ * + los dos `.create` de relaciones comerciales, un usuario OPERACIONES podía
+ * autoasignarse una relación con cualquier Generador y leer sus contactos vía
+ * `OrganizationController::contacts()`. Mismo patrón de retiro explícito que
+ * LOGÍSTICA: la fila se DESACTIVA, nunca se borra.
+ */
+test('re-ejecutar el seeder sobre una base ya sembrada desactiva (sin borrar) los 2 permisos .create de relaciones con Generadores que OPERACIONES ya tenía', function () {
+    $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
+    $retiredCodes = ['generator_subgestor_relationships.create', 'generator_gestor_relationships.create'];
+    $retiredPermissionIds = Permission::query()->whereIn('code', $retiredCodes)->pluck('id');
+
+    // Estado viejo: los 2 códigos activos en OPERACIONES.
+    foreach ($retiredPermissionIds as $permissionId) {
+        RolePermission::query()->updateOrCreate(
+            ['role_id' => $operaciones->id, 'permission_id' => $permissionId],
+            ['is_active' => true],
+        );
+    }
+
+    $actor = User::factory()->create();
+    UserRole::query()->create(['user_id' => $actor->id, 'role_id' => $operaciones->id, 'is_active' => true]);
+
+    expect($actor->hasPermission('generator_subgestor_relationships.create'))->toBeTrue()
+        ->and($actor->hasPermission('generator_gestor_relationships.create'))->toBeTrue();
+
+    $this->seed(RolePermissionSeeder::class);
+
+    $rows = RolePermission::query()
+        ->where('role_id', $operaciones->id)
+        ->whereIn('permission_id', $retiredPermissionIds)
+        ->get();
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows->every(fn (RolePermission $row) => $row->is_active === false))->toBeTrue()
+        ->and($rows->every(fn (RolePermission $row) => $row->deleted_at === null))->toBeTrue();
+
+    foreach ($retiredCodes as $code) {
+        expect($actor->hasPermission($code))->toBeFalse();
+    }
+
+    // Conserva `.read`/`.revoke` y el resto; ADMINISTRADOR no pierde los `.create`.
+    foreach (['generator_subgestor_relationships.read', 'generator_subgestor_relationships.revoke', 'generator_gestor_relationships.read', 'generator_gestor_relationships.revoke', 'contacts.read'] as $code) {
+        expect($actor->hasPermission($code))->toBeTrue();
+    }
+
+    expect(RolePermission::query()->where('role_id', $operaciones->id)->where('is_active', true)->count())->toBe(30);
+
+    $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
+    $administradorCodes = $administrador->permissions()->wherePivot('is_active', true)->pluck('code')->all();
+
+    expect($administradorCodes)->toHaveCount(133)
+        ->and($administradorCodes)->toContain('generator_subgestor_relationships.create')
+        ->and($administradorCodes)->toContain('generator_gestor_relationships.create');
+
+    // Idempotente: otra corrida no reactiva ni duplica nada.
+    $this->seed(RolePermissionSeeder::class);
+
+    expect(RolePermission::query()->where('role_id', $operaciones->id)->count())->toBe(32)
+        ->and(RolePermission::query()->where('role_id', $operaciones->id)->where('is_active', true)->count())->toBe(30);
+});
+
 test('ADMINISTRADOR queda con los permisos de auditoría (audit.read/audit.export) -- confirmado explícitamente por el usuario 2026-07-14', function () {
     $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
 
@@ -418,6 +484,6 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
         ->and(Role::query()->count())->toBe(4)
         ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(133)
         ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(24)
-        ->and(Role::query()->where('code', 'OPERACIONES')->firstOrFail()->permissions()->count())->toBe(32)
+        ->and(Role::query()->where('code', 'OPERACIONES')->firstOrFail()->permissions()->count())->toBe(30)
         ->and(Role::query()->where('code', 'TECNICO_AMBIENTAL')->firstOrFail()->permissions()->count())->toBe(7);
 });
