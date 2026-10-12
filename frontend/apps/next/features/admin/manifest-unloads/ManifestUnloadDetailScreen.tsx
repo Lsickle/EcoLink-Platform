@@ -354,8 +354,14 @@ export function ManifestUnloadDetailScreen({ manifestUnloadId }: { manifestUnloa
     !isFinal &&
     (statusCode === 'GENERATED' || statusCode === 'PARTIALLY_SIGNED')
 
+  // Firmar como receptor exige además `manifest_unloads.update` (lado planta):
+  // el lado transportador conserva `.sign` solo para la firma del conductor.
   const canSignAsReceiver =
-    isReceivingOwner && permissions.includes('manifest_unloads.sign') && !detail.receiver_signed_at && isSignable
+    isReceivingOwner &&
+    permissions.includes('manifest_unloads.sign') &&
+    permissions.includes('manifest_unloads.update') &&
+    !detail.receiver_signed_at &&
+    isSignable
   const canSignAsDriver =
     isCarrierOwner && permissions.includes('manifest_unloads.sign') && !detail.driver_signed_at && isSignable
 

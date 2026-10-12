@@ -176,7 +176,7 @@ describe('ManifestUnloadDetailScreen', () => {
     currentUser = {
       id: 1,
       is_platform_staff: false,
-      permissions: ['manifest_unloads.read', 'manifest_unloads.sign'],
+      permissions: ['manifest_unloads.read', 'manifest_unloads.sign', 'manifest_unloads.update'],
       tenant_organization_id: 2,
     }
     fetchManifestUnloadMock.mockResolvedValue({
@@ -190,11 +190,30 @@ describe('ManifestUnloadDetailScreen', () => {
     expect(screen.queryByRole('button', { name: 'Firmar como Conductor' })).not.toBeInTheDocument()
   })
 
-  test('signs as receiver and reloads', async () => {
+  test('hides "Firmar como Receptor" for the receiving organization without manifest_unloads.update (lado transportador)', async () => {
+    // Reparto por lado (2026-10-12): LOGÍSTICA conserva `manifest_unloads.sign`
+    // para firmar como conductor, pero firmar como receptor exige además
+    // `manifest_unloads.update` (lado planta) -- el backend responde 403.
     currentUser = {
       id: 1,
       is_platform_staff: false,
       permissions: ['manifest_unloads.read', 'manifest_unloads.sign'],
+      tenant_organization_id: 2,
+    }
+    fetchManifestUnloadMock.mockResolvedValue({
+      manifest_unload: baseManifestUnload({ manifest_status: { id: 2, code: 'GENERATED', name: 'Generado', is_final: false } }),
+    })
+    render(<ManifestUnloadDetailScreen manifestUnloadId={77} />)
+    await screen.findByText('MUN-2-ABCDEFGH')
+
+    expect(screen.queryByRole('button', { name: 'Firmar como Receptor' })).not.toBeInTheDocument()
+  })
+
+  test('signs as receiver and reloads', async () => {
+    currentUser = {
+      id: 1,
+      is_platform_staff: false,
+      permissions: ['manifest_unloads.read', 'manifest_unloads.sign', 'manifest_unloads.update'],
       tenant_organization_id: 2,
     }
     fetchManifestUnloadMock.mockResolvedValue({

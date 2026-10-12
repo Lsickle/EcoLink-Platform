@@ -3,6 +3,7 @@
 use App\Models\Branch;
 use App\Models\File;
 use App\Models\ManifestLoad;
+use App\Models\ManifestStatus;
 use App\Models\ManifestUnload;
 use App\Models\Organization;
 use App\Models\OrganizationContact;
@@ -400,7 +401,9 @@ test('sign(): la primera firma (DRIVER) mueve Generated->PartiallySigned; la seg
     [$manifest, $carrier, $receiver] = muGeneratedManifestFixture();
 
     $driverActor = muActor(['manifest_unloads.sign'], $carrier->id);
-    $receiverActor = muActor(['manifest_unloads.sign'], $receiver->id);
+    // Firmar como receptor exige además `manifest_unloads.update` (lado
+    // planta, decisión del usuario 2026-10-12).
+    $receiverActor = muActor(['manifest_unloads.sign', 'manifest_unloads.update'], $receiver->id);
 
     $this->actingAs($driverActor)->postJson("/api/admin/manifest-unloads/{$manifest->id}/sign", ['signer_type' => 'DRIVER'])
         ->assertOk()
@@ -435,7 +438,11 @@ test('sign() rechaza una segunda firma del MISMO tipo (ya firmado)', function ()
 
 test('sign() rechaza (403) firmar como RECEPTOR desde una organización que NO es la Receptora', function () {
     [$manifest] = muGeneratedManifestFixture();
-    $foreignActor = muActor(['manifest_unloads.sign'], Organization::factory()->create()->id);
+    // Con el permiso del lado planta (OPERACIONES): el 403 es por la
+    // ORGANIZACIÓN, no por faltarle `manifest_unloads.update`.
+    $foreignActor = muActor(['manifest_unloads.sign', 'manifest_unloads.update'], Organization::factory()->create()->id);
+
+    expect($foreignActor->hasPermission('manifest_unloads.update'))->toBeTrue();
 
     $this->actingAs($foreignActor)->postJson("/api/admin/manifest-unloads/{$manifest->id}/sign", ['signer_type' => 'RECEIVER'])
         ->assertForbidden();
@@ -703,6 +710,79 @@ test('generate()/cancel() rechazan (403) a un actor con SOLO el rol LOGÍSTICA d
     $this->actingAs(actorWithSeededRoles(['LOGÍSTICA'], $carrier->id))
         ->postJson("/api/admin/manifest-unloads/{$manifest->id}/sign", ['signer_type' => 'DRIVER'])
         ->assertOk()->assertJsonPath('manifest_unload.manifest_status.code', 'PARTIALLY_SIGNED');
+});
+
+// ---- Firma como RECEPTOR exige el lado planta (decisión del usuario,
+// 2026-10-12, hallazgo de seguridad) ----
+//
+// `signer_type` lo elige el cliente y LOGÍSTICA conserva
+// `manifest_unloads.sign` (lo necesita para firmar como conductor), así que
+// validar solo la organización dejaba a un usuario LOGÍSTICA de la planta
+// receptora firmar como RECEPTOR. Ahora firmar como receptor exige además
+// `manifest_unloads.update`, exclusivo del lado planta tras el reparto. La
+// firma del conductor NO cambia.
+
+test('sign() rechaza (403) firmar como RECEPTOR a un actor con SOLO el rol LOGÍSTICA aunque pertenezca a la organización RECEPTORA', function () {
+    [$manifest, , $receiver] = muGeneratedManifestFixture();
+
+    $receiverLogistica = actorWithSeededRoles(['LOGÍSTICA'], $receiver->id);
+
+    expect($receiverLogistica->hasPermission('manifest_unloads.sign'))->toBeTrue()
+        ->and($receiverLogistica->hasPermission('manifest_unloads.update'))->toBeFalse();
+
+    $this->actingAs($receiverLogistica)->postJson("/api/admin/manifest-unloads/{$manifest->id}/sign", ['signer_type' => 'RECEIVER'])
+        ->assertForbidden();
+
+    expect($manifest->fresh()->receiver_signed_at)->toBeNull()
+        ->and($manifest->fresh()->manifestStatus->code)->toBe('GENERATED');
+});
+
+test('sign() permite firmar como RECEPTOR a un actor con SOLO el rol OPERACIONES de la organización RECEPTORA', function () {
+    [$manifest, , $receiver] = muGeneratedManifestFixture();
+
+    $this->actingAs(actorWithSeededRoles(['OPERACIONES'], $receiver->id))
+        ->postJson("/api/admin/manifest-unloads/{$manifest->id}/sign", ['signer_type' => 'RECEIVER'])
+        ->assertOk()->assertJsonPath('manifest_unload.manifest_status.code', 'PARTIALLY_SIGNED');
+
+    expect($manifest->fresh()->receiver_signed_at)->not->toBeNull();
+});
+
+test('sign() como CONDUCTOR queda igual: LOGÍSTICA del transportador firma sin manifest_unloads.update, y una misma persona puede firmar ambas', function () {
+    // Transportador con SOLO LOGÍSTICA: firma como conductor sin el permiso del lado planta.
+    [$manifest, $carrier] = muGeneratedManifestFixture();
+    $driverLogistica = actorWithSeededRoles(['LOGÍSTICA'], $carrier->id);
+
+    expect($driverLogistica->hasPermission('manifest_unloads.update'))->toBeFalse();
+
+    $this->actingAs($driverLogistica)->postJson("/api/admin/manifest-unloads/{$manifest->id}/sign", ['signer_type' => 'DRIVER'])
+        ->assertOk()->assertJsonPath('manifest_unload.manifest_status.code', 'PARTIALLY_SIGNED');
+
+    // Misma persona firmando AMBAS (no se agregó esa restricción): en
+    // autotransporte la organización transportadora ES la receptora.
+    $organization = Organization::factory()->create();
+    $selfManifest = ManifestUnload::factory()->create([
+        'receiving_organization_id' => $organization->id,
+        'unload_request_id' => UnloadRequest::factory()->create(['carrier_organization_id' => $organization->id])->id,
+    ]);
+    $selfManifest->forceFill(['manifest_status_id' => ManifestStatus::query()->where('code', 'GENERATED')->value('id')])->save();
+
+    $both = actorWithSeededRoles(['LOGÍSTICA', 'OPERACIONES'], $organization->id);
+
+    $this->actingAs($both)->postJson("/api/admin/manifest-unloads/{$selfManifest->id}/sign", ['signer_type' => 'DRIVER'])->assertOk();
+    $this->actingAs($both)->postJson("/api/admin/manifest-unloads/{$selfManifest->id}/sign", ['signer_type' => 'RECEIVER'])
+        ->assertOk()->assertJsonPath('manifest_unload.manifest_status.code', 'SIGNED');
+});
+
+test('sign(): ADMINISTRADOR no pierde nada -- firma como RECEPTOR desde la receptora y como CONDUCTOR desde la transportadora', function () {
+    [$manifest, $carrier, $receiver] = muGeneratedManifestFixture();
+
+    $this->actingAs(actorWithSeededRoles(['ADMINISTRADOR'], $receiver->id))
+        ->postJson("/api/admin/manifest-unloads/{$manifest->id}/sign", ['signer_type' => 'RECEIVER'])
+        ->assertOk()->assertJsonPath('manifest_unload.manifest_status.code', 'PARTIALLY_SIGNED');
+
+    $this->actingAs(actorWithSeededRoles(['ADMINISTRADOR'], $carrier->id))
+        ->postJson("/api/admin/manifest-unloads/{$manifest->id}/sign", ['signer_type' => 'DRIVER'])
+        ->assertOk()->assertJsonPath('manifest_unload.manifest_status.code', 'SIGNED');
 });
 
 // ---- Roles reales por lado (RolePermissionSeeder de producción) ----

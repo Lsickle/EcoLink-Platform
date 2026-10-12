@@ -72,6 +72,16 @@ class ManifestUnloadSignatureService
      * (`ManifestUnload::carrierOrganizationId()`, derivada de la
      * `unload_request` asociada -- ya cubre autotransporte, ver su
      * docblock). platform staff siempre pasa.
+     *
+     * Decisión del usuario (2026-10-12, hallazgo de seguridad): firmar como
+     * RECEPTOR exige ADEMÁS `manifest_unloads.update`, el permiso exclusivo
+     * del lado planta tras el reparto por lado (ver
+     * `RolePermissionSeeder::OPERACIONES_PERMISSION_CODES`). `signer_type` lo
+     * elige el cliente y LOGÍSTICA conserva `manifest_unloads.sign` para
+     * firmar como conductor, así que la organización sola no bastaba: un
+     * usuario LOGÍSTICA de la organización receptora podía firmar como
+     * receptor. La firma del CONDUCTOR no cambia, y una misma persona con
+     * ambos lados puede seguir firmando las dos.
      */
     private static function assertActorCanSign(ManifestUnload $manifestUnload, User $actor, string $signerType): void
     {
@@ -87,6 +97,10 @@ class ManifestUnloadSignatureService
             $signerLabel = $signerType === self::SIGNER_RECEIVER ? 'del receptor' : 'del conductor';
 
             abort(403, "No tiene acceso para firmar este manifiesto en representación {$signerLabel}.");
+        }
+
+        if ($signerType === self::SIGNER_RECEIVER && ! $actor->hasPermission('manifest_unloads.update')) {
+            abort(403, 'Firmar este manifiesto en representación del receptor exige gestionar el manifiesto de descargue desde la planta receptora.');
         }
     }
 }
