@@ -13,11 +13,11 @@ use App\Models\TransportRouteStop;
 use App\Models\TransportSchedule;
 use App\Models\TransportScheduleItem;
 use App\Models\TransportStatus;
+use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\WasteServiceRequest;
 use App\Models\WasteServiceRequestItem;
 use App\Policies\TransportSchedulePolicy;
-use App\Models\User;
 use App\Services\TransportScheduleWorkflowService;
 use App\Services\UnloadRequestAutomationService;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -283,11 +283,11 @@ class TransportScheduleController extends Controller
         }
 
         $this->assertVehicleBelongsToOrganization((int) $data['vehicle_id'], $organizationId);
-        $this->assertTransportPersonnelBelongsToOrganization((int) $data['transport_personnel_id'], $organizationId, 'transport_personnel_id');
+        $this->assertTransportPersonnelIsAssignable((int) $data['transport_personnel_id'], $organizationId, 'transport_personnel_id');
         $this->assertBranchBelongsToOrganization((int) $data['destination_branch_id'], $organizationId, 'destination_branch_id');
 
         if (array_key_exists('assistant_personnel_id', $data) && $data['assistant_personnel_id'] !== null) {
-            $this->assertTransportPersonnelBelongsToOrganization((int) $data['assistant_personnel_id'], $organizationId, 'assistant_personnel_id');
+            $this->assertTransportPersonnelIsAssignable((int) $data['assistant_personnel_id'], $organizationId, 'assistant_personnel_id');
         }
 
         if (array_key_exists('responsible_user_id', $data) && $data['responsible_user_id'] !== null) {
@@ -390,12 +390,22 @@ class TransportScheduleController extends Controller
             $this->assertVehicleBelongsToOrganization((int) $data['vehicle_id'], $schedule->organization_id);
         }
 
-        if (array_key_exists('transport_personnel_id', $data)) {
-            $this->assertTransportPersonnelBelongsToOrganization((int) $data['transport_personnel_id'], $schedule->organization_id, 'transport_personnel_id');
-        }
+        // Decisión del usuario (2026-10-12): las programaciones ya creadas no
+        // se tocan -- el conductor/auxiliar solo se valida cuando el campo
+        // viene en el request Y cambia respecto al valor guardado. Editar
+        // otros campos (o reenviar la cabecera con el mismo personal) de una
+        // programación cuyo conductor quedó inactivo/desvinculado DESPUÉS no
+        // debe fallar.
+        foreach (['transport_personnel_id', 'assistant_personnel_id'] as $personnelField) {
+            if (! array_key_exists($personnelField, $data) || $data[$personnelField] === null) {
+                continue;
+            }
 
-        if (array_key_exists('assistant_personnel_id', $data) && $data['assistant_personnel_id'] !== null) {
-            $this->assertTransportPersonnelBelongsToOrganization((int) $data['assistant_personnel_id'], $schedule->organization_id, 'assistant_personnel_id');
+            if ((int) $data[$personnelField] === (int) $schedule->{$personnelField}) {
+                continue;
+            }
+
+            $this->assertTransportPersonnelIsAssignable((int) $data[$personnelField], $schedule->organization_id, $personnelField);
         }
 
         if (array_key_exists('destination_branch_id', $data)) {
@@ -664,16 +674,42 @@ class TransportScheduleController extends Controller
      * `add_assistant_personnel_id_to_transport_schedules_table`) -- mismo
      * patrón que `assertBranchBelongsToOrganization()`, que ya recibía
      * `$field` como parámetro.
+     *
+     * Decisión del usuario (2026-10-12): pertenecer a la organización
+     * (`transport_personnel.organization_id`) ya no basta para ser ASIGNADO
+     * a una programación. Además se exige que el registro esté activo
+     * (`transport_personnel.is_active`) y que su `Person` conserve un vínculo
+     * ACTIVO en `organization_contacts` con esa organización -- mismo
+     * criterio que `TransportPersonnelController::assertPersonBelongsToOrganization()`,
+     * vía `organizationLinks()`, nunca la columna legacy
+     * `people.organization_id`. Sin esto, un conductor dado de baja o cuya
+     * persona fue desvinculada de la empresa seguía siendo programable.
      */
-    private function assertTransportPersonnelBelongsToOrganization(int $transportPersonnelId, ?int $organizationId, string $field = 'transport_personnel_id'): void
+    private function assertTransportPersonnelIsAssignable(int $transportPersonnelId, ?int $organizationId, string $field = 'transport_personnel_id'): void
     {
         $personnel = TransportPersonnel::query()->find($transportPersonnelId);
+        $label = $field === 'assistant_personnel_id' ? 'auxiliar' : 'conductor';
 
         if (! $personnel || (int) $personnel->organization_id !== (int) $organizationId) {
-            $label = $field === 'assistant_personnel_id' ? 'auxiliar' : 'conductor';
-
             throw ValidationException::withMessages([
                 $field => ["El {$label} indicado no pertenece a su organización."],
+            ]);
+        }
+
+        if (! $personnel->is_active) {
+            throw ValidationException::withMessages([
+                $field => ["El {$label} indicado está inactivo y no puede asignarse a una programación."],
+            ]);
+        }
+
+        $isLinked = $personnel->person?->organizationLinks()
+            ->where('organization_id', $organizationId)
+            ->where('is_active', true)
+            ->exists() ?? false;
+
+        if (! $isLinked) {
+            throw ValidationException::withMessages([
+                $field => ["El {$label} indicado ya no está vinculado a su organización."],
             ]);
         }
     }

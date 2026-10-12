@@ -11,6 +11,7 @@ use App\Models\Locality;
 use App\Models\MeasurementUnit;
 use App\Models\Municipality;
 use App\Models\Organization;
+use App\Models\OrganizationContact;
 use App\Models\Person;
 use App\Models\ServiceItemStatus;
 use App\Models\TransportPersonnel;
@@ -184,6 +185,24 @@ class DemoTransportSchedulesSeeder extends Seeder
                     'document_number' => fake()->unique()->numerify('#########'),
                     'first_name' => $firstName,
                     'last_name' => $lastName,
+                ],
+            );
+
+            // Un conductor es una `Person` con vínculo ACTIVO en
+            // `organization_contacts` con su organización -- lo exige
+            // `TransportPersonnelController::store()` al registrarlo y, desde
+            // 2026-10-12, `TransportScheduleController` al asignarlo. Sin este
+            // vínculo los conductores demo no se podían volver a programar.
+            // `firstOrCreate()`: no reactiva un vínculo que alguien revocó a
+            // mano probando justamente ese caso.
+            OrganizationContact::query()->firstOrCreate(
+                ['contact_id' => $person->id, 'organization_id' => $gestor->id],
+                [
+                    'branch_id' => null,
+                    'position_title' => 'Conductor',
+                    'relationship_type' => 'Empleado',
+                    'is_primary' => false,
+                    'is_active' => true,
                 ],
             );
 

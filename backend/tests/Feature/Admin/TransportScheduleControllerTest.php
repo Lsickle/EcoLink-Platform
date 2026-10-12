@@ -6,6 +6,7 @@ use App\Models\GestorCarrierAuthorization;
 use App\Models\Locality;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
+use App\Models\OrganizationContact;
 use App\Models\Role;
 use App\Models\ServiceItemStatus;
 use App\Models\TransportPersonnel;
@@ -1094,6 +1095,183 @@ test('la columna assistant_personnel_id es NULLABLE a nivel de esquema (factory 
     expect($schedule->assistant_personnel_id)->toBeNull()
         ->and($schedule->fresh()->assistant_personnel_id)->toBeNull();
 });
+
+// ---- Conductor/auxiliar asignable: activo + vínculo ACTIVO con la organización ----
+//
+// Decisión del usuario (2026-10-12): al CREAR o EDITAR una programación no
+// basta con que el conductor/auxiliar sea de la organización que programa
+// (`transport_personnel.organization_id`) -- debe estar ACTIVO
+// (`transport_personnel.is_active`) y su `Person` conservar un vínculo ACTIVO
+// en `organization_contacts` con esa organización (mismo criterio que
+// `TransportPersonnelController::assertPersonBelongsToOrganization()`, nunca
+// la columna legacy `people.organization_id`). Las programaciones ya creadas
+// no se tocan: `update()` solo valida el campo si viene Y cambia.
+
+/**
+ * Deja a `$personnel` en el estado no asignable pedido: `inactivo`
+ * (`is_active=false`) o `desvinculado` (vínculo `organization_contacts`
+ * revocado, con `people.organization_id` legacy todavía apuntando a la
+ * organización -- esa columna NO debe contar como pertenencia).
+ */
+function tsMakePersonnelUnassignable(TransportPersonnel $personnel, string $reason): TransportPersonnel
+{
+    if ($reason === 'inactivo') {
+        $personnel->forceFill(['is_active' => false])->save();
+
+        return $personnel;
+    }
+
+    OrganizationContact::query()
+        ->where('contact_id', $personnel->person_id)
+        ->where('organization_id', $personnel->organization_id)
+        ->update(['is_active' => false]);
+
+    $personnel->person->forceFill(['organization_id' => $personnel->organization_id])->save();
+
+    return $personnel;
+}
+
+dataset('motivos por los que un conductor/auxiliar no es asignable', [
+    'inactivo' => ['inactivo', 'está inactivo'],
+    'vínculo revocado' => ['desvinculado', 'ya no está vinculado'],
+]);
+
+test('store rechaza (422) un conductor que no es asignable', function (string $reason, string $messageFragment) {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $vehicle = Vehicle::factory()->create(['organization_id' => $gestor->id]);
+    $personnel = tsMakePersonnelUnassignable(TransportPersonnel::factory()->create(['organization_id' => $gestor->id]), $reason);
+    $actor = tsActor(['transport_schedules.create'], $gestor->id);
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/transport-schedules', tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('transport_personnel_id');
+
+    expect($response->json('errors.transport_personnel_id.0'))->toContain('conductor')->toContain($messageFragment)
+        ->and(TransportSchedule::query()->count())->toBe(0);
+})->with('motivos por los que un conductor/auxiliar no es asignable');
+
+test('store rechaza (422) un auxiliar que no es asignable (mismas reglas que el conductor)', function (string $reason, string $messageFragment) {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $vehicle = Vehicle::factory()->create(['organization_id' => $gestor->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $assistant = tsMakePersonnelUnassignable(TransportPersonnel::factory()->create(['organization_id' => $gestor->id]), $reason);
+    $actor = tsActor(['transport_schedules.create'], $gestor->id);
+
+    $payload = tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch);
+    $payload['assistant_personnel_id'] = $assistant->id;
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/transport-schedules', $payload)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('assistant_personnel_id')
+        ->assertJsonMissingValidationErrors('transport_personnel_id');
+
+    expect($response->json('errors.assistant_personnel_id.0'))->toContain('auxiliar')->toContain($messageFragment)
+        ->and(TransportSchedule::query()->count())->toBe(0);
+})->with('motivos por los que un conductor/auxiliar no es asignable');
+
+test('store acepta conductor y auxiliar activos con vínculo ACTIVO en organization_contacts (sin depender de people.organization_id)', function () {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $vehicle = Vehicle::factory()->create(['organization_id' => $gestor->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $assistant = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $actor = tsActor(['transport_schedules.create'], $gestor->id);
+
+    foreach ([$personnel, $assistant] as $member) {
+        expect($member->is_active)->toBeTrue()
+            ->and($member->person->organization_id)->toBeNull()
+            ->and($member->person->organizationLinks()->where('organization_id', $gestor->id)->where('is_active', true)->exists())->toBeTrue();
+    }
+
+    $payload = tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch);
+    $payload['assistant_personnel_id'] = $assistant->id;
+
+    $this->actingAs($actor)->postJson('/api/admin/transport-schedules', $payload)
+        ->assertCreated()
+        ->assertJsonPath('transport_schedule.transport_personnel_id', $personnel->id)
+        ->assertJsonPath('transport_schedule.assistant_personnel_id', $assistant->id);
+});
+
+test('update() de OTRO campo no falla aunque el conductor y el auxiliar ya asignados hayan quedado no asignables después', function (string $reason) {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $vehicle = Vehicle::factory()->create(['organization_id' => $gestor->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $assistant = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $actor = tsActor(['transport_schedules.create', 'transport_schedules.update'], $gestor->id);
+
+    $payload = tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch);
+    $payload['assistant_personnel_id'] = $assistant->id;
+
+    $schedule = TransportSchedule::query()->findOrFail(
+        $this->actingAs($actor)->postJson('/api/admin/transport-schedules', $payload)->assertCreated()->json('transport_schedule.id'),
+    );
+
+    // Ambos quedan no asignables DESPUÉS de programar.
+    tsMakePersonnelUnassignable($personnel, $reason);
+    tsMakePersonnelUnassignable($assistant, $reason);
+
+    // Editar otro campo: el request ni menciona al personal.
+    $this->actingAs($actor)->putJson("/api/admin/transport-schedules/{$schedule->id}", ['priority' => 'URGENT'])
+        ->assertOk()
+        ->assertJsonPath('transport_schedule.priority', 'URGENT');
+
+    // Un formulario que reenvía la cabecera completa con los MISMOS ids
+    // guardados tampoco falla -- el campo viene, pero no cambia.
+    $this->actingAs($actor)->putJson("/api/admin/transport-schedules/{$schedule->id}", [
+        'priority' => 'LOW',
+        'transport_personnel_id' => $personnel->id,
+        'assistant_personnel_id' => $assistant->id,
+    ])->assertOk()->assertJsonPath('transport_schedule.priority', 'LOW');
+
+    expect($schedule->fresh()->transport_personnel_id)->toBe($personnel->id)
+        ->and($schedule->fresh()->assistant_personnel_id)->toBe($assistant->id);
+})->with(['inactivo', 'desvinculado']);
+
+test('update() rechaza (422) CAMBIAR el conductor o el auxiliar a uno que no es asignable', function (string $reason, string $messageFragment) {
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $vehicle = Vehicle::factory()->create(['organization_id' => $gestor->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $actor = tsActor(['transport_schedules.create', 'transport_schedules.update'], $gestor->id);
+
+    $schedule = TransportSchedule::query()->findOrFail(
+        $this->actingAs($actor)->postJson('/api/admin/transport-schedules', tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch))
+            ->assertCreated()->json('transport_schedule.id'),
+    );
+
+    $unassignable = tsMakePersonnelUnassignable(TransportPersonnel::factory()->create(['organization_id' => $gestor->id]), $reason);
+
+    $driverResponse = $this->actingAs($actor)->putJson("/api/admin/transport-schedules/{$schedule->id}", ['transport_personnel_id' => $unassignable->id])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('transport_personnel_id');
+
+    $assistantResponse = $this->actingAs($actor)->putJson("/api/admin/transport-schedules/{$schedule->id}", ['assistant_personnel_id' => $unassignable->id])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('assistant_personnel_id');
+
+    expect($driverResponse->json('errors.transport_personnel_id.0'))->toContain('conductor')->toContain($messageFragment)
+        ->and($assistantResponse->json('errors.assistant_personnel_id.0'))->toContain('auxiliar')->toContain($messageFragment)
+        ->and($schedule->fresh()->transport_personnel_id)->toBe($personnel->id)
+        ->and($schedule->fresh()->assistant_personnel_id)->toBeNull();
+})->with('motivos por los que un conductor/auxiliar no es asignable');
 
 // ---- LOGÍSTICA real (RolePermissionSeeder de producción, SIN ADMINISTRADOR) ----
 
