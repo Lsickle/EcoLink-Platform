@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Http\Controllers\Concerns\AssertsTransportPersonnelIsAssignable;
 use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\GestorCarrierAuthorization;
 use App\Models\Organization;
-use App\Models\TransportPersonnel;
 use App\Models\TransportRoute;
 use App\Models\TransportRouteStop;
 use App\Models\TransportSchedule;
@@ -109,7 +109,7 @@ use Illuminate\Validation\ValidationException;
  */
 class TransportScheduleController extends Controller
 {
-    use LogsSecurityEvents;
+    use AssertsTransportPersonnelIsAssignable, LogsSecurityEvents;
 
     /**
      * Vista "Programación por Localidad" (mapa de Bogotá): filtros opcionales
@@ -460,6 +460,14 @@ class TransportScheduleController extends Controller
      * PEND -> PROG -> CONF (encadena ambas transiciones si el estado actual
      * es PEND; solo PROG -> CONF si ya está en PROG) -- ver docblock de la
      * clase para el razonamiento completo de este diseño.
+     *
+     * Decisión del usuario (2026-10-12): ANTES de transicionar se revalidan
+     * el conductor y el auxiliar (si lo hay) con la misma regla que al
+     * asignarlos (`AssertsTransportPersonnelIsAssignable`). `update()` no
+     * toca las programaciones ya creadas, así que este es el punto de
+     * control: si alguno quedó inactivo, desvinculado o eliminado después de
+     * crearla, responde 422 y no ocurre nada -- ni transición ni la
+     * `unload_requests` automática de D-PRG-13.
      */
     public function confirm(Request $request, TransportSchedule $schedule)
     {
@@ -472,6 +480,12 @@ class TransportScheduleController extends Controller
             throw ValidationException::withMessages([
                 'transport_status' => ['Solo se puede confirmar una programación en estado Pend. Asignación o Programada.'],
             ]);
+        }
+
+        $this->assertAssignedTransportPersonnelIsStillAssignable((int) $schedule->transport_personnel_id, $schedule->organization_id, 'transport_personnel_id');
+
+        if ($schedule->assistant_personnel_id !== null) {
+            $this->assertAssignedTransportPersonnelIsStillAssignable((int) $schedule->assistant_personnel_id, $schedule->organization_id, 'assistant_personnel_id');
         }
 
         if ($currentCode === 'PEND') {
@@ -663,53 +677,6 @@ class TransportScheduleController extends Controller
         if (! $vehicle || (int) $vehicle->organization_id !== (int) $organizationId) {
             throw ValidationException::withMessages([
                 'vehicle_id' => ['El vehículo indicado no pertenece a su organización.'],
-            ]);
-        }
-    }
-
-    /**
-     * Generalizado para reusarse tanto con el conductor
-     * (`transport_personnel_id`) como con el auxiliar
-     * (`assistant_personnel_id`, ver docblock de la migración
-     * `add_assistant_personnel_id_to_transport_schedules_table`) -- mismo
-     * patrón que `assertBranchBelongsToOrganization()`, que ya recibía
-     * `$field` como parámetro.
-     *
-     * Decisión del usuario (2026-10-12): pertenecer a la organización
-     * (`transport_personnel.organization_id`) ya no basta para ser ASIGNADO
-     * a una programación. Además se exige que el registro esté activo
-     * (`transport_personnel.is_active`) y que su `Person` conserve un vínculo
-     * ACTIVO en `organization_contacts` con esa organización -- mismo
-     * criterio que `TransportPersonnelController::assertPersonBelongsToOrganization()`,
-     * vía `organizationLinks()`, nunca la columna legacy
-     * `people.organization_id`. Sin esto, un conductor dado de baja o cuya
-     * persona fue desvinculada de la empresa seguía siendo programable.
-     */
-    private function assertTransportPersonnelIsAssignable(int $transportPersonnelId, ?int $organizationId, string $field = 'transport_personnel_id'): void
-    {
-        $personnel = TransportPersonnel::query()->find($transportPersonnelId);
-        $label = $field === 'assistant_personnel_id' ? 'auxiliar' : 'conductor';
-
-        if (! $personnel || (int) $personnel->organization_id !== (int) $organizationId) {
-            throw ValidationException::withMessages([
-                $field => ["El {$label} indicado no pertenece a su organización."],
-            ]);
-        }
-
-        if (! $personnel->is_active) {
-            throw ValidationException::withMessages([
-                $field => ["El {$label} indicado está inactivo y no puede asignarse a una programación."],
-            ]);
-        }
-
-        $isLinked = $personnel->person?->organizationLinks()
-            ->where('organization_id', $organizationId)
-            ->where('is_active', true)
-            ->exists() ?? false;
-
-        if (! $isLinked) {
-            throw ValidationException::withMessages([
-                $field => ["El {$label} indicado ya no está vinculado a su organización."],
             ]);
         }
     }

@@ -4,6 +4,7 @@ use App\Models\Branch;
 use App\Models\BusinessRole;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
+use App\Models\OrganizationContact;
 use App\Models\ServiceItemStatus;
 use App\Models\TransportPersonnel;
 use App\Models\TransportSchedule;
@@ -354,6 +355,68 @@ test('store() rechaza (422) un vehicle_id que NO pertenece a la organización ac
             ['waste_id' => $waste->id, 'requested_quantity' => 100],
         ],
     ])->assertUnprocessable()->assertJsonValidationErrors('vehicle_id');
+});
+
+// Decisión del usuario (2026-10-12): la solicitud manual aplica la MISMA regla
+// de personal asignable que la programación de transporte
+// (`AssertsTransportPersonnelIsAssignable`): de la organización, activo y con
+// vínculo ACTIVO en `organization_contacts`. La validación vieja solo miraba
+// pertenencia, con `withTrashed()` y dejando pasar si no encontraba el registro.
+test('store() rechaza (422) un transport_personnel_id que no es asignable', function (string $reason, string $messageFragment) {
+    $gestor = urGestorOrganization();
+    $receivingBranch = Branch::factory()->create(['organization_id' => $gestor->id]);
+    $waste = Waste::factory()->create();
+    $actor = urActor(['unload_requests.create'], $gestor->id);
+
+    $personnel = TransportPersonnel::factory()->create([
+        'organization_id' => $reason === 'de otra organización' ? urGestorOrganization()->id : $gestor->id,
+    ]);
+
+    if ($reason === 'inactivo') {
+        $personnel->forceFill(['is_active' => false])->save();
+    }
+
+    if ($reason === 'desvinculado') {
+        OrganizationContact::query()
+            ->where('contact_id', $personnel->person_id)
+            ->where('organization_id', $gestor->id)
+            ->update(['is_active' => false]);
+
+        // La columna legacy `people.organization_id` NO cuenta como pertenencia.
+        $personnel->person->forceFill(['organization_id' => $gestor->id])->save();
+    }
+
+    if ($reason === 'eliminado') {
+        $personnel->delete();
+    }
+
+    $response = $this->actingAs($actor)->postJson('/api/admin/unload-requests', [
+        'receiving_branch_id' => $receivingBranch->id,
+        'transport_personnel_id' => $personnel->id,
+        'items' => [['waste_id' => $waste->id, 'requested_quantity' => 100]],
+    ])->assertUnprocessable()->assertJsonValidationErrors('transport_personnel_id');
+
+    expect($response->json('errors.transport_personnel_id.0'))->toContain('conductor')->toContain($messageFragment)
+        ->and(UnloadRequest::query()->count())->toBe(0);
+})->with([
+    'de otra organización' => ['de otra organización', 'no pertenece'],
+    'inactivo' => ['inactivo', 'está inactivo'],
+    'vínculo revocado' => ['desvinculado', 'ya no está vinculado'],
+    'soft-deleted' => ['eliminado', 'no pertenece'],
+]);
+
+test('store() acepta un transport_personnel_id activo y con vínculo ACTIVO con la organización actora', function () {
+    $gestor = urGestorOrganization();
+    $receivingBranch = Branch::factory()->create(['organization_id' => $gestor->id]);
+    $waste = Waste::factory()->create();
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $actor = urActor(['unload_requests.create'], $gestor->id);
+
+    $this->actingAs($actor)->postJson('/api/admin/unload-requests', [
+        'receiving_branch_id' => $receivingBranch->id,
+        'transport_personnel_id' => $personnel->id,
+        'items' => [['waste_id' => $waste->id, 'requested_quantity' => 100]],
+    ])->assertCreated()->assertJsonPath('unload_request.transport_personnel_id', $personnel->id);
 });
 
 test('store() rechaza (403) un actor sin el permiso unload_requests.create', function () {

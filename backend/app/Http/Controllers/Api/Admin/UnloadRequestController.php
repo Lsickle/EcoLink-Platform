@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Http\Controllers\Concerns\AssertsTransportPersonnelIsAssignable;
 use App\Http\Controllers\Concerns\LogsSecurityEvents;
 use App\Http\Controllers\Controller;
-use App\Models\TransportPersonnel;
 use App\Models\UnloadRequest;
 use App\Models\UnloadRequestItem;
 use App\Models\UnloadRequestStatus;
@@ -37,7 +37,7 @@ use Illuminate\Validation\ValidationException;
  */
 class UnloadRequestController extends Controller
 {
-    use LogsSecurityEvents;
+    use AssertsTransportPersonnelIsAssignable, LogsSecurityEvents;
 
     public function index(Request $request)
     {
@@ -132,8 +132,10 @@ class UnloadRequestController extends Controller
             $this->assertVehicleBelongsToOrganization((int) $data['vehicle_id'], $carrierOrganizationId);
         }
 
+        // Decisión del usuario (2026-10-12): misma regla que la programación
+        // de transporte -- de la organización, activo y con vínculo ACTIVO.
         if (array_key_exists('transport_personnel_id', $data) && $data['transport_personnel_id'] !== null) {
-            $this->assertTransportPersonnelBelongsToOrganization((int) $data['transport_personnel_id'], $carrierOrganizationId);
+            $this->assertTransportPersonnelIsAssignable((int) $data['transport_personnel_id'], $carrierOrganizationId);
         }
 
         $items = $data['items'];
@@ -272,17 +274,6 @@ class UnloadRequestController extends Controller
         if ($vehicle && (int) $vehicle->organization_id !== (int) $organizationId) {
             throw ValidationException::withMessages([
                 'vehicle_id' => ['El vehículo indicado no pertenece a su organización.'],
-            ]);
-        }
-    }
-
-    private function assertTransportPersonnelBelongsToOrganization(int $transportPersonnelId, ?int $organizationId): void
-    {
-        $personnel = TransportPersonnel::withTrashed()->find($transportPersonnelId);
-
-        if ($personnel && (int) $personnel->organization_id !== (int) $organizationId) {
-            throw ValidationException::withMessages([
-                'transport_personnel_id' => ['El conductor indicado no pertenece a su organización.'],
             ]);
         }
     }

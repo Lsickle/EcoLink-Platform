@@ -15,6 +15,7 @@ use App\Models\TransportRouteStop;
 use App\Models\TransportSchedule;
 use App\Models\TransportScheduleItem;
 use App\Models\TransportStatus;
+use App\Models\UnloadRequest;
 use App\Models\User;
 use App\Models\UserRole;
 use App\Models\Vehicle;
@@ -1272,6 +1273,113 @@ test('update() rechaza (422) CAMBIAR el conductor o el auxiliar a uno que no es 
         ->and($schedule->fresh()->transport_personnel_id)->toBe($personnel->id)
         ->and($schedule->fresh()->assistant_personnel_id)->toBeNull();
 })->with('motivos por los que un conductor/auxiliar no es asignable');
+
+// ---- confirm() revalida conductor y auxiliar ANTES de transicionar ----
+//
+// Decisión del usuario (2026-10-12): `update()` no toca las programaciones ya
+// creadas, pero CONFIRMAR sí es el punto de control -- una programación cuyo
+// conductor o auxiliar quedó inactivo, desvinculado o eliminado después de
+// crearla no se puede confirmar hasta reasignarlo. Nada a medias: ni
+// transición, ni `WorkflowLog`, ni la `unload_requests` automática (D-PRG-13).
+
+/**
+ * Programación en PEND (store->submit) con conductor y auxiliar válidos.
+ *
+ * @return array{0: TransportSchedule, 1: User, 2: TransportPersonnel, 3: TransportPersonnel, 4: Organization}
+ */
+function tsSubmittedScheduleWithAssistantFixture(): array
+{
+    $generator = tsGeneratorOrganization();
+    $gestor = tsGestorOrganization();
+    $branch = Branch::factory()->create(['organization_id' => $generator->id]);
+    [$serviceRequest, $item] = tsAcceptedItemFixture($generator, $gestor, $branch);
+
+    $vehicle = Vehicle::factory()->create(['organization_id' => $gestor->id]);
+    $personnel = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $assistant = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+    $actor = tsActor(['transport_schedules.create', 'transport_schedules.update'], $gestor->id);
+
+    $payload = tsStorePayload($serviceRequest, $item, $vehicle, $personnel, $branch);
+    $payload['assistant_personnel_id'] = $assistant->id;
+
+    $schedule = TransportSchedule::query()->findOrFail(
+        test()->actingAs($actor)->postJson('/api/admin/transport-schedules', $payload)->assertCreated()->json('transport_schedule.id'),
+    );
+
+    test()->actingAs($actor)->postJson("/api/admin/transport-schedules/{$schedule->id}/submit")->assertOk();
+
+    return [$schedule->fresh(), $actor, $personnel, $assistant, $gestor];
+}
+
+test('confirm() rechaza (422) sin transicionar ni crear la solicitud de descargue cuando el conductor o el auxiliar dejó de ser asignable; tras reasignarlo confirma', function (string $reason, string $field) {
+    [$schedule, $actor, $personnel, $assistant, $gestor] = tsSubmittedScheduleWithAssistantFixture();
+
+    $affected = $field === 'assistant_personnel_id' ? $assistant : $personnel;
+    $label = $field === 'assistant_personnel_id' ? 'auxiliar' : 'conductor';
+
+    if ($reason === 'eliminado') {
+        $affected->delete();
+    } else {
+        tsMakePersonnelUnassignable($affected, $reason);
+    }
+
+    $response = $this->actingAs($actor)->postJson("/api/admin/transport-schedules/{$schedule->id}/confirm")
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors($field);
+
+    expect($response->json("errors.{$field}.0"))->toContain($label)->toContain('reasignarse')
+        ->and(array_keys($response->json('errors')))->toBe([$field]);
+
+    // Nada a medias: sigue en PEND, sin logs de PROG/CONF y sin unload_request.
+    expect($schedule->fresh()->transportStatus->code)->toBe('PEND')
+        ->and(WorkflowLog::query()->where('process_type', 'TRANSPORT_SCHEDULE')->where('process_id', $schedule->id)->whereIn('new_status', ['PROG', 'CONF'])->exists())->toBeFalse()
+        ->and(UnloadRequest::query()->where('transport_schedule_id', $schedule->id)->exists())->toBeFalse();
+
+    // Reasignar (PEND todavía es editable) destraba la confirmación.
+    $replacement = TransportPersonnel::factory()->create(['organization_id' => $gestor->id]);
+
+    $this->actingAs($actor)->putJson("/api/admin/transport-schedules/{$schedule->id}", [$field => $replacement->id])->assertOk();
+
+    $this->actingAs($actor)->postJson("/api/admin/transport-schedules/{$schedule->id}/confirm")
+        ->assertOk()
+        ->assertJsonPath('transport_schedule.transport_status.code', 'CONF');
+
+    expect(UnloadRequest::query()->where('transport_schedule_id', $schedule->id)->count())->toBe(1);
+})->with(['inactivo', 'desvinculado', 'eliminado'])->with(['transport_personnel_id', 'assistant_personnel_id']);
+
+test('confirm() desde PROG también revalida: con el conductor inactivo responde 422 y la programación sigue en PROG', function () {
+    [$schedule, $actor, $personnel] = tsSubmittedScheduleWithAssistantFixture();
+
+    $schedule->forceFill(['transport_status_id' => TransportStatus::query()->where('code', 'PROG')->value('id')])->save();
+    tsMakePersonnelUnassignable($personnel, 'inactivo');
+
+    $this->actingAs($actor)->postJson("/api/admin/transport-schedules/{$schedule->id}/confirm")
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('transport_personnel_id');
+
+    expect($schedule->fresh()->transportStatus->code)->toBe('PROG')
+        ->and(UnloadRequest::query()->where('transport_schedule_id', $schedule->id)->exists())->toBeFalse();
+});
+
+test('confirm() con conductor y auxiliar válidos sigue funcionando y crea la solicitud de descargue', function () {
+    [$schedule, $actor, $personnel] = tsSubmittedScheduleWithAssistantFixture();
+
+    $this->actingAs($actor)->postJson("/api/admin/transport-schedules/{$schedule->id}/confirm")
+        ->assertOk()
+        ->assertJsonPath('transport_schedule.transport_status.code', 'CONF')
+        ->assertJsonPath('unload_request.transport_personnel_id', $personnel->id);
+});
+
+test('submit() NO revalida al personal: una programación en Borrador con conductor inactivo se envía igual', function () {
+    [$schedule, $actor, $personnel] = tsSubmittedScheduleWithAssistantFixture();
+
+    $schedule->forceFill(['transport_status_id' => TransportStatus::query()->where('code', 'BOR')->value('id')])->save();
+    tsMakePersonnelUnassignable($personnel, 'inactivo');
+
+    $this->actingAs($actor)->postJson("/api/admin/transport-schedules/{$schedule->id}/submit")
+        ->assertOk()
+        ->assertJsonPath('transport_schedule.transport_status.code', 'PEND');
+});
 
 // ---- LOGÍSTICA real (RolePermissionSeeder de producción, SIN ADMINISTRADOR) ----
 
