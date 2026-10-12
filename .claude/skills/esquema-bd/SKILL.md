@@ -1508,6 +1508,7 @@ CREATE TABLE transport_schedules (
   destination_branch_id BIGINT NOT NULL,
   vehicle_id BIGINT NULL,
   transport_personnel_id BIGINT NULL,
+  assistant_personnel_id BIGINT NULL, -- auxiliar de transporte (decisión del usuario 2026-09-28; opcional, sin RN que lo exija)
   planned_pickup_date DATE NOT NULL,
   pickup_window_start TIMESTAMPTZ NULL,
   pickup_window_end TIMESTAMPTZ NULL,
@@ -1538,6 +1539,7 @@ CREATE TABLE transport_schedules (
   -- FK destination_branch_id -> branches.id  ON DELETE ??SIN DEFINIR??  ON UPDATE ??SIN DEFINIR??
   -- FK vehicle_id -> vehicles.id  ON DELETE ??SIN DEFINIR??  ON UPDATE ??SIN DEFINIR??
   -- FK transport_personnel_id -> transport_personnel.id  ON DELETE ??SIN DEFINIR??  ON UPDATE ??SIN DEFINIR??
+  -- FK assistant_personnel_id -> transport_personnel.id  ON DELETE RESTRICT  ON UPDATE ??SIN DEFINIR??
   -- FK parent_schedule_id -> transport_schedules.id  ON DELETE ??SIN DEFINIR??  ON UPDATE ??SIN DEFINIR??
 
 -- transport_statuses: Estados del proceso de transporte
