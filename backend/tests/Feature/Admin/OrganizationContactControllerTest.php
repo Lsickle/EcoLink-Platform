@@ -348,6 +348,15 @@ test('searchContacts acota a personas con vínculo accesible cuando el actor NO 
         ->not->toContain($withoutAnyLink->id);
 });
 
+test('searchContacts devuelve 403 a un actor sin organización que NO es platform staff', function () {
+    Person::factory()->create(['first_name' => 'Buscable', 'last_name' => 'SinVinculo']);
+
+    $actor = contactActor(['contacts.read'], null);
+
+    $this->actingAs($actor)->getJson('/api/admin/organizations/contacts/search?q=Buscable')->assertForbidden();
+    $this->actingAs($actor)->getJson('/api/admin/organizations/contacts/search')->assertForbidden();
+});
+
 test('searchContacts NO acota resultados cuando el actor es platform staff', function () {
     $organization = Organization::factory()->create();
     $person = Person::factory()->create(['first_name' => 'SinVinculo', 'last_name' => 'Alguno']);

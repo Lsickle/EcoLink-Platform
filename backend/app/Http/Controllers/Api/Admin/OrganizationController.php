@@ -775,7 +775,7 @@ class OrganizationController extends Controller
      * cualquier organización", eso sería una superficie de IDOR mucho más
      * amplia):
      * 1. Se valida que el actor pueda OPERAR esa programación --
-     *    {@see \App\Policies\TransportSchedulePolicy::view()} (platform
+     *    {@see TransportSchedulePolicy::view()} (platform
      *    staff O dueño de `transport_schedules.organization_id`, el Gestor
      *    que la programó, Y con permiso `transport_schedules.read` --
      *    hallazgo Media de `especialista-seguridad`, 2026-07-19: antes se
@@ -818,6 +818,10 @@ class OrganizationController extends Controller
     {
         $actor = $request->user();
         abort_unless($actor->hasPermission('contacts.read'), 403, 'No tiene permiso para buscar contactos.');
+        // Sin organización propia no hay con qué acotar: `$scopedOrganizationId`
+        // quedaría en null y la búsqueda devolvería a TODAS las personas del
+        // sistema, igual que para platform staff.
+        abort_if(! $actor->isPlatformStaff() && $actor->tenant_organization_id === null, 403, 'No tiene permiso para buscar contactos.');
 
         $data = $request->validate([
             'q' => ['nullable', 'string'],
