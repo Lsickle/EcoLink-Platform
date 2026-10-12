@@ -4,6 +4,7 @@ use App\Models\Role;
 use App\Models\Workflow;
 use App\Models\WorkflowEntityBinding;
 use App\Models\WorkflowTransition;
+use App\Models\WorkflowTransitionRole;
 use Database\Seeders\ManifestLoadWorkflowSeeder;
 use Database\Seeders\ManifestUnloadWorkflowSeeder;
 use Database\Seeders\OrganizationStatusSeeder;
@@ -69,21 +70,60 @@ test('siembra exactamente 6 transiciones (2 humanas del grafo principal + 2 auto
     expect($version->transitions()->count())->toBe(6);
 });
 
-dataset('transiciones humanas autorizadas para LOGÍSTICA', [
+// Reparto por lado (decisión del usuario, 2026-10-12): TODAS las transiciones
+// humanas del manifiesto de descargue las dispara la planta receptora
+// (`ManifestUnloadPolicy::manage()`/`cancel()`), así que pasan de LOGÍSTICA
+// (lado transportador) a OPERACIONES (lado planta receptora).
+dataset('transiciones humanas autorizadas para OPERACIONES', [
     ['DRAFT', 'GENERATED'],
     ['SIGNED', 'CLOSED'],
 ]);
 
-test('las transiciones humanas están autorizadas para el rol de sistema LOGÍSTICA', function (string $from, string $to) {
-    $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
+test('las transiciones humanas están autorizadas SOLO para el rol de sistema OPERACIONES (lado planta receptora)', function (string $from, string $to) {
+    $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
     $version = Workflow::query()->where('code', 'MANIFEST_UNLOAD')->firstOrFail()->currentVersion;
 
     $transition = $version->transitions()->where('from_status_code', $from)->where('to_status_code', $to)->firstOrFail();
 
     expect($transition->roles)->toHaveCount(1)
-        ->and($transition->roles->first()->role_id)->toBe($logistica->id)
+        ->and($transition->roles->first()->role_id)->toBe($operaciones->id)
         ->and($transition->roles->first()->business_role_id)->toBeNull();
-})->with('transiciones humanas autorizadas para LOGÍSTICA');
+})->with('transiciones humanas autorizadas para OPERACIONES');
+
+/**
+ * dev local y staging corren `migrate --seed` SIN `:fresh`: una base ya
+ * sembrada tiene LOGÍSTICA en las 4 transiciones humanas. Re-ejecutar el
+ * seeder debe dejarla en el estado objetivo, no solo AGREGAR OPERACIONES.
+ */
+test('re-ejecutar el seeder sobre una base con el reparto VIEJO retira LOGÍSTICA de las 4 transiciones humanas y deja solo OPERACIONES', function () {
+    $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
+    $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
+    $version = Workflow::query()->where('code', 'MANIFEST_UNLOAD')->firstOrFail()->currentVersion;
+
+    // Estado viejo: LOGÍSTICA como único rol de las 4 transiciones humanas.
+    foreach ($version->transitions()->where('is_automatic', false)->get() as $transition) {
+        WorkflowTransitionRole::query()->where('workflow_transition_id', $transition->id)->delete();
+        WorkflowTransitionRole::query()->create(['workflow_transition_id' => $transition->id, 'role_id' => $logistica->id]);
+    }
+
+    $this->seed(ManifestUnloadWorkflowSeeder::class);
+    $this->seed(ManifestUnloadWorkflowSeeder::class);
+
+    $humanTransitions = $version->transitions()->where('is_automatic', false)->with('roles')->get();
+
+    expect($humanTransitions)->toHaveCount(4);
+
+    foreach ($humanTransitions as $transition) {
+        expect($transition->roles->pluck('role_id')->all())->toBe([$operaciones->id]);
+    }
+
+    // El workflow de CARGUE (lado transportador) no se toca.
+    $loadVersion = Workflow::query()->where('code', 'MANIFEST_LOAD')->firstOrFail()->currentVersion;
+
+    foreach ($loadVersion->transitions()->where('is_automatic', false)->with('roles')->get() as $transition) {
+        expect($transition->roles->pluck('role_id')->all())->toBe([$logistica->id]);
+    }
+});
 
 dataset('transiciones automáticas disparadas por la firma', [
     ['GENERATED', 'PARTIALLY_SIGNED'],
@@ -103,13 +143,14 @@ dataset('estados desde los que se puede cancelar', [
     ['GENERATED'], ['PARTIALLY_SIGNED'],
 ]);
 
-test('CANCELLED es alcanzable desde Generated/PartiallySigned, autorizado para LOGÍSTICA', function (string $from) {
-    $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
+test('CANCELLED es alcanzable desde Generated/PartiallySigned, autorizado SOLO para OPERACIONES (lado planta receptora)', function (string $from) {
+    $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
     $version = Workflow::query()->where('code', 'MANIFEST_UNLOAD')->firstOrFail()->currentVersion;
 
     $transition = $version->transitions()->where('from_status_code', $from)->where('to_status_code', 'CANCELLED')->firstOrFail();
 
-    expect($transition->roles->first()->role_id)->toBe($logistica->id);
+    expect($transition->roles)->toHaveCount(1)
+        ->and($transition->roles->first()->role_id)->toBe($operaciones->id);
 })->with('estados desde los que se puede cancelar');
 
 test('DRAFT y CLOSED NO tienen transición de cancelación', function () {

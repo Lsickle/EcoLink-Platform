@@ -320,7 +320,8 @@ class ManifestUnloadController extends Controller
     }
 
     /**
-     * Draft -> Generated (rol LOGÍSTICA, lado receptor). RN-107/108: exige
+     * Draft -> Generated (rol OPERACIONES, lado planta receptora -- reparto
+     * por lado del 2026-10-12, antes LOGÍSTICA). RN-107/108: exige
      * que la inspección ya haya registrado los pesos agregados de cabecera.
      */
     public function generate(Request $request, ManifestUnload $manifestUnload)

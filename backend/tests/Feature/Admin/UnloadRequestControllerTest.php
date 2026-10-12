@@ -4,13 +4,11 @@ use App\Models\Branch;
 use App\Models\BusinessRole;
 use App\Models\Organization;
 use App\Models\OrganizationBusinessRole;
-use App\Models\Role;
 use App\Models\ServiceItemStatus;
 use App\Models\TransportPersonnel;
 use App\Models\TransportSchedule;
 use App\Models\UnloadRequest;
 use App\Models\User;
-use App\Models\UserRole;
 use App\Models\Vehicle;
 use App\Models\Waste;
 use App\Models\WasteServiceRequest;
@@ -71,17 +69,15 @@ beforeEach(function () {
     $this->seed(UnloadRequestWorkflowSeeder::class);
 });
 
+/**
+ * Reparto por lado (2026-10-12): el actor recibe el rol de sistema REAL que
+ * cubre `$codes` -- LOGÍSTICA para el lado transportador, OPERACIONES para
+ * el lado planta receptora (p. ej. `unload_requests.decide`). Ver
+ * `seededTransportSideRoleCodesFor()` en `tests/Pest.php`.
+ */
 function urActor(array $codes = [], ?int $tenantOrganizationId = null): User
 {
-    $actor = User::factory()->create(['tenant_organization_id' => $tenantOrganizationId]);
-
-    if ($codes !== []) {
-        $role = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
-
-        UserRole::query()->create(['user_id' => $actor->id, 'role_id' => $role->id, 'is_active' => true]);
-    }
-
-    return $actor;
+    return actorWithSeededRoles($codes === [] ? [] : seededTransportSideRoleCodesFor($codes), $tenantOrganizationId);
 }
 
 function urGeneratorOrganization(): Organization
@@ -473,6 +469,96 @@ test('approve() rechaza (403) a una tercera organización ajena a ambos lados', 
     $foreignActor = urActor(['unload_requests.decide'], urGestorOrganization()->id);
 
     $this->actingAs($foreignActor)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/approve")->assertForbidden();
+});
+
+// ---- Reparto por lado (decisión del usuario, 2026-10-12): LOGÍSTICA = lado
+// transportador, OPERACIONES = lado planta receptora. Roles REALES del seeder. ----
+
+test('approve()/reject() rechazan (403) a un actor con SOLO el rol LOGÍSTICA aunque pertenezca a la planta RECEPTORA (decidir es de OPERACIONES)', function () {
+    $carrier = urGestorOrganization();
+    $receiver = urGestorOrganization();
+    $receivingBranch = Branch::factory()->create(['organization_id' => $receiver->id]);
+
+    $unloadRequest = urManualSubmittedRequestFixture($carrier, $receivingBranch);
+
+    $receiverLogistica = actorWithSeededRoles(['LOGÍSTICA'], $receiver->id);
+
+    expect($receiverLogistica->hasPermission('unload_requests.decide'))->toBeFalse();
+
+    $this->actingAs($receiverLogistica)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/approve")->assertForbidden();
+    $this->actingAs($receiverLogistica)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/reject", [
+        'rejection_reason' => 'Documentación incompleta',
+    ])->assertForbidden();
+
+    expect($unloadRequest->fresh()->unloadRequestStatus->code)->toBe('SUBMITTED');
+
+    // Sigue pudiendo VER la solicitud que llega a su planta.
+    $this->actingAs($receiverLogistica)->getJson("/api/admin/unload-requests/{$unloadRequest->id}")->assertOk();
+});
+
+test('approve() permite a un actor con SOLO el rol OPERACIONES de la planta RECEPTORA decidir la solicitud', function () {
+    $carrier = urGestorOrganization();
+    $receiver = urGestorOrganization();
+    $receivingBranch = Branch::factory()->create(['organization_id' => $receiver->id]);
+
+    $unloadRequest = urManualSubmittedRequestFixture($carrier, $receivingBranch);
+
+    $receiverOperaciones = actorWithSeededRoles(['OPERACIONES'], $receiver->id);
+
+    expect($receiverOperaciones->hasRole('LOGÍSTICA'))->toBeFalse()
+        ->and($receiverOperaciones->hasRole('ADMINISTRADOR'))->toBeFalse();
+
+    $this->actingAs($receiverOperaciones)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/approve")
+        ->assertOk()
+        ->assertJsonPath('unload_request.unload_request_status.code', 'APPROVED');
+});
+
+test('reject() permite a un actor con SOLO el rol OPERACIONES de la planta RECEPTORA rechazar la solicitud', function () {
+    $carrier = urGestorOrganization();
+    $receiver = urGestorOrganization();
+    $receivingBranch = Branch::factory()->create(['organization_id' => $receiver->id]);
+
+    $unloadRequest = urManualSubmittedRequestFixture($carrier, $receivingBranch);
+
+    $this->actingAs(actorWithSeededRoles(['OPERACIONES'], $receiver->id))
+        ->postJson("/api/admin/unload-requests/{$unloadRequest->id}/reject", ['rejection_reason' => 'Documentación incompleta'])
+        ->assertOk()
+        ->assertJsonPath('unload_request.unload_request_status.code', 'REJECTED');
+});
+
+test('approve() rechaza (403) a un actor OPERACIONES de una organización que NO es la receptora (la Policy por organización no cambia)', function () {
+    $carrier = urGestorOrganization();
+    $receiver = urGestorOrganization();
+    $receivingBranch = Branch::factory()->create(['organization_id' => $receiver->id]);
+
+    $unloadRequest = urManualSubmittedRequestFixture($carrier, $receivingBranch);
+
+    // Tiene el permiso `unload_requests.decide`, pero no es la planta receptora:
+    // ni un tercero ajeno ni el propio transportador pueden decidir.
+    $foreignOperaciones = actorWithSeededRoles(['OPERACIONES'], urGestorOrganization()->id);
+    $carrierOperaciones = actorWithSeededRoles(['OPERACIONES'], $carrier->id);
+
+    expect($foreignOperaciones->hasPermission('unload_requests.decide'))->toBeTrue();
+
+    $this->actingAs($foreignOperaciones)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/approve")->assertForbidden();
+    $this->actingAs($carrierOperaciones)->postJson("/api/admin/unload-requests/{$unloadRequest->id}/approve")->assertForbidden();
+
+    expect($unloadRequest->fresh()->unloadRequestStatus->code)->toBe('SUBMITTED');
+});
+
+test('submit() sigue siendo del lado transportador: OPERACIONES de la organización transportadora recibe 403', function () {
+    $carrier = urGestorOrganization();
+    $receivingBranch = Branch::factory()->create(['organization_id' => urGestorOrganization()->id]);
+    $waste = Waste::factory()->create();
+
+    $response = $this->actingAs(actorWithSeededRoles(['LOGÍSTICA'], $carrier->id))->postJson('/api/admin/unload-requests', [
+        'receiving_branch_id' => $receivingBranch->id,
+        'items' => [['waste_id' => $waste->id, 'requested_quantity' => 100]],
+    ])->assertCreated();
+
+    $this->actingAs(actorWithSeededRoles(['OPERACIONES'], $carrier->id))
+        ->postJson("/api/admin/unload-requests/{$response->json('unload_request.id')}/submit")
+        ->assertForbidden();
 });
 
 test('approve() rechaza (422) una solicitud que todavía NO está SUBMITTED', function () {

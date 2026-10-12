@@ -1,20 +1,19 @@
 <?php
 
 use App\Models\Branch;
+use App\Models\File;
 use App\Models\ManifestLoad;
 use App\Models\ManifestUnload;
 use App\Models\Organization;
 use App\Models\OrganizationContact;
 use App\Models\Person;
 use App\Models\PlantReceptionSchedule;
-use App\Models\Role;
 use App\Models\TransportPersonnel;
 use App\Models\TransportSchedule;
 use App\Models\UnloadRequest;
 use App\Models\UnloadRequestItem;
 use App\Models\UnloadRequestStatus;
 use App\Models\User;
-use App\Models\UserRole;
 use App\Models\Vehicle;
 use App\Models\Waste;
 use App\Models\WorkflowLog;
@@ -60,17 +59,15 @@ beforeEach(function () {
     $this->seed(UnloadRequestWorkflowSeeder::class);
 });
 
+/**
+ * Reparto por lado (2026-10-12): el actor recibe el rol de sistema REAL que
+ * cubre `$codes` -- LOGÍSTICA para el lado transportador, OPERACIONES para
+ * el lado planta receptora (p. ej. `manifest_unloads.create`). Ver
+ * `seededTransportSideRoleCodesFor()` en `tests/Pest.php`.
+ */
 function muActor(array $codes = [], ?int $tenantOrganizationId = null): User
 {
-    $actor = User::factory()->create(['tenant_organization_id' => $tenantOrganizationId]);
-
-    if ($codes !== []) {
-        $role = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
-
-        UserRole::query()->create(['user_id' => $actor->id, 'role_id' => $role->id, 'is_active' => true]);
-    }
-
-    return $actor;
+    return actorWithSeededRoles($codes === [] ? [] : seededTransportSideRoleCodesFor($codes), $tenantOrganizationId);
 }
 
 function muPlatformStaffActor(array $codes = []): User
@@ -570,14 +567,14 @@ test('files(): lista evidencias activas subidas por el receptor, ordenadas más 
     [$manifest, , $receiver] = muGeneratedManifestFixture();
     $receiverActor = muActor(['manifest_unloads.read', 'manifest_unloads.update'], $receiver->id);
 
-    $older = \App\Models\File::factory()->create([
+    $older = File::factory()->create([
         'entity_type' => 'MANIFEST_UNLOAD',
         'entity_id' => $manifest->id,
         'file_category' => 'PHOTO_EVIDENCE',
         'uploaded_at' => now()->subHour(),
         'is_active' => true,
     ]);
-    $newer = \App\Models\File::factory()->create([
+    $newer = File::factory()->create([
         'entity_type' => 'MANIFEST_UNLOAD',
         'entity_id' => $manifest->id,
         'file_category' => 'PHOTO_EVIDENCE',
@@ -585,7 +582,7 @@ test('files(): lista evidencias activas subidas por el receptor, ordenadas más 
         'is_active' => true,
     ]);
     // Inactivo (soft-eliminado) -- no debe aparecer.
-    \App\Models\File::factory()->create([
+    File::factory()->create([
         'entity_type' => 'MANIFEST_UNLOAD',
         'entity_id' => $manifest->id,
         'file_category' => 'PHOTO_EVIDENCE',
@@ -646,17 +643,83 @@ test('show(): el lado transportador (solo lectura) SÍ puede ver el manifiesto p
     $this->actingAs($carrierActorWithUpdate)->postJson("/api/admin/manifest-unloads/{$manifest->id}/generate")->assertForbidden();
 });
 
-// ---- LOGÍSTICA real (RolePermissionSeeder de producción) ----
+// ---- Reparto por lado (decisión del usuario, 2026-10-12): LOGÍSTICA = lado
+// transportador, OPERACIONES = lado planta receptora. Roles REALES del seeder. ----
 
-test('un actor con SOLO el rol LOGÍSTICA real completa store->inspect->generate->sign(driver)->sign(receiver)->complete', function () {
+test('store rechaza (403) a un actor con SOLO el rol LOGÍSTICA aunque pertenezca a la planta RECEPTORA (crear el manifiesto de descargue es de OPERACIONES)', function () {
+    [$unloadRequest, , $receiver] = muApprovedUnloadRequestFixture();
+    $receiverPerson = muPersonInOrganization($receiver->id);
+
+    $receiverLogistica = actorWithSeededRoles(['LOGÍSTICA'], $receiver->id);
+
+    expect($receiverLogistica->hasPermission('manifest_unloads.create'))->toBeFalse();
+
+    $this->actingAs($receiverLogistica)->postJson('/api/admin/manifest-unloads', [
+        'unload_request_id' => $unloadRequest->id,
+        'receiver_person_id' => $receiverPerson->id,
+    ])->assertForbidden();
+
+    expect(ManifestUnload::query()->where('unload_request_id', $unloadRequest->id)->exists())->toBeFalse();
+});
+
+test('store permite a un actor con SOLO el rol OPERACIONES de la planta RECEPTORA crear el manifiesto de descargue', function () {
+    [$unloadRequest, , $receiver] = muApprovedUnloadRequestFixture();
+    $receiverPerson = muPersonInOrganization($receiver->id);
+
+    $this->actingAs(actorWithSeededRoles(['OPERACIONES'], $receiver->id))->postJson('/api/admin/manifest-unloads', [
+        'unload_request_id' => $unloadRequest->id,
+        'receiver_person_id' => $receiverPerson->id,
+    ])->assertCreated()->assertJsonPath('manifest_unload.manifest_status.code', 'DRAFT');
+});
+
+test('store rechaza (403) a un actor OPERACIONES de una organización que NO es la receptora (la Policy por organización no cambia)', function () {
     [$unloadRequest, $carrier, $receiver] = muApprovedUnloadRequestFixture();
     $receiverPerson = muPersonInOrganization($receiver->id);
 
-    $receiverActor = muActor(['manifest_unloads.create'], $receiver->id);
-    $driverActor = muActor(['manifest_unloads.sign'], $carrier->id);
+    $foreignOperaciones = actorWithSeededRoles(['OPERACIONES'], Organization::factory()->create()->id);
+    $carrierOperaciones = actorWithSeededRoles(['OPERACIONES'], $carrier->id);
 
-    expect($receiverActor->hasRole('LOGÍSTICA'))->toBeTrue()
-        ->and($receiverActor->hasRole('ADMINISTRADOR'))->toBeFalse();
+    expect($foreignOperaciones->hasPermission('manifest_unloads.create'))->toBeTrue();
+
+    foreach ([$foreignOperaciones, $carrierOperaciones] as $actor) {
+        $this->actingAs($actor)->postJson('/api/admin/manifest-unloads', [
+            'unload_request_id' => $unloadRequest->id,
+            'receiver_person_id' => $receiverPerson->id,
+        ])->assertForbidden();
+    }
+
+    expect(ManifestUnload::query()->where('unload_request_id', $unloadRequest->id)->exists())->toBeFalse();
+});
+
+test('generate()/cancel() rechazan (403) a un actor con SOLO el rol LOGÍSTICA de la planta RECEPTORA; el conductor LOGÍSTICA sí firma', function () {
+    [$manifest, $carrier, $receiver] = muGeneratedManifestFixture();
+
+    $receiverLogistica = actorWithSeededRoles(['LOGÍSTICA'], $receiver->id);
+
+    $this->actingAs($receiverLogistica)->postJson("/api/admin/manifest-unloads/{$manifest->id}/cancel")->assertForbidden();
+    $this->actingAs($receiverLogistica)->postJson("/api/admin/manifest-unloads/{$manifest->id}/complete")->assertForbidden();
+
+    // El lado transportador conserva `manifest_unloads.read`/`.sign`.
+    $this->actingAs(actorWithSeededRoles(['LOGÍSTICA'], $carrier->id))
+        ->postJson("/api/admin/manifest-unloads/{$manifest->id}/sign", ['signer_type' => 'DRIVER'])
+        ->assertOk()->assertJsonPath('manifest_unload.manifest_status.code', 'PARTIALLY_SIGNED');
+});
+
+// ---- Roles reales por lado (RolePermissionSeeder de producción) ----
+// Reparto por lado (decisión del usuario, 2026-10-12): la planta receptora
+// opera con OPERACIONES y el conductor firma con LOGÍSTICA. Hasta esa fecha
+// este test recorría el ciclo completo con LOGÍSTICA en ambos lados.
+
+test('un receptor con SOLO el rol OPERACIONES real y un conductor con SOLO LOGÍSTICA completan store->inspect->generate->sign(driver)->sign(receiver)->complete', function () {
+    [$unloadRequest, $carrier, $receiver] = muApprovedUnloadRequestFixture();
+    $receiverPerson = muPersonInOrganization($receiver->id);
+
+    $receiverActor = actorWithSeededRoles(['OPERACIONES'], $receiver->id);
+    $driverActor = actorWithSeededRoles(['LOGÍSTICA'], $carrier->id);
+
+    expect($receiverActor->hasRole('LOGÍSTICA'))->toBeFalse()
+        ->and($receiverActor->hasRole('ADMINISTRADOR'))->toBeFalse()
+        ->and($driverActor->hasRole('OPERACIONES'))->toBeFalse();
 
     $storeResponse = $this->actingAs($receiverActor)->postJson('/api/admin/manifest-unloads', [
         'unload_request_id' => $unloadRequest->id,

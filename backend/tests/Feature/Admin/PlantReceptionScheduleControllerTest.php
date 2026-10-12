@@ -4,10 +4,8 @@ use App\Models\Branch;
 use App\Models\BranchLocation;
 use App\Models\Organization;
 use App\Models\PlantReceptionSchedule;
-use App\Models\Role;
 use App\Models\UnloadRequest;
 use App\Models\User;
-use App\Models\UserRole;
 use App\Models\Waste;
 use App\Models\WorkflowLog;
 use Database\Seeders\BusinessRoleSeeder;
@@ -46,17 +44,15 @@ beforeEach(function () {
     $this->seed(UnloadRequestWorkflowSeeder::class);
 });
 
+/**
+ * Reparto por lado (2026-10-12): el actor recibe el rol de sistema REAL que
+ * cubre `$codes` -- LOGÍSTICA para el lado transportador, OPERACIONES para
+ * el lado planta receptora (p. ej. `unload_requests.decide`). Ver
+ * `seededTransportSideRoleCodesFor()` en `tests/Pest.php`.
+ */
 function prsActor(array $codes = [], ?int $tenantOrganizationId = null): User
 {
-    $actor = User::factory()->create(['tenant_organization_id' => $tenantOrganizationId]);
-
-    if ($codes !== []) {
-        $role = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
-
-        UserRole::query()->create(['user_id' => $actor->id, 'role_id' => $role->id, 'is_active' => true]);
-    }
-
-    return $actor;
+    return actorWithSeededRoles($codes === [] ? [] : seededTransportSideRoleCodesFor($codes), $tenantOrganizationId);
 }
 
 /**

@@ -2,6 +2,9 @@
 
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\RolePermission;
+use App\Models\User;
+use App\Models\UserRole;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -186,7 +189,7 @@ test('siembra ADMINISTRADOR, LOGÍSTICA, TECNICO_AMBIENTAL y OPERACIONES (los ot
         ->and($operaciones->tenant_organization_id)->toBeNull();
 });
 
-test('OPERACIONES queda con wastes.*/treatment_approvals.read+create/relaciones comerciales/service_requests.* (lado declarante, universal para cualquier business_role)', function () {
+test('OPERACIONES queda con wastes.*/treatment_approvals.read+create/relaciones comerciales/service_requests.* (lado declarante) + el lado PLANTA RECEPTORA de descargue (unload_requests.read+decide/plant_reception_schedules.*/manifest_unloads.*/contacts.read)', function () {
     $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
 
     $codes = $operaciones->permissions()->pluck('code')->sort()->values()->all();
@@ -204,6 +207,14 @@ test('OPERACIONES queda con wastes.*/treatment_approvals.read+create/relaciones 
         // rol operativo es este. A un GENERADOR no le habilita nada -- la
         // Policy exige además SER el destinatario, y nunca lo es.
         'service_requests.evaluate',
+        // Reparto por lado (2026-10-12, decisión del usuario): OPERACIONES es
+        // el lado PLANTA RECEPTORA -- decide la solicitud de descargue,
+        // coordina la cita de recepción y gestiona el manifiesto de descargue.
+        'unload_requests.read', 'unload_requests.decide',
+        'plant_reception_schedules.read', 'plant_reception_schedules.manage',
+        'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
+        // Selector de `receiver_person_id` (firmante receptor del manifiesto).
+        'contacts.read',
     ])->sort()->values()->all());
 });
 
@@ -296,7 +307,7 @@ test('ADMINISTRADOR queda con todos los permisos de Usuarios, Roles, Permisos, A
  * mismo lote que resuelve el gap real de contrato señalado por el agente de
  * frontend -- ver docblock de `RolePermissionSeeder::LOGISTICA_PERMISSION_CODES`.
  */
-test('LOGÍSTICA queda con vehicles.read + contacts.read + transport_personnel.read (solo lectura) + transport_schedules.*/transport_routes.*/manifest_loads.*/unload_requests.*/plant_reception_schedules.*/manifest_unloads.* completos', function () {
+test('LOGÍSTICA queda con el lado TRANSPORTADOR: vehicles.read + contacts.read + transport_personnel.read (solo lectura) + transport_schedules.*/transport_routes.*/manifest_loads.*/plant_reception_schedules.*/gestor_carrier_authorizations.* completos + unload_requests.read/create/update + manifest_unloads.read/sign', function () {
     $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
 
     $codes = $logistica->permissions()->pluck('code')->sort()->values()->all();
@@ -308,11 +319,70 @@ test('LOGÍSTICA queda con vehicles.read + contacts.read + transport_personnel.r
         'transport_personnel.read',
         'transport_routes.read', 'transport_routes.create',
         'manifest_loads.read', 'manifest_loads.create', 'manifest_loads.update', 'manifest_loads.sign', 'manifest_loads.cancel',
-        'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
+        // Reparto por lado (2026-10-12, decisión del usuario): SIN
+        // `unload_requests.decide` ni `manifest_unloads.create/update/cancel`
+        // -- exclusivos de la planta receptora, ahora en OPERACIONES.
+        'unload_requests.read', 'unload_requests.create', 'unload_requests.update',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
         'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
-        'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
+        'manifest_unloads.read', 'manifest_unloads.sign',
     ])->sort()->values()->all());
+});
+
+/**
+ * Reparto por lado (2026-10-12): dev local y staging corren `migrate --seed`
+ * SIN `:fresh`, así que quitar un código del array no basta -- las filas ya
+ * sembradas de `role_permissions` siguen activas. El seeder debe DESACTIVARLAS
+ * (`is_active=false`, nunca borrarlas -- mismo criterio que
+ * `PermissionController::revokeFromRole()`).
+ */
+test('re-ejecutar el seeder sobre una base con el reparto VIEJO desactiva (sin borrar) los 4 permisos del lado receptor que LOGÍSTICA ya tenía', function () {
+    $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
+    $retiredCodes = ['unload_requests.decide', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.cancel'];
+    $retiredPermissionIds = Permission::query()->whereIn('code', $retiredCodes)->pluck('id');
+
+    // Estado viejo: los 4 códigos activos en LOGÍSTICA.
+    foreach ($retiredPermissionIds as $permissionId) {
+        RolePermission::query()->updateOrCreate(
+            ['role_id' => $logistica->id, 'permission_id' => $permissionId],
+            ['is_active' => true],
+        );
+    }
+
+    $actor = User::factory()->create();
+    UserRole::query()->create(['user_id' => $actor->id, 'role_id' => $logistica->id, 'is_active' => true]);
+
+    expect($actor->hasPermission('unload_requests.decide'))->toBeTrue();
+
+    $this->seed(RolePermissionSeeder::class);
+
+    $rows = RolePermission::query()
+        ->where('role_id', $logistica->id)
+        ->whereIn('permission_id', $retiredPermissionIds)
+        ->get();
+
+    expect($rows)->toHaveCount(4)
+        ->and($rows->every(fn (RolePermission $row) => $row->is_active === false))->toBeTrue()
+        ->and($rows->every(fn (RolePermission $row) => $row->deleted_at === null))->toBeTrue();
+
+    foreach ($retiredCodes as $code) {
+        expect($actor->hasPermission($code))->toBeFalse();
+    }
+
+    // Lo que LOGÍSTICA conserva sigue activo, y ADMINISTRADOR no pierde nada.
+    expect($actor->hasPermission('unload_requests.create'))->toBeTrue()
+        ->and($actor->hasPermission('manifest_unloads.sign'))->toBeTrue()
+        ->and(RolePermission::query()->where('role_id', $logistica->id)->where('is_active', true)->count())->toBe(24);
+
+    $administrador = Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail();
+
+    expect(RolePermission::query()->where('role_id', $administrador->id)->where('is_active', true)->count())->toBe(133);
+
+    // Idempotente: otra corrida no reactiva ni duplica nada.
+    $this->seed(RolePermissionSeeder::class);
+
+    expect(RolePermission::query()->where('role_id', $logistica->id)->count())->toBe(28)
+        ->and(RolePermission::query()->where('role_id', $logistica->id)->where('is_active', true)->count())->toBe(24);
 });
 
 test('ADMINISTRADOR queda con los permisos de auditoría (audit.read/audit.export) -- confirmado explícitamente por el usuario 2026-07-14', function () {
@@ -347,7 +417,7 @@ test('los seeders son idempotentes (correr dos veces no duplica filas)', functio
     expect(Permission::query()->count())->toBe(133)
         ->and(Role::query()->count())->toBe(4)
         ->and(Role::query()->where('code', 'ADMINISTRADOR')->firstOrFail()->permissions()->count())->toBe(133)
-        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(28)
-        ->and(Role::query()->where('code', 'OPERACIONES')->firstOrFail()->permissions()->count())->toBe(22)
+        ->and(Role::query()->where('code', 'LOGÍSTICA')->firstOrFail()->permissions()->count())->toBe(24)
+        ->and(Role::query()->where('code', 'OPERACIONES')->firstOrFail()->permissions()->count())->toBe(32)
         ->and(Role::query()->where('code', 'TECNICO_AMBIENTAL')->firstOrFail()->permissions()->count())->toBe(7);
 });

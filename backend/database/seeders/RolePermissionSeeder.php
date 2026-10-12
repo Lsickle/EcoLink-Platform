@@ -116,30 +116,44 @@ class RolePermissionSeeder extends Seeder
      * Generador que necesite firmar debe tener asignado ADMINISTRADOR o
      * LOGÍSTICA.
      *
-     * `unload_requests.*`/`plant_reception_schedules.*` (Fase 4 "Cita de
-     * Recepción en Planta", D-PRG-02/D-PRG-13): acceso COMPLETO, mismo FLAG
-     * documentado arriba para `manifest_loads.sign` -- ambos lados
-     * (transportador Y receptor) usan el MISMO rol de sistema LOGÍSTICA
-     * hasta que existan roles dedicados por lado; la restricción fina de
-     * "qué organización concreta" vive en `UnloadRequestPolicy`/
-     * `PlantReceptionSchedulePolicy` (acceso dual por organización), no en
-     * el catálogo de permisos. `branch_locations.*` NO se asigna a
-     * LOGÍSTICA -- mismo criterio que `branches.*` (gestión de sedes/muelles
-     * queda SOLO en ADMINISTRADOR).
+     * REPARTO POR LADO (decisión del usuario, 2026-10-12 -- CIERRA el FLAG
+     * "ambos lados usan el MISMO rol de sistema LOGÍSTICA hasta que existan
+     * roles dedicados por lado" que este docblock arrastraba desde Fase 4):
+     * sin roles nuevos, siguiendo `roles-canonicos.md`, LOGÍSTICA = lado
+     * TRANSPORTADOR (programador logístico: rutas, vehículos, conductores,
+     * programación) y OPERACIONES = lado PLANTA RECEPTORA (operador de
+     * planta / manifiestos). La restricción fina de "qué organización
+     * concreta" sigue viviendo en las Policies (`UnloadRequestPolicy`/
+     * `PlantReceptionSchedulePolicy`/`ManifestUnloadPolicy`) y NO cambió;
+     * lo que cambia es qué ROL trae el permiso base de cada lado.
+     *
+     * `unload_requests.read`/`.create`/`.update` (Fase 4 "Cita de Recepción
+     * en Planta", D-PRG-02/D-PRG-13): el transportador crea y envía su
+     * solicitud. SIN `unload_requests.decide` -- aprobar/rechazar es
+     * exclusivo de la planta receptora (`UnloadRequestPolicy::decide()`),
+     * ahora en `OPERACIONES_PERMISSION_CODES`.
+     * `plant_reception_schedules.*` se CONSERVA completo: la cita es
+     * BILATERAL por diseño (el transportador propone/contrapropone la
+     * franja, ver `PlantReceptionSchedulePolicy`), así que lo tienen ambos
+     * roles. `branch_locations.*` NO se asigna a LOGÍSTICA -- mismo criterio
+     * que `branches.*` (gestión de sedes/muelles queda SOLO en
+     * ADMINISTRADOR).
      *
      * `gestor_carrier_authorizations.*` (revisión especialista-seguridad,
      * "Modalidad 3"): acceso COMPLETO -- LOGÍSTICA ya gestiona toda la
      * relación de transporte (`transport_schedules.*`), autorizar/revocar un
      * transportador independiente es parte de la misma coordinación.
      *
-     * `manifest_unloads.*` (Módulo Manifiesto de Descargue, Fase 5, última
-     * fase del plan): acceso COMPLETO, MISMO FLAG documentado arriba para
-     * `manifest_loads.sign`/`unload_requests.*` -- tanto el lado receptor
-     * (que gestiona/inspecciona/genera/cierra) como el lado transportador
-     * (que solo lee/firma como conductor) usan el MISMO rol de sistema
-     * LOGÍSTICA hasta que existan roles dedicados por lado; la restricción
-     * fina de "qué organización concreta" vive en `ManifestUnloadPolicy`/
-     * `ManifestUnloadSignatureService::assertActorCanSign()`.
+     * `gestor_carrier_authorizations.*` NO se movió en el reparto de
+     * 2026-10-12, aunque su `create`/`revoke` lo ejerce el Gestor que
+     * autoriza: no fue parte de la decisión.
+     *
+     * `manifest_unloads.read`/`.sign` (Módulo Manifiesto de Descargue, Fase
+     * 5): el lado transportador solo LEE y FIRMA como conductor
+     * (`ManifestUnloadSignatureService::assertActorCanSign()`). SIN
+     * `.create`/`.update`/`.cancel` -- gestionar/inspeccionar/generar/
+     * cerrar/cancelar es exclusivo de la planta receptora
+     * (`ManifestUnloadPolicy`), ahora en `OPERACIONES_PERMISSION_CODES`.
      */
     private const LOGISTICA_PERMISSION_CODES = [
         'vehicles.read',
@@ -154,10 +168,30 @@ class RolePermissionSeeder extends Seeder
         'transport_personnel.read',
         'transport_routes.read', 'transport_routes.create',
         'manifest_loads.read', 'manifest_loads.create', 'manifest_loads.update', 'manifest_loads.sign', 'manifest_loads.cancel',
-        'unload_requests.read', 'unload_requests.create', 'unload_requests.update', 'unload_requests.decide',
+        'unload_requests.read', 'unload_requests.create', 'unload_requests.update',
         'plant_reception_schedules.read', 'plant_reception_schedules.manage',
         'gestor_carrier_authorizations.read', 'gestor_carrier_authorizations.create', 'gestor_carrier_authorizations.revoke',
-        'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
+        'manifest_unloads.read', 'manifest_unloads.sign',
+    ];
+
+    /**
+     * Códigos que LOGÍSTICA TUVO hasta el reparto por lado de 2026-10-12 y
+     * que ya no le corresponden (exclusivos de la planta receptora). Quitar
+     * un código de `LOGISTICA_PERMISSION_CODES` NO limpia una base ya
+     * sembrada -- dev local y staging corren `migrate --seed` sin `:fresh` --,
+     * así que `run()` los DESACTIVA explícitamente (`is_active=false`, nunca
+     * se borra la fila: mismo criterio que
+     * `PermissionController::revokeFromRole()`).
+     *
+     * Lista explícita a propósito, en vez de "desactivar todo lo que no esté
+     * en el array": así el seeder solo retira lo que ESTA decisión retiró y
+     * no pisa permisos que platform staff haya asignado a mano al rol.
+     * Consecuencia: si alguien reasigna uno de estos 4 a LOGÍSTICA desde la
+     * UI, el siguiente `db:seed` lo vuelve a retirar.
+     */
+    private const LOGISTICA_RETIRED_PERMISSION_CODES = [
+        'unload_requests.decide',
+        'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.cancel',
     ];
 
     /**
@@ -172,6 +206,13 @@ class RolePermissionSeeder extends Seeder
      * que el propio residuo recibió. NINGÚN código de
      * `Permission::GESTOR_ONLY_CODES` -- ese lado va en
      * `TECNICO_AMBIENTAL_PERMISSION_CODES`.
+     *
+     * REPARTO POR LADO (decisión del usuario, 2026-10-12, ver docblock de
+     * `LOGISTICA_PERMISSION_CODES`): OPERACIONES es además el lado PLANTA
+     * RECEPTORA del descargue (operador de planta / manifiestos, según
+     * `roles-canonicos.md`). Igual que el resto de sus códigos, tenerlos no
+     * habilita nada por sí solo: `UnloadRequestPolicy::decide()` y
+     * `ManifestUnloadPolicy` exigen además SER la organización receptora.
      */
     private const OPERACIONES_PERMISSION_CODES = [
         'wastes.read', 'wastes.create', 'wastes.update', 'wastes.activate', 'wastes.deactivate',
@@ -201,6 +242,19 @@ class RolePermissionSeeder extends Seeder
         // `Permission::GESTOR_ONLY_CODES`: si lo estuviera, una organizacion
         // Subgestora no podria recibirlo.
         'service_requests.evaluate',
+        // Lado PLANTA RECEPTORA (2026-10-12). `unload_requests`: ver y
+        // decidir (aprobar/rechazar) -- SIN `.create`/`.update`, que son del
+        // transportador que crea y envía la solicitud.
+        'unload_requests.read', 'unload_requests.decide',
+        // Bilateral: la planta también propone/contrapropone/confirma la franja.
+        'plant_reception_schedules.read', 'plant_reception_schedules.manage',
+        // Completo: crea, inspecciona, genera, firma como receptor, cierra y
+        // cancela el manifiesto de descargue.
+        'manifest_unloads.read', 'manifest_unloads.create', 'manifest_unloads.update', 'manifest_unloads.sign', 'manifest_unloads.cancel',
+        // El selector de `receiver_person_id` (firmante receptor) usa
+        // ContactSearchSelect -- misma omisión que ya causó un bug en
+        // LOGÍSTICA (ver su `contacts.read`).
+        'contacts.read',
     ];
 
     /**
@@ -235,6 +289,7 @@ class RolePermissionSeeder extends Seeder
 
         $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
         $this->assignPermissions($logistica, self::LOGISTICA_PERMISSION_CODES);
+        $this->retirePermissions($logistica, self::LOGISTICA_RETIRED_PERMISSION_CODES);
 
         $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
         $this->assignPermissions($operaciones, self::OPERACIONES_PERMISSION_CODES);
@@ -264,5 +319,20 @@ class RolePermissionSeeder extends Seeder
                 ['is_active' => true],
             );
         }
+    }
+
+    /**
+     * Desactiva (sin borrar) las asignaciones de `$codes` que `$role` pudiera
+     * tener de una siembra anterior. No-op en una base nueva.
+     *
+     * @param  list<string>  $codes
+     */
+    private function retirePermissions(Role $role, array $codes): void
+    {
+        RolePermission::query()
+            ->where('role_id', $role->id)
+            ->whereIn('permission_id', Permission::query()->whereIn('code', $codes)->select('id'))
+            ->where('is_active', true)
+            ->update(['is_active' => false]);
     }
 }

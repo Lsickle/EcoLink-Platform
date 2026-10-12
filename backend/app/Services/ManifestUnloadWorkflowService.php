@@ -23,8 +23,8 @@ use Illuminate\Validation\ValidationException;
  * `entity_type`, tabla distinta, ver docblock de `Workflow::resolveFor()`).
  *
  * Reutilizado TANTO por `ManifestUnloadController::generate()`/`complete()`/
- * `cancel()` (transiciones humanas, autorizadas por rol LOGÍSTICA del lado
- * RECEPTOR) COMO por `ManifestUnloadSignatureService::sign()` (transiciones
+ * `cancel()` (transiciones humanas, autorizadas por rol OPERACIONES -- lado
+ * planta RECEPTORA, reparto por lado del 2026-10-12) COMO por `ManifestUnloadSignatureService::sign()` (transiciones
  * AUTOMÁTICAS Generated->PartiallySigned->Signed, disparadas por la firma).
  *
  * `tenant_organization_id` del `WorkflowLog` = `receiving_organization_id`

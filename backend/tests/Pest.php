@@ -1,5 +1,8 @@
 <?php
 
+use App\Models\Role;
+use App\Models\User;
+use App\Models\UserRole;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -47,4 +50,55 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * Reparto por lado (decisión del usuario, 2026-10-12): LOGÍSTICA = lado
+ * transportador, OPERACIONES = lado planta receptora. Devuelve el rol de
+ * sistema REAL (tal como lo deja `RolePermissionSeeder`) que cubre todos los
+ * `$codes` pedidos, o ambos si ninguno los cubre por sí solo (actor de una
+ * organización que es transportadora y receptora a la vez).
+ *
+ * Lo usan los fixtures de descargue (`urActor()`/`muActor()`): antes
+ * asignaban LOGÍSTICA a ciegas e ignoraban `$codes`, lo que dejó de ser
+ * válido cuando el lado receptor pasó a OPERACIONES.
+ *
+ * @param  list<string>  $codes
+ * @return list<string>
+ */
+function seededTransportSideRoleCodesFor(array $codes): array
+{
+    $sideRoleCodes = ['LOGÍSTICA', 'OPERACIONES'];
+
+    foreach ($sideRoleCodes as $roleCode) {
+        $granted = Role::query()->where('code', $roleCode)->firstOrFail()
+            ->permissions()->wherePivot('is_active', true)->pluck('code')->all();
+
+        if (array_diff($codes, $granted) === []) {
+            return [$roleCode];
+        }
+    }
+
+    return $sideRoleCodes;
+}
+
+/**
+ * Usuario con EXACTAMENTE los roles de sistema indicados (ya sembrados), sin
+ * permisos ad-hoc -- para probar el RBAC real de producción.
+ *
+ * @param  list<string>  $roleCodes
+ */
+function actorWithSeededRoles(array $roleCodes, ?int $tenantOrganizationId = null): User
+{
+    $actor = User::factory()->create(['tenant_organization_id' => $tenantOrganizationId]);
+
+    foreach ($roleCodes as $roleCode) {
+        UserRole::query()->create([
+            'user_id' => $actor->id,
+            'role_id' => Role::query()->where('code', $roleCode)->firstOrFail()->id,
+            'is_active' => true,
+        ]);
+    }
+
+    return $actor;
 }

@@ -36,14 +36,19 @@ use Illuminate\Database\Seeder;
  * Roles:
  *   - Draft -> Generated ("generate()"), Signed -> Closed ("complete()"),
  *     Generated/PartiallySigned -> Cancelled ("cancel()"): `Role` de sistema
- *     `LOGÍSTICA` -- mismo criterio que `ManifestLoadWorkflowSeeder`: el
- *     receptor en planta del Gestor opera con los roles de sistema
- *     ADMINISTRADOR/LOGÍSTICA (no existe un rol de sistema dedicado a
- *     "recepción"), mismo precedente ya usado en Fases 3 y 4.
+ *     `OPERACIONES` -- REPARTO POR LADO (decisión del usuario, 2026-10-12:
+ *     LOGÍSTICA = lado transportador, OPERACIONES = lado planta receptora).
+ *     Las 4 las dispara SOLO la planta receptora
+ *     (`ManifestUnloadPolicy::manage()`/`cancel()`), así que ninguna queda
+ *     en LOGÍSTICA. Hasta esa fecha usaban LOGÍSTICA "porque no existe un
+ *     rol de sistema dedicado a recepción" -- FLAG cerrado por esta decisión.
  *   - Generated -> PartiallySigned, PartiallySigned -> Signed: AUTOMÁTICAS
  *     (`is_automatic=true`), SIN `workflow_transition_roles` -- disparadas
  *     por `ManifestUnloadSignatureService::sign()`, que ya valida por su
  *     cuenta (anti-IDOR propio) quién puede firmar como receptor/conductor.
+ *     Es la única acción que ejecutan AMBOS lados (receptor con
+ *     OPERACIONES, conductor con LOGÍSTICA): al no tener rol de workflow,
+ *     la gobierna el permiso `manifest_unloads.sign`, que tienen los dos.
  *
  * Sin `workflow_transition_rules` en este lote -- mismo criterio que los
  * otros workflows base ya sembrados.
@@ -55,6 +60,7 @@ class ManifestUnloadWorkflowSeeder extends Seeder
     public function run(): void
     {
         $logistica = Role::query()->where('code', 'LOGÍSTICA')->firstOrFail();
+        $operaciones = Role::query()->where('code', 'OPERACIONES')->firstOrFail();
 
         $workflow = Workflow::query()->updateOrCreate(
             ['tenant_organization_id' => null, 'code' => 'MANIFEST_UNLOAD'],
@@ -80,9 +86,10 @@ class ManifestUnloadWorkflowSeeder extends Seeder
             $workflow->forceFill(['current_version_id' => $version->id])->save();
         }
 
-        // Grafo principal, autoría humana LOGÍSTICA (lado receptor).
-        $this->createTransition($version->id, 'DRAFT', 'GENERATED', roleId: $logistica->id);
-        $this->createTransition($version->id, 'SIGNED', 'CLOSED', roleId: $logistica->id);
+        // Grafo principal, autoría humana OPERACIONES (lado planta receptora)
+        // -- hasta 2026-10-12 la autorizaba LOGÍSTICA.
+        $this->createTransition($version->id, 'DRAFT', 'GENERATED', roleId: $operaciones->id, retiredRoleIds: [$logistica->id]);
+        $this->createTransition($version->id, 'SIGNED', 'CLOSED', roleId: $operaciones->id, retiredRoleIds: [$logistica->id]);
 
         // Transiciones AUTOMÁTICAS disparadas por la firma (sin rol).
         $this->createTransition($version->id, 'GENERATED', 'PARTIALLY_SIGNED', isAutomatic: true);
@@ -90,7 +97,7 @@ class ManifestUnloadWorkflowSeeder extends Seeder
 
         // Cancelación -- SOLO desde Generated/PartiallySigned.
         foreach (self::CANCELLABLE_STATUSES as $fromStatus) {
-            $this->createTransition($version->id, $fromStatus, 'CANCELLED', roleId: $logistica->id);
+            $this->createTransition($version->id, $fromStatus, 'CANCELLED', roleId: $operaciones->id, retiredRoleIds: [$logistica->id]);
         }
 
         WorkflowEntityBinding::query()->updateOrCreate(
@@ -99,6 +106,9 @@ class ManifestUnloadWorkflowSeeder extends Seeder
         );
     }
 
+    /**
+     * @param  list<int>  $retiredRoleIds  roles de sistema que una siembra anterior autorizaba en esta transición y ya no deben hacerlo
+     */
     private function createTransition(
         int $versionId,
         string $from,
@@ -107,11 +117,26 @@ class ManifestUnloadWorkflowSeeder extends Seeder
         ?int $businessRoleId = null,
         bool $isAutomatic = false,
         bool $requiresApproval = false,
+        array $retiredRoleIds = [],
     ): void {
         $transition = WorkflowTransition::query()->updateOrCreate(
             ['workflow_version_id' => $versionId, 'from_status_code' => $from, 'to_status_code' => $to],
             ['is_automatic' => $isAutomatic, 'requires_approval' => $requiresApproval],
         );
+
+        // Reparto por lado (2026-10-12): `firstOrCreate()` de abajo solo
+        // AGREGA el rol nuevo; en una base ya sembrada (dev local/staging
+        // corren `migrate --seed` sin `:fresh`) la fila del rol anterior
+        // seguiría autorizando la transición. Se retira explícitamente --
+        // `workflow_transition_roles` no tiene `is_active`/`deleted_at`, así
+        // que aquí retirar ES borrar la fila. Solo los roles listados: no se
+        // tocan otros que platform staff haya agregado a la transición.
+        if ($retiredRoleIds !== []) {
+            WorkflowTransitionRole::query()
+                ->where('workflow_transition_id', $transition->id)
+                ->whereIn('role_id', $retiredRoleIds)
+                ->delete();
+        }
 
         if ($roleId !== null || $businessRoleId !== null) {
             WorkflowTransitionRole::query()->firstOrCreate([
