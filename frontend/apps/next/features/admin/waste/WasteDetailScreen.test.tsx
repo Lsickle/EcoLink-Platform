@@ -395,7 +395,10 @@ describe('WasteDetailScreen', () => {
     const thumbnailTrigger = await screen.findByRole('button', { name: /ver imagen foto1\.jpg/i })
     expect(thumbnailTrigger).toBeInTheDocument()
     await vi.waitFor(() => expect(fetchFileObjectUrlMock).toHaveBeenCalledWith(100))
-    expect(within(thumbnailTrigger).getByRole('img', { name: 'foto1.jpg' })).toHaveAttribute('src', 'blob:mock-thumb-url')
+    expect(await within(thumbnailTrigger).findByRole('img', { name: 'foto1.jpg' })).toHaveAttribute(
+      'src',
+      'blob:mock-thumb-url'
+    )
   })
 
   test('Evidencias tab: click en el thumbnail abre un lightbox con la imagen grande y un botón de Descargar', async () => {

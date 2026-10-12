@@ -173,7 +173,9 @@ describe('BogotaLocalityMap', () => {
     // cálculo). La localidad "19" queda ~1 grado más al sur que las demás
     // (agrupadas en un radio de ~0.3 grados) -- confirma que `fitExtent` la
     // sigue dibujando con un `d` real, no vacío/NaN.
-    const fixture = buildFixtureGeoJson() as { features: Array<{ properties: Record<string, unknown> }> }
+    const fixture = buildFixtureGeoJson() as {
+      features: Array<{ properties: Record<string, unknown>; geometry: unknown }>
+    }
     const farFeature = fixture.features.find((f) => f.properties.LocCodigo === '19')!
     farFeature.geometry = { type: 'Polygon', coordinates: [square(-74.1, 3.5, 0.1)] } as never
 

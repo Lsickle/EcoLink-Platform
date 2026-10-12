@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Pest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: sail
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: testing
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sail"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: sail
+      DB_PASSWORD: password
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, pgsql, mbstring, intl, bcmath, redis
+          coverage: none
+
+      - name: Cache de Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+          restore-keys: composer-
+
+      - name: Instalar dependencias
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Preparar entorno
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      # Cada proceso paralelo borra ~90 tablas en una sola transaccion; con el
+      # limite por defecto (64) Postgres responde "out of shared memory".
+      - name: Subir max_locks_per_transaction de Postgres
+        env:
+          PGPASSWORD: password
+        run: |
+          psql -h 127.0.0.1 -U sail -d testing -c "ALTER SYSTEM SET max_locks_per_transaction = 256"
+          docker restart ${{ job.services.postgres.id }}
+          until pg_isready -h 127.0.0.1 -U sail; do sleep 1; done
+
+      # Mismo comando que se usa en local: suite completa en paralelo.
+      - name: Tests (Pest)
+        run: composer test
+
+  frontend:
+    name: Frontend (tipos + Vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # La version de Yarn (4.7.0) viene fijada por `yarnPath` en .yarnrc.yml.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Instalar dependencias
+        run: yarn install --immutable
+
+      - name: Chequeo de tipos
+        run: yarn workspace next-app tsc --noEmit
+
+      # Incluye los tests de packages/app (ver vitest.config.ts).
+      - name: Tests (Vitest)
+        run: yarn workspace next-app test
